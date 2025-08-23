@@ -8,7 +8,8 @@ from llama_index.core.schema import TextNode
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.vector_stores.lancedb import LanceDBVectorStore
 
-ROOT = Path(os.getenv("RAG_ROOT", "/run/host/var/srv/IOMEGA_EXTERNAL/rag"))
+root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+ROOT = Path(root_dir)
 KEY = (sys.argv[1] if len(sys.argv) > 1 else os.getenv("RAG_KEY", "default")).strip() or "default"
 EMBED_MODEL = os.getenv("EMBED_MODEL", "BAAI/bge-small-en")
 

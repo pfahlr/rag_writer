@@ -19,7 +19,9 @@ if USE_OPENAI:
 
 app = typer.Typer(add_completion=False)
 
-ROOT = Path(os.getenv("RAG_ROOT", "/var/srv/IOMEGA_EXTERNAL/rag"))
+root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+ROOT = Path(root_dir)
+
 DEFAULT_KEY = os.getenv("RAG_KEY", "default")
 EMBED_MODEL = os.getenv("EMBED_MODEL", "BAAI/bge-small-en")
 LLM_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")

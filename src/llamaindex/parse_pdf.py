@@ -3,7 +3,9 @@ from pypdf import PdfReader
 from pathlib import Path
 import json, re, hashlib
 
-ROOT = Path(os.getenv("RAG_ROOT", "/run/host/var/srv/IOMEGA_EXTERNAL/rag"))
+root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+ROOT = Path(root_dir)
+
 RAW_DIR = ROOT / "data_raw"
 OUT_DIR = ROOT / "data_processed"
 OUT_PATH = OUT_DIR / "chunks.jsonl"  # LlamaIndex chunk artifact

@@ -37,7 +37,8 @@ from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.openai import OpenAI  # swap to your provider if desired
 
 # ---------- Defaults from environment ----------
-ROOT = Path(os.getenv("RAG_ROOT", "/var/srv/IOMEGA_EXTERNAL/rag"))
+root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+ROOT = Path(root_dir)
 ENV_KEY = (os.getenv("RAG_KEY", "default") or "default").strip()
 DEFAULT_EMBED = os.getenv("EMBED_MODEL", "BAAI/bge-m3")
 DEFAULT_RERANK = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-base")

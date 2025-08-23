@@ -11,7 +11,9 @@ from langchain_community.vectorstores import FAISS
 from langchain.schema import Document
 import os
 
-ROOT = Path(os.getenv("RAG_ROOT", "/run/host/var/srv/IOMEGA_EXTERNAL/rag"))
+root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+ROOT = Path
+
 KEY = (sys.argv[1] if len(sys.argv) > 1 else os.getenv("RAG_KEY", "default")).strip() or "default"
 
 PDF_DIR = ROOT / "data_raw"
