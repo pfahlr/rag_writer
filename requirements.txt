@@ -4,6 +4,10 @@ llama-index-embeddings-huggingface
 llama-index-retrievers-bm25
 llama-index-vector-stores-lancedb>=0.2.0,<0.3
 
+prompt_toolkit
+rich
+
+
 # LangChain stack
 langchain
 langchain-community

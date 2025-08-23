@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
 """
-LangChain ask CLI (hybrid FAISS + BM25, optional reranker, LCEL-only)
+LangChain ask CLI (hybrid FAISS + BM25, optional Flashrank reranker)
 
-- ROOT is resolved relative to repo (two levels up from this file)
+- ROOT resolved relative to repo (two levels up from this file)
 - Loads FAISS index for a collection key (default="default")
-- Hybrid retrieval: FAISS + BM25, optional MultiQuery (if you want later)
-- Optional reranker: Flashrank if installed; otherwise none
-- Uses LCEL-style prompt -> llm without create_* helpers (avoids 0.2.x import issues)
+- Hybrid retrieval: FAISS + BM25
+- Optional reranker: Flashrank if installed
+- LLM selection:
+    1) langchain_openai.ChatOpenAI  (pip install langchain-openai)
+    2) langchain_community.chat_models.ChatOllama (if Ollama running)
+    3) raw openai client (pip install openai)
 """
 
 import os
 from pathlib import Path
 import typer
+import json
 
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -21,7 +25,7 @@ from langchain.retrievers import ContextualCompressionRetriever
 from langchain.retrievers.document_compressors import DocumentCompressorPipeline
 from langchain_core.prompts import ChatPromptTemplate
 
-# Optional reranker: Flashrank
+# --- Optional reranker: Flashrank ---
 _have_flashrank = False
 _flashrank_cls = None
 try:
@@ -29,14 +33,7 @@ try:
     _flashrank_cls = FlashrankRerank
     _have_flashrank = True
 except Exception:
-    _flashrank_cls = None
-    _have_flashrank = False
-
-USE_OPENAI = bool(os.getenv("OPENAI_API_KEY"))
-if USE_OPENAI:
-    from llama_index.llms.openai import OpenAI  # swap to your provider if desired
-
-app = typer.Typer(add_completion=False)
+    pass
 
 # --- ROOT relative to repo ---
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
@@ -57,7 +54,7 @@ USER_PROMPT = (
     "Context:\n{context}"
 )
 
-def make_retriever(key: str, k: int = 10):
+def make_retriever(key: str, k: int = 20):
     idx_dir = ROOT / f"storage/faiss_{key}"
     if not idx_dir.exists():
         raise SystemExit(
@@ -71,12 +68,11 @@ def make_retriever(key: str, k: int = 10):
 
     # BM25 over same docs
     all_docs = list(vs.docstore._dict.values())
-    bm25 = BM25Retriever.from_documents(all_docs)
-    bm25.k = k
+    bm25 = BM25Retriever.from_documents(all_docs); bm25.k = k
 
     base = EnsembleRetriever(retrievers=[vector, bm25], weights=[0.6, 0.4])
 
-    # Optional reranker with Flashrank as a compression stage
+    # Optional reranker with Flashrank
     if _have_flashrank:
         try:
             rerank = _flashrank_cls(top_n=k)
@@ -87,8 +83,7 @@ def make_retriever(key: str, k: int = 10):
             )
         except Exception:
             return base
-    else:
-        return base
+    return base
 
 def _fmt_doc_for_context(d):
     title = d.metadata.get("title") or Path(d.metadata.get("source", " ")).stem
@@ -97,8 +92,41 @@ def _fmt_doc_for_context(d):
     return f"{header}\n{d.page_content}"
 
 def _format_context(docs):
-    # Compact but keeps per-doc headers for easier citation
     return "\n\n---\n\n".join(_fmt_doc_for_context(d) for d in docs)
+
+def _select_backend():
+    # 1) Try langchain-openai
+    try:
+        from langchain_openai import ChatOpenAI
+        if os.getenv("OPENAI_API_KEY"):
+            return ("lc_openai", ChatOpenAI(model=LLM_MODEL, temperature=0))
+    except Exception:
+        pass
+
+    # 2) Try Ollama
+    try:
+        from langchain_community.chat_models import ChatOllama
+        ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+        return ("ollama", ChatOllama(model=ollama_model, temperature=0))
+    except Exception:
+        pass
+
+    # 3) Raw OpenAI
+    try:
+        import openai
+        if os.getenv("OPENAI_API_KEY"):
+            return ("raw_openai", openai.OpenAI())
+    except Exception:
+        pass
+
+    raise SystemExit(
+        "No usable LLM backend. Install one of:\n"
+        "  pip install langchain-openai   (preferred)\n"
+        "  pip install openai             (fallback)\n"
+        "Or run Ollama locally."
+    )
+
+app = typer.Typer(add_completion=False)
 
 @app.command()
 def main(
@@ -106,25 +134,40 @@ def main(
     key: str = typer.Option(DEFAULT_KEY, "--key", "-k", help="Collection key"),
     k: int = typer.Option(10, help="Top-k to retrieve")
 ):
-    if not USE_OPENAI:
-        raise SystemExit("No OPENAI_API_KEY set and no local LLM configured.")
-
+    backend, llm = _select_backend()
     retriever = make_retriever(key, k=k)
-    # Pull documents (so we can both pass context and print sources deterministically)
     docs = retriever.invoke(question)
     context_text = _format_context(docs)
 
-    llm = ChatOpenAI(model=LLM_MODEL, temperature=0)
     prompt = ChatPromptTemplate.from_messages([
         ("system", SYSTEM_PROMPT),
         ("human", USER_PROMPT),
     ])
+
+    json_prompt = {
+    "system": SYSTEM_PROMPT,
+    "human": USER_PROMPT,
+    "question":question,
+    "context":context_text
+    }
+
     messages = prompt.format_messages(question=question, context=context_text)
-    resp = llm.invoke(messages)
+    print(json.dumps(json_prompt))
 
-    print(resp.content)
+    if backend in ("lc_openai", "ollama"):
+        resp = llm.invoke(messages)
+        print(resp.content)
+    elif backend == "raw_openai":
+        # Convert LangChain messages into OpenAI API schema
+        msgs = [{"role": "system" if m.type == "system" else "user", "content": m.content}
+                for m in messages]
+        content = llm.chat.completions.create(
+            model=LLM_MODEL,
+            messages=msgs,
+            temperature=0,
+        ).choices[0].message.content
+        print(content)
 
-    # Show sources
     print("\nSOURCES:")
     for d in docs:
         title = d.metadata.get("title") or Path(d.metadata.get("source", " ")).stem
