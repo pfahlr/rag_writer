@@ -1,0 +1,82 @@
+# Dynamic presets. Now support interactive inputs at the preset level and per-step.
+# Use Jinja2 placeholders like {{styles}} or {{target_length}} inside prompts.
+
+literature_review:
+  label: Literature Review
+  description: Structured synthesis with methods appraisal and evidence-backed themes.
+  inputs: []  # preset-level
+  system_prompt: |
+    You are a meticulous literature-review assistant. Use ONLY retrieved context; include page citations.
+  stitch_final: true
+  final_prompt: |
+    Combine the step outputs into a cohesive literature review suitable for an academic audience.
+    Maintain citations and avoid duplication.
+  steps:
+    - name: scope
+      prompt: |
+        Clarify the research question(s) and implicit inclusion/exclusion criteria. Output 3–5 bullets.
+    - name: themes
+      prompt: |
+        Extract major themes/claims with evidence. Return a table:
+        | Source | Claim | Evidence (quote) | Pages | Notes |
+    - name: methods
+      prompt: |
+        Critically appraise methods for each study (design, sample, measures, biases). Bullet list per source.
+    - name: synthesis
+      prompt: |
+        Summarize agreements and disagreements and explain plausible reasons (methods, populations, measures). Identify gaps & future work.
+
+science_journalism:
+  label: Science Journalism
+  description: 800–1200 word news article with plain-language evidence and caveats.
+  inputs:
+    - name: audience
+      prompt: Primary audience? (general, policy, practitioners)
+      default: general
+      choices: [general, policy, practitioners]
+    - name: tone
+      prompt: Tone (neutral, optimistic, skeptical)
+      default: neutral
+      choices: [neutral, optimistic, skeptical]
+  system_prompt: |
+    You are an experienced science journalist. Ground every claim with citations.
+  stitch_final: true
+  final_prompt: |
+    Produce a 800–1200 word article for a {{audience}} audience with a {{tone}} tone.
+    Include headline, dek, narrative body, caveats, quotes (with page cites), and a box rating evidence strength 1–5.
+  steps:
+    - name: angle
+      prompt: Propose 3 strong news angles and pick the best with justification.
+    - name: draft
+      prompt: Write the article per the template.
+
+folk_anthology:
+  label: Folk Anthology Generator
+  description: Alternate versions and SSML scripts from a corpus of folk stories.
+  inputs:
+    - name: styles
+      prompt: List 3 styles to generate (comma-separated)
+      default: modern retelling, mythic high-fantasy, children's picture-book
+      multi: true
+    - name: target_length
+      prompt: Target length per version (words)
+      default: 450
+      type: int
+  system_prompt: |
+    You are a creative writer who preserves core motifs while varying plot, POV, and style.
+  stitch_final: false
+  steps:
+    - name: motifs
+      prompt: List recurring motifs, archetypes, morals across stories with citations.
+    - name: alternates
+      inputs:
+        - name: style_overrides
+          prompt: Optional: override styles for this run (comma-separated), or leave blank to use preset styles
+          multi: true
+      prompt: |
+        Using styles: {{ style_overrides if style_overrides else styles }}, generate alternates for each story.
+        Aim for ~{{target_length}} words per version. Preserve core motifs; vary plot/POV/setting.
+        Provide clear section headers per story and per style.
+    - name: ssml
+      prompt: |
+        For each alternate, create an SSML narration (3–6 min) and 6–10 image prompts aligned to beats.
