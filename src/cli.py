@@ -1,5 +1,5 @@
-## src/tool/cli.py
-#!/usr/bin/env python3
+#!/usr/bin/python
+
 """
 Unified RAG CLI + Interactive Shell (env-configurable, multi-collection)
 - ROOT path from RAG_ROOT; collection key from RAG_KEY or --key in shell
@@ -330,20 +330,20 @@ def _display_error_with_suggestions(error_msg: str, key: str = None):
 
 
 def _safe_metadata_access(obj, key: str, default: str = "Unknown"):
-    """Safely access metadata with fallback."""
-    try:
-        if hasattr(obj, 'metadata') and obj.metadata:
-            return obj.metadata.get(key, default)
-        return default
-    except Exception:
-        return default
+  """Safely access metadata with fallback."""
+  try:
+    if hasattr(obj, 'metadata') and obj.metadata:
+      return obj.metadata.get(key, default)
+    return default
+  except Exception:
+    return default
 
 
 def _graceful_shutdown():
-    """Handle graceful shutdown with cleanup."""
-    print("\n[yellow]Shutting down gracefully...[/]")
-    # Add any cleanup code here if needed
-    print("Goodbye!")
+  """Handle graceful shutdown with cleanup."""
+  print("\n[yellow]Shutting down gracefully...[/]")
+  # Add any cleanup code here if needed
+  print("Goodbye!")
 
 
 @app.command()
@@ -354,8 +354,8 @@ def shell(key: str = typer.Option(DEFAULT_KEY, "--key", "-k", help="Collection k
 
     # Validate collection before starting
     if not _validate_collection(key):
-        print(f"\n[yellow]Shell will start but collection '{key}' may not work properly.[/]")
-        print("[yellow]You can still use 'help' and 'presets' commands.[/]\n")
+      print(f"\n[yellow]Shell will start but collection '{key}' may not work properly.[/]")
+      print("[yellow]You can still use 'help' and 'presets' commands.[/]\n")
 
     playbooks = load_playbooks(playbooks_path)
 
