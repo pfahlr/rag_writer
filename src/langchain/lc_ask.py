@@ -29,9 +29,9 @@ from langchain_core.prompts import ChatPromptTemplate
 _have_flashrank = False
 _flashrank_cls = None
 try:
-    from langchain_community.document_transformers import FlashrankRerank
-    _flashrank_cls = FlashrankRerank
-    _have_flashrank = True
+  from langchain_community.document_transformers import FlashrankRerank
+  _flashrank_cls = FlashrankRerank
+  _have_flashrank = True
 except Exception:
     pass
 
@@ -54,125 +54,138 @@ USER_PROMPT = (
     "Context:\n{context}"
 )
 
-def make_retriever(key: str, k: int = 20):
-    idx_dir = ROOT / f"storage/faiss_{key}"
-    if not idx_dir.exists():
-        raise SystemExit(
-            f"FAISS index not found for key '{key}': {idx_dir}\n"
-            f"Build it first with: make lc-index {key}"
-        )
 
-    embeddings = HuggingFaceEmbeddings(model_name=EMBED_MODEL)
-    vs = FAISS.load_local(str(idx_dir), embeddings, allow_dangerous_deserialization=True)
-    vector = vs.as_retriever(search_kwargs={"k": k})
-
-    # BM25 over same docs
-    all_docs = list(vs.docstore._dict.values())
-    bm25 = BM25Retriever.from_documents(all_docs); bm25.k = k
-
-    base = EnsembleRetriever(retrievers=[vector, bm25], weights=[0.6, 0.4])
-
-    # Optional reranker with Flashrank
-    if _have_flashrank:
-        try:
-            rerank = _flashrank_cls(top_n=k)
-            compressor = DocumentCompressorPipeline(transformers=[rerank])
-            return ContextualCompressionRetriever(
-                base_compressor=compressor,
-                base_retriever=base
-            )
-        except Exception:
-            return base
-    return base
+def make_retriever(key: str, k: int = 30):
+  idx_dir = ROOT / f"storage/faiss_{key}"
+  if not idx_dir.exists():
+    raise SystemExit(
+      f"FAISS index not found for key '{key}': {idx_dir}\n"
+      f"Build it first with: make lc-index {key}"
+    )
+  
+  embeddings = HuggingFaceEmbeddings(model_name=EMBED_MODEL)
+  vs = FAISS.load_local(str(idx_dir), embeddings, allow_dangerous_deserialization=True)
+  vector = vs.as_retriever(search_kwargs={"k": k})
+  
+  # BM25 over same docs
+  all_docs = list(vs.docstore._dict.values())
+  bm25 = BM25Retriever.from_documents(all_docs); bm25.k = k
+  
+  base = EnsembleRetriever(retrievers=[vector, bm25], weights=[0.6, 0.4])
+  
+  # Optional reranker with Flashrank
+  if _have_flashrank:
+    try:
+      rerank = _flashrank_cls(top_n=k)
+      compressor = DocumentCompressorPipeline(transformers=[rerank])
+      return ContextualCompressionRetriever(
+        base_compressor=compressor,
+        base_retriever=base
+      )
+    except Exception:
+      return base
+  return base
 
 def _fmt_doc_for_context(d):
-    title = d.metadata.get("title") or Path(d.metadata.get("source", " ")).stem
-    page = d.metadata.get("page")
-    header = f"[{title}, p.{page}]" if page else f"[{title}]"
-    return f"{header}\n{d.page_content}"
+  title = d.metadata.get("title") or Path(d.metadata.get("source", " ")).stem
+  page = d.metadata.get("page")
+  header = f"[{title}, p.{page}]" if page else f"[{title}]"
+  return f"{header}\n{d.page_content}"
 
 def _format_context(docs):
-    return "\n\n---\n\n".join(_fmt_doc_for_context(d) for d in docs)
+  return "\n\n---\n\n".join(_fmt_doc_for_context(d) for d in docs)
 
 def _select_backend():
-    # 1) Try langchain-openai
-    try:
-        from langchain_openai import ChatOpenAI
-        if os.getenv("OPENAI_API_KEY"):
-            return ("lc_openai", ChatOpenAI(model=LLM_MODEL, temperature=0))
-    except Exception:
-        pass
-
-    # 2) Try Ollama
-    try:
-        from langchain_community.chat_models import ChatOllama
-        ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
-        return ("ollama", ChatOllama(model=ollama_model, temperature=0))
-    except Exception:
-        pass
-
-    # 3) Raw OpenAI
-    try:
-        import openai
-        if os.getenv("OPENAI_API_KEY"):
-            return ("raw_openai", openai.OpenAI())
-    except Exception:
-        pass
-
-    raise SystemExit(
-        "No usable LLM backend. Install one of:\n"
-        "  pip install langchain-openai   (preferred)\n"
-        "  pip install openai             (fallback)\n"
-        "Or run Ollama locally."
-    )
+  # 1) Try langchain-openai
+  try:
+    from langchain_openai import ChatOpenAI
+    if os.getenv("OPENAI_API_KEY"):
+      return ("lc_openai", ChatOpenAI(model=LLM_MODEL, temperature=0))
+  except Exception:
+    pass
+  
+  # 2) Try Ollama
+  try:
+    from langchain_community.chat_models import ChatOllama
+    ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+    return ("ollama", ChatOllama(model=ollama_model, temperature=0))
+  except Exception:
+    pass
+  
+  # 3) Raw OpenAI
+  try:
+    import openai
+    if os.getenv("OPENAI_API_KEY"):
+      return ("raw_openai", openai.OpenAI())
+  except Exception:
+    pass
+  
+  raise SystemExit(
+    "No usable LLM backend. Install one of:\n"
+    "  pip install langchain-openai   (preferred)\n"
+    "  pip install openai             (fallback)\n"
+    "Or run Ollama locally."
+  )
 
 app = typer.Typer(add_completion=False)
 
 @app.command()
 def main(
-    question: str = typer.Argument(..., help="Your question"),
-    key: str = typer.Option(DEFAULT_KEY, "--key", "-k", help="Collection key"),
-    k: int = typer.Option(10, help="Top-k to retrieve")
-):
+  question: str = typer.Argument(..., help="Your question"),
+  key: str = typer.Option(DEFAULT_KEY, "--key", "-k", help="Collection key"),
+  k: int = typer.Option(15, help="Top-k to retrieve"),
+  file: str = typer.Option("", help="File containing prompt question")
+  ):
+  
+  if file != "":
+    with open(file) as f:
+      content = f.read()
+      directive = json.loads(content)
+      question =  directive['task']+" "+directive['instruction']
+      backend, llm = _select_backend()
+      retriever = make_retriever(key, k=k)
+      docs = retriever.invoke(directive['instruction'])
+      context_text = _format_context(docs)
+  
+  else:
     backend, llm = _select_backend()
     retriever = make_retriever(key, k=k)
     docs = retriever.invoke(question)
     context_text = _format_context(docs)
-
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", SYSTEM_PROMPT),
-        ("human", USER_PROMPT),
-    ])
-
-    json_prompt = {
-    "system": SYSTEM_PROMPT,
-    "human": USER_PROMPT,
-    "question":question,
-    "context":context_text
-    }
-
-    messages = prompt.format_messages(question=question, context=context_text)
-    print(json.dumps(json_prompt))
-
-    if backend in ("lc_openai", "ollama"):
-        resp = llm.invoke(messages)
-        print(resp.content)
-    elif backend == "raw_openai":
-        # Convert LangChain messages into OpenAI API schema
-        msgs = [{"role": "system" if m.type == "system" else "user", "content": m.content}
-                for m in messages]
-        content = llm.chat.completions.create(
-            model=LLM_MODEL,
-            messages=msgs,
-            temperature=0,
-        ).choices[0].message.content
-        print(content)
-
-    print("\nSOURCES:")
-    for d in docs:
-        title = d.metadata.get("title") or Path(d.metadata.get("source", " ")).stem
-        page = d.metadata.get("page")
-        print(f"- {title} (p.{page}) :: {d.metadata.get('source')}")
+  
+  prompt = ChatPromptTemplate.from_messages([
+    ("system", SYSTEM_PROMPT),
+    ("human", USER_PROMPT),
+  ])
+  
+  json_prompt = {
+  "system": SYSTEM_PROMPT,
+  "human": USER_PROMPT,
+  "question":question,
+  "context":context_text
+  }
+  
+  messages = prompt.format_messages(question=question, context=context_text)
+  
+  if backend in ("lc_openai", "ollama"):
+    resp = llm.invoke(messages)
+    print(resp.content)
+  elif backend == "raw_openai":
+    # Convert LangChain messages into OpenAI API schema
+    msgs = [{"role": "system" if m.type == "system" else "user", "content": m.content}
+            for m in messages]
+    content = llm.chat.completions.create(
+      model=LLM_MODEL,
+      messages=msgs,
+      temperature=0,
+    ).choices[0].message.content
+    print(content)
+  
+  print("\nSOURCES:")
+  for d in docs:
+    title = d.metadata.get("title") or Path(d.metadata.get("source", " ")).stem
+    page = d.metadata.get("page")
+    print(f"- {title} (p.{page}) :: {d.metadata.get('source')}")
 
 if __name__ == "__main__":
     app()
