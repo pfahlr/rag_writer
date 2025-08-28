@@ -7,4 +7,6 @@ data_raw/*
 storage/*
 !storage/README.md
 venv/*
+.vscode/*
+tasks/*
 
