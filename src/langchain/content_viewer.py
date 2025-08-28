@@ -29,7 +29,7 @@ console = Console()
 
 def load_batch_results() -> Dict[str, List[Dict[str, Any]]]:
     """Load all batch result files and group by section."""
-    output_dir = ROOT / "output"
+    output_dir = ROOT / "output/batch"
     if not output_dir.exists():
         console.print("[red]No output directory found. Run lc-batch first.[/red]")
         sys.exit(1)
@@ -292,7 +292,7 @@ def consolidated_view(section_name: str, variations: List[Dict[str, Any]]):
 
                     # Write content to file
                     try:
-                        with open('./output/'+filename, 'w', encoding='utf-8') as f:
+                        with open('./output/viewer/'+filename, 'w', encoding='utf-8') as f:
                             f.write('\n'.join(full_content))
                         console.print(f"[green]Content saved to: {filename}[/green]")
                         console.print("[dim]Press Enter to continue...[/dim]")

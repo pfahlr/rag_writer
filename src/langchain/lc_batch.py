@@ -98,7 +98,7 @@ def main():
         results.append(result)
 
     # Write results to timestamped file in output directory
-    output_dir = ROOT / "output"
+    output_dir = ROOT / "output/batch"
     output_dir.mkdir(exist_ok=True)
     timestamp = int(time.time())
     output_file = output_dir / f"batch_results_{timestamp}.json"
