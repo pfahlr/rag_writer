@@ -25,7 +25,7 @@ ROOT = Path(root_dir)
 
 console = Console()
 
-def run_lc_ask(task: str, instruction: str, key: str = "default"):
+def run_lc_ask(task: str, instruction: str, key: str = "default", content_type: str = "pure_research"):
     """Run lc-ask with given parameters and return parsed JSON result."""
     cmd = [
         sys.executable, str(ROOT / "src/langchain/lc_ask.py"),
@@ -36,8 +36,8 @@ def run_lc_ask(task: str, instruction: str, key: str = "default"):
     if task and task.strip():
         cmd.extend(["--task", task])
 
-    # Add key and instruction
-    cmd.extend(["--key", key, instruction])
+    # Add key, content type, and instruction
+    cmd.extend(["--key", key, "--content-type", content_type, instruction])
 
     try:
         result = subprocess.run(
@@ -90,9 +90,11 @@ def main():
         console.print("[red]Error: Input must be a JSON array[/red]")
         sys.exit(1)
 
-    # Get optional key parameter
+    # Get optional key and content_type parameters
     key = sys.argv[2] if len(sys.argv) > 2 else "default"
+    content_type = sys.argv[3] if len(sys.argv) > 3 else "pure_research"
     console.print(f"[dim]Using collection key: {key}[/dim]")
+    console.print(f"[dim]Using content type: {content_type}[/dim]")
     console.print()
 
     # Validate data
@@ -140,7 +142,7 @@ def main():
 
             try:
                 # Run lc-ask
-                result = run_lc_ask(task_text, instruction, key)
+                result = run_lc_ask(task_text, instruction, key, content_type)
 
                 # Add metadata to result
                 result['section'] = section

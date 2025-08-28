@@ -49,30 +49,33 @@ lc-index:
 #   make lc-ask INSTR="instruction text" TASK="task prefix"
 #   make lc-ask FILE="path/to/json"   # lc_ask will read instruction/task from file
 #   make lc-ask KEY="collection_key" "instruction text"
+#   make lc-ask CONTENT_TYPE="content_type" "instruction text"
 lc-ask:
-	@instr="$(INSTR)"; task="$(TASK)"; file="$(FILE)"; key="$(KEY)"; \
+	@instr="$(INSTR)"; task="$(TASK)"; file="$(FILE)"; key="$(KEY)"; content_type="$(CONTENT_TYPE)"; \
 	if [ -z "$$instr" -a -z "$$file" ]; then instr="$(filter-out $@,$(MAKECMDGOALS))"; fi; \
-	if [ -z "$$instr" -a -z "$$file" ]; then echo "Usage: make lc-ask INSTR=\"instruction\" [TASK=\"task prefix\"] [KEY=\"collection_key\"] OR make lc-ask \"instruction\" OR make lc-ask FILE=\"path/to/json\""; exit 1; fi; \
+	if [ -z "$$instr" -a -z "$$file" ]; then echo "Usage: make lc-ask INSTR=\"instruction\" [TASK=\"task prefix\"] [KEY=\"collection_key\"] [CONTENT_TYPE=\"content_type\"] OR make lc-ask \"instruction\" OR make lc-ask FILE=\"path/to/json\""; exit 1; fi; \
 	if [ -z "$$key" ]; then key=default; fi; \
+	if [ -z "$$content_type" ]; then content_type=pure_research; fi; \
 	if [ -n "$$file" ]; then \
-	  $(PY) $(ROOT)/src/langchain/lc_ask.py ask --file "$$file" --key "$$key"; \
+	  $(PY) $(ROOT)/src/langchain/lc_ask.py ask --file "$$file" --key "$$key" --content-type "$$content_type"; \
 	elif [ -n "$$task" ]; then \
-	  $(PY) $(ROOT)/src/langchain/lc_ask.py ask "$$instr" --task "$$task" --key "$$key"; \
+	  $(PY) $(ROOT)/src/langchain/lc_ask.py ask "$$instr" --task "$$task" --key "$$key" --content-type "$$content_type"; \
 	else \
-	  $(PY) $(ROOT)/src/langchain/lc_ask.py ask "$$instr" --key "$$key"; \
+	  $(PY) $(ROOT)/src/langchain/lc_ask.py ask "$$instr" --key "$$key" --content-type "$$content_type"; \
 	fi
 
 # lc-batch: process multiple lc-ask calls from JSON file or stdin
 # Usage:
-#   make lc-batch FILE="path/to/batch.json" [KEY="collection_key"]
-#   cat batch.json | make lc-batch [KEY="collection_key"]
+#   make lc-batch FILE="path/to/batch.json" [KEY="collection_key"] [CONTENT_TYPE="content_type"]
+#   cat batch.json | make lc-batch [KEY="collection_key"] [CONTENT_TYPE="content_type"]
 lc-batch:
-	@file="$(FILE)"; key="$(KEY)"; \
+	@file="$(FILE)"; key="$(KEY)"; content_type="$(CONTENT_TYPE)"; \
 	if [ -z "$$key" ]; then key=default; fi; \
+	if [ -z "$$content_type" ]; then content_type=pure_research; fi; \
 	if [ -n "$$file" ]; then \
-	  $(PY) $(ROOT)/src/langchain/lc_batch.py "$$file" "$$key"; \
+	  $(PY) $(ROOT)/src/langchain/lc_batch.py "$$file" "$$key" "$$content_type"; \
 	else \
-	  $(PY) $(ROOT)/src/langchain/lc_batch.py "$$key"; \
+	  $(PY) $(ROOT)/src/langchain/lc_batch.py "$$key" "$$content_type"; \
 	fi
 
 # content-viewer: interactive viewer for batch-generated content
