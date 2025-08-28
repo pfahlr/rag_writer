@@ -1,0 +1,21 @@
+# Testing dependencies for LangChain content generation project
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-mock>=3.10.0
+pytest-xdist>=3.0.0  # For parallel test execution
+pytest-html>=3.1.0   # For HTML test reports
+
+# Mocking and fixtures
+responses>=0.23.0    # For mocking HTTP requests
+freezegun>=1.2.0     # For mocking time/date
+
+# Code quality and linting
+black>=22.0.0        # Code formatting
+flake8>=5.0.0        # Linting
+mypy>=1.0.0          # Type checking
+
+# Test data generation
+faker>=15.0.0        # Generate fake test data
+
+# Coverage reporting
+coverage>=7.0.0
