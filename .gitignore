@@ -6,6 +6,7 @@ data_raw/*
 !data_raw/README.md
 storage/*
 !storage/README.md
+venv
 venv/*
 .vscode/*
 tasks/*
