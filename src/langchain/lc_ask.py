@@ -45,9 +45,11 @@ EMBED_MODEL = "BAAI/bge-small-en"  # CPU-friendly
 LLM_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 SYSTEM_PROMPT = (
-    "You are a careful research assistant. Use ONLY the provided context.\n"
+    "You are a careful research assistant.\n"
+    "Use ONLY the provided context\n."
     "Every claim MUST include inline citations like (Title, p.X) or (Title, pp.X–Y).\n"
     "If the context is insufficient or conflicting, state what is missing and stop."
+    "Do not cite sources you did not use. Aim to use at least two distinct sources when available.\n"
 )
 USER_PROMPT = (
     "Question:\n{question}\n\n"
@@ -237,7 +239,7 @@ def main(
   # Invoke the selected LLM backend
   if backend in ("lc_openai", "ollama"):
     resp = llm.invoke(messages)
-    print(resp.content)
+    generated_content = resp.content
   elif backend == "raw_openai":
     # Convert LangChain messages into OpenAI API schema
     msgs = [{"role": "system" if m.type == "system" else "user", "content": m.content}
@@ -247,14 +249,26 @@ def main(
       messages=msgs,
       temperature=0,
     ).choices[0].message.content
-    print(content)
+    generated_content = content
 
-  # Print sources
-  print("\nSOURCES:")
+  # Collect sources
+  sources = []
   for d in docs:
     title = d.metadata.get("title") or Path(d.metadata.get("source", " ")).stem
     page = d.metadata.get("page")
-    print(f"- {title} (p.{page}) :: {d.metadata.get('source')}")
+    source_info = {
+      "title": title,
+      "page": page,
+      "source": d.metadata.get("source")
+    }
+    sources.append(source_info)
+
+  # Output as JSON
+  output = {
+    "generated_content": generated_content,
+    "sources": sources
+  }
+  print(json.dumps(output, indent=2))
 
 if __name__ == "__main__":
     app()
