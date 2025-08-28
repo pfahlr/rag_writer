@@ -44,13 +44,16 @@ DEFAULT_KEY = "default"
 EMBED_MODEL = "BAAI/bge-small-en"  # CPU-friendly
 LLM_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
-SYSTEM_PROMPT = (
+system_prompts = []
+
+system_prompts['pure_research']   = (
     "You are a careful research assistant.\n"
     "Use ONLY the provided context\n."
-    "Every claim MUST include inline citations like (Title, p.X) or (Title, pp.X–Y).\n"
+    "Every claim MUST include inline citations like ([filename], p.X) or ([filename], pp.X–Y). Where [filename] is the filename of the source article which will match exactly the listing in the sources list \n"
     "If the context is insufficient or conflicting, state what is missing and stop."
-    "Do not cite sources you did not use. Aim to use at least two distinct sources when available.\n"
-)
+    "Do not cite sources you did not use. Aim to use at least two distinct sources when available.\n"  
+) 
+
 USER_PROMPT = (
     "Question:\n{question}\n\n"
     "Use the context below to answer. Include page-cited quotes for key claims.\n\n"
@@ -179,6 +182,7 @@ app = typer.Typer(add_completion=False)
 @app.command()
 def main(
   question: str = typer.Argument(..., help="Your question or instruction to retrieve on"),
+  conttype: str = typer.Option('pure_research',"--content-type", "-ct" help="The type of writing to perform")
   key: str = typer.Option(DEFAULT_KEY, "--key", "-k", help="Collection key"),
   k: int = typer.Option(15, help="Top-k to retrieve"),
   file: str = typer.Option("", help="File containing prompt question"),
@@ -230,7 +234,7 @@ def main(
   final_question = f"{final_task} {instruction}".strip() if final_task else instruction
 
   prompt = ChatPromptTemplate.from_messages([
-    ("system", SYSTEM_PROMPT),
+    ("system", system_prompts[conttype]),
     ("human", USER_PROMPT),
   ])
 
@@ -251,17 +255,28 @@ def main(
     ).choices[0].message.content
     generated_content = content
 
-  # Collect sources
+  # Filter sources to only include those referenced in the generated content
+  cited_docs, _ = _extract_cited(docs, generated_content)
+
+  # Collect only the cited sources, deduplicated by article (not by page)
   sources = []
-  for d in docs:
+  seen_articles = set()
+
+  for d in cited_docs:
     title = d.metadata.get("title") or Path(d.metadata.get("source", " ")).stem
-    page = d.metadata.get("page")
-    source_info = {
-      "title": title,
-      "page": page,
-      "source": d.metadata.get("source")
-    }
-    sources.append(source_info)
+    source_path = d.metadata.get("source", "")
+
+    # Use title or source path as the unique identifier for the article
+    article_id = title if title else source_path
+
+    # Only add if we haven't seen this article before
+    if article_id and article_id not in seen_articles:
+      seen_articles.add(article_id)
+      source_info = {
+        "title": title,
+        "source": source_path
+      }
+      sources.append(source_info)
 
   # Output as JSON
   output = {

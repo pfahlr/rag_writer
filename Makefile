@@ -8,7 +8,7 @@ PY_CMD := $(shell command -v python3.11 || command -v python3.10 || command -v p
 PY := $(ROOT)/venv/bin/python
 PIP := $(ROOT)/venv/bin/pip
 
-.PHONY: all init ingest index ask lc-index lc-ask lc-batch content-viewer tool-shell clean
+.PHONY: all init ingest index ask lc-index lc-ask lc-batch content-viewer cleanup-sources tool-shell clean
 
 all: init ingest index
 
@@ -78,6 +78,10 @@ lc-batch:
 # content-viewer: interactive viewer for batch-generated content
 content-viewer:
 	$(PY) $(ROOT)/src/langchain/content_viewer.py
+
+# cleanup-sources: clean up sources in existing batch files
+cleanup-sources:
+	$(PY) $(ROOT)/src/langchain/cleanup_sources.py
 
 # ----- Unified Tool -----
 
