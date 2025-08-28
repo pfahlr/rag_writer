@@ -102,7 +102,7 @@ def display_sections(sections: Dict[str, List[Dict[str, Any]]]) -> str:
 
     while True:
         try:
-            choice = Prompt.ask("\nSelect a section (number or name) or 'exit' to quit", console=console)
+            choice = Prompt.ask("\nSelect a section (number or name), 'q' to quit", console=console)
             if choice.lower() in ['exit', 'quit', 'q']:
                 console.print("[yellow]Goodbye![/yellow]")
                 sys.exit(0)
@@ -148,13 +148,16 @@ def display_variations(section_name: str, variations: List[Dict[str, Any]]):
     # Let user choose viewing mode
     while True:
         try:
-            choice = Prompt.ask("Choose view mode: (number) for detailed view, 'slideshow' for sequential view, 'consolidated' for all-in-one view, or 'back' to return", console=console)
-            if choice.lower() == 'back':
+            choice = Prompt.ask("Choose: (number) detailed, 's' slideshow, 'c' consolidated, 'b' back, 'q' quit", console=console)
+            if choice.lower() in ['back', 'b']:
                 return
-            elif choice.lower() == 'slideshow':
+            elif choice.lower() in ['quit', 'q']:
+                console.print("[yellow]Goodbye![/yellow]")
+                sys.exit(0)
+            elif choice.lower() in ['slideshow', 's']:
                 slideshow_variations(section_name, variations)
                 return
-            elif choice.lower() == 'consolidated':
+            elif choice.lower() in ['consolidated', 'c']:
                 consolidated_view(section_name, variations)
                 return
             elif choice.isdigit():
@@ -226,7 +229,7 @@ def slideshow_variations(section_name: str, variations: List[Dict[str, Any]]):
         console.print(Panel(content, border_style="green", padding=(1, 2)))
 
         # Navigation instructions
-        console.print("\n[dim]Navigation: 'n' (next), 'p' (previous), 'b' (back to variations), 'q' (quit)[/dim]")
+        console.print("\n[dim]Navigation: 'n' next, 'p' previous, 'b' back, 'q' quit[/dim]")
 
         try:
             nav = Prompt.ask("Navigate", console=console, default="n").lower()
@@ -246,6 +249,31 @@ def slideshow_variations(section_name: str, variations: List[Dict[str, Any]]):
             console.print("\n[yellow]Returning to variations list...[/yellow]")
             return
 
+def merge_sources(variations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Merge and deduplicate sources from all variations."""
+    all_sources = []
+
+    # Collect all sources from all variations
+    for variation in variations:
+        sources = variation.get('sources', [])
+        all_sources.extend(sources)
+
+    # Remove duplicates based on title and source path
+    seen = set()
+    unique_sources = []
+
+    for source in all_sources:
+        # Create a unique identifier from title and source
+        title = source.get('title', '')
+        source_path = source.get('source', '')
+        identifier = f"{title}|{source_path}"
+
+        if identifier not in seen and (title or source_path):
+            seen.add(identifier)
+            unique_sources.append(source)
+
+    return unique_sources
+
 def consolidated_view(section_name: str, variations: List[Dict[str, Any]]):
     """Display all variations in one consolidated view with save functionality."""
     # Sort variations by timestamp and file position
@@ -257,48 +285,86 @@ def consolidated_view(section_name: str, variations: List[Dict[str, Any]]):
         console.print(f"[bold cyan]Consolidated View - Section: {section_name}[/bold cyan]")
         console.print(f"[dim]Showing {len(sorted_variations)} variations[/dim]\n")
 
-        # Build the full content for display and potential saving
-        full_content = []
+        # Pre-generate content for display and saving
+        markdown_content = []
+        json_content_variations = []
+        all_sources = merge_sources(sorted_variations)
+
         for i, variation in enumerate(sorted_variations, 1):
             content = variation.get('generated_content', 'No content')
             timestamp = variation['_timestamp']
             date_str = variation.get('_formatted_date', 'Unknown date')
 
-            # Create separator
+            # Create separator and content for markdown
             separator = f"---\nsection {section_name}, variation {i}, date {date_str}\n---"
+            markdown_content.append(separator)
+            markdown_content.append(content)
+            markdown_content.append("")  # Empty line after content
 
-            full_content.append(separator)
-            full_content.append(content)
-            full_content.append("")  # Empty line after content
+            # Create JSON structure for content variations
+            json_content_variations.append({
+                "content": content,
+                "label": f"section {section_name}, variation {i}, date {date_str}"
+            })
+
+        # Add consolidated sources section to markdown
+        if all_sources:
+            markdown_content.append("---")
+            markdown_content.append("consolidated sources")
+            markdown_content.append("---")
+            for i, source in enumerate(all_sources, 1):
+                title = source.get('title', 'Unknown')
+                page = source.get('page', 'N/A')
+                source_path = source.get('source', 'N/A')
+                markdown_content.append(f"{i}. {title} (p.{page}) :: {source_path}")
+            markdown_content.append("")
 
         # Display the content
-        for line in full_content:
+        for line in markdown_content:
             console.print(line)
 
-        console.print("\n[dim]Navigation: 'w' (write to file), 'back' (return to variations)[/dim]")
+        console.print("\n[dim]Navigation: 'w' write, 'b' back, 'q' quit[/dim]")
 
         try:
-            choice = Prompt.ask("Choose action", console=console, default="back").lower()
+            choice = Prompt.ask("Choose action", console=console, default="b").lower()
             if choice in ['back', 'b', '']:
                 return
+            elif choice in ['quit', 'q']:
+                console.print("[yellow]Goodbye![/yellow]")
+                sys.exit(0)
             elif choice in ['w', 'write']:
                 # Prompt for filename
                 filename_base = Prompt.ask("Enter filename (without extension)", console=console)
                 if filename_base.strip():
-                    # Generate filename with timestamp and .md extension
+                    # Generate filename with timestamp
                     import time
                     timestamp = int(time.time())
-                    filename = f"{filename_base}_{timestamp}.md"
+                    md_filename = f"{filename_base}_{timestamp}.md"
+                    json_filename = f"{filename_base}_{timestamp}.json"
 
-                    # Write content to file
+                    # Create JSON structure
+                    json_data = {
+                        "content_variations": json_content_variations,
+                        "sources": all_sources
+                    }
+
+                    # Write both files
                     try:
-                        with open('./output/viewer/'+filename, 'w', encoding='utf-8') as f:
-                            f.write('\n'.join(full_content))
-                        console.print(f"[green]Content saved to: {filename}[/green]")
+                        # Write markdown file
+                        with open('./output/viewer/'+md_filename, 'w', encoding='utf-8') as f:
+                            f.write('\n'.join(markdown_content))
+
+                        # Write JSON file
+                        with open('./output/viewer/'+json_filename, 'w', encoding='utf-8') as f:
+                            json.dump(json_data, f, indent=2, ensure_ascii=False)
+
+                        console.print(f"[green]Files saved:[/green]")
+                        console.print(f"  Markdown: {md_filename}")
+                        console.print(f"  JSON: {json_filename}")
                         console.print("[dim]Press Enter to continue...[/dim]")
                         input()
                     except Exception as e:
-                        console.print(f"[red]Error saving file: {e}[/red]")
+                        console.print(f"[red]Error saving files: {e}[/red]")
                         console.print("[dim]Press Enter to continue...[/dim]")
                         input()
                 else:
