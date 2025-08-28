@@ -42,11 +42,23 @@ lc-index:
 	@k="$(filter-out $@,$(MAKECMDGOALS))"; \
 	if [ -z "$$k" ]; then k=default; fi; \
 	$(PY) $(ROOT)/src/langchain/lc_build_index.py "$$k"
-
+	
+# lc-ask: support separate instruction (retrieval) and task (LLM prefix)
+# Usage:
+#   make lc-ask "instruction text"
+#   make lc-ask INSTR="instruction text" TASK="task prefix"
+#   make lc-ask FILE="path/to/json"   # lc_ask will read instruction/task from file
 lc-ask:
-	@q="$(filter-out $@,$(MAKECMDGOALS))"; \
-	if [ -z "$$q" ]; then echo "Usage: make lc-ask \"Your question\""; exit 1; fi; \
-	$(PY) $(ROOT)/src/langchain/lc_ask.py "$$q"
+	@instr="$(INSTR)"; task="$(TASK)"; file="$(FILE)"; \
+	if [ -z "$$instr" -a -z "$$file" ]; then instr="$(filter-out $@,$(MAKECMDGOALS))"; fi; \
+	if [ -z "$$instr" -a -z "$$file" ]; then echo "Usage: make lc-ask INSTR=\"instruction\" [TASK=\"task prefix\"] OR make lc-ask \"instruction\" OR make lc-ask FILE=\"path/to/json\""; exit 1; fi; \
+	if [ -n "$$file" ]; then \
+	  $(PY) $(ROOT)/src/langchain/lc_ask.py --file "$$file"; \
+	elif [ -n "$$task" ]; then \
+	  $(PY) $(ROOT)/src/langchain/lc_ask.py "$$instr" --task "$$task"; \
+	else \
+	  $(PY) $(ROOT)/src/langchain/lc_ask.py "$$instr"; \
+	fi
 
 # ----- Unified Tool -----
 

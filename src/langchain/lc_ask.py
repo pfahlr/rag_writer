@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import typer
 import json
+import re 
 
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -53,6 +54,50 @@ USER_PROMPT = (
     "Use the context below to answer. Include page-cited quotes for key claims.\n\n"
     "Context:\n{context}"
 )
+
+
+DOI_RE = re.compile(r'\b10\.\d{4,9}/[-._;()/:a-z0-9]*[a-z0-9]\b', re.I)
+
+def _norm(s: str) -> str:
+    return re.sub(r'\W+', ' ', (s or '')).strip().lower()
+
+def _extract_cited(docs, answer: str):
+    """Return (cited_docs, uncited_docs) based on title/DOI matches in the answer text."""
+    ans = answer.lower()
+    ans_norm = _norm(answer)
+    cited, uncited = [], []
+
+    for d in docs:
+        title = d.metadata.get("title") or Path(d.metadata.get("source", " ")).stem
+        title_norm = _norm(title)
+        doi = (d.metadata.get("doi") or "").lower()
+
+        hit = False
+        # 1) Exact/normalized title presence
+        if title and (title.lower() in ans or title_norm and title_norm in ans_norm):
+            hit = True
+        # 2) DOI presence
+        if not hit and doi:
+            if doi in ans or any(m.group(0).lower() == doi for m in DOI_RE.finditer(ans)):
+                hit = True
+
+        if hit:
+            cited.append(d)
+        else:
+            uncited.append(d)
+
+    return cited, uncited
+
+def _fmt_cited(d):
+    title = d.metadata.get("title") or Path(d.metadata.get("source"," ")).stem
+    page = d.metadata.get("page")
+    src  = d.metadata.get("source")
+    doi  = d.metadata.get("doi")
+    bits = [f"{title}"]
+    if page: bits.append(f"p.{page}")
+    if doi: bits.append(f"doi:{doi}")
+    if src: bits.append(str(src))
+    return " (" + " · ".join(bits) + ")"
 
 
 def make_retriever(key: str, k: int = 30):
@@ -131,42 +176,65 @@ app = typer.Typer(add_completion=False)
 
 @app.command()
 def main(
-  question: str = typer.Argument(..., help="Your question"),
+  question: str = typer.Argument(..., help="Your question or instruction to retrieve on"),
   key: str = typer.Option(DEFAULT_KEY, "--key", "-k", help="Collection key"),
   k: int = typer.Option(15, help="Top-k to retrieve"),
-  file: str = typer.Option("", help="File containing prompt question")
+  file: str = typer.Option("", help="File containing prompt question"),
+  task: str = typer.Option("", help="Optional task prefix to prepend to final LLM question (excluded from retriever)")
   ):
-  
-  if file != "":
-    with open(file) as f:
-      content = f.read()
-      directive = json.loads(content)
-      question =  directive['task']+" "+directive['instruction']
-      backend, llm = _select_backend()
-      retriever = make_retriever(key, k=k)
-      docs = retriever.invoke(directive['instruction'])
-      context_text = _format_context(docs)
-  
+  """
+  CLI entrypoint that supports a separate 'task' prefix which is:
+   - excluded from the retriever query (used only to fetch context)
+   - prepended to the final question sent to the LLM
+
+  Behavior:
+   - If --file is provided, it loads JSON and looks for 'instruction' (used for retrieval)
+     and optional 'task' (used as prefix). CLI --task overrides file 'task'.
+   - Otherwise, the positional 'question' argument is used as the retrieval instruction,
+     and optional --task is prepended only to the final LLM question.
+  """
+  backend, llm = _select_backend()
+  retriever = make_retriever(key, k=k)
+
+  # Determine retrieval instruction and task prefix
+  if file:
+    with open(file, "r", encoding="utf-8") as f:
+      directive = json.load(f)
+    instruction = (directive.get("instruction") or directive.get("question") or "").strip()
+    file_task = (directive.get("task") or "").strip()
+    final_task = task.strip() or file_task
   else:
-    backend, llm = _select_backend()
-    retriever = make_retriever(key, k=k)
-    docs = retriever.invoke(question)
-    context_text = _format_context(docs)
-  
+    instruction = question.strip()
+    final_task = task.strip()
+
+  # Retrieve documents using ONLY the instruction (task is excluded)
+  docs = []
+  try:
+    if hasattr(retriever, "get_relevant_documents"):
+      docs = retriever.get_relevant_documents(instruction)
+    elif hasattr(retriever, "invoke"):
+      docs = retriever.invoke(instruction)
+    elif hasattr(retriever, "retrieve"):
+      docs = retriever.retrieve(instruction)
+    else:
+      # Fallback: try calling retriever as a function
+      docs = retriever(instruction)
+  except Exception as e:
+    raise SystemExit(f"Retriever failed: {e}")
+
+  context_text = _format_context(docs) if docs else ""
+
+  # Build the final question for the LLM by prepending the task (if any)
+  final_question = f"{final_task} {instruction}".strip() if final_task else instruction
+
   prompt = ChatPromptTemplate.from_messages([
     ("system", SYSTEM_PROMPT),
     ("human", USER_PROMPT),
   ])
-  
-  json_prompt = {
-  "system": SYSTEM_PROMPT,
-  "human": USER_PROMPT,
-  "question":question,
-  "context":context_text
-  }
-  
-  messages = prompt.format_messages(question=question, context=context_text)
-  
+
+  messages = prompt.format_messages(question=final_question, context=context_text)
+
+  # Invoke the selected LLM backend
   if backend in ("lc_openai", "ollama"):
     resp = llm.invoke(messages)
     print(resp.content)
@@ -180,7 +248,8 @@ def main(
       temperature=0,
     ).choices[0].message.content
     print(content)
-  
+
+  # Print sources
   print("\nSOURCES:")
   for d in docs:
     title = d.metadata.get("title") or Path(d.metadata.get("source", " ")).stem

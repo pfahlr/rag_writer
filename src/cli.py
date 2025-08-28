@@ -8,7 +8,8 @@ Unified RAG CLI + Interactive Shell (env-configurable, multi-collection)
 """
 import os, sys, json
 from pathlib import Path
-import typer, yaml
+import argparse, yaml
+from typing import Optional
 from rich import print
 from rich.panel import Panel
 from rich.table import Table
@@ -33,7 +34,6 @@ try:
 except Exception:
   ChatOpenAI = None
 
-app = typer.Typer(add_completion=False)
 
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../'))
 ROOT = Path(root_dir)
@@ -183,28 +183,76 @@ def _llm():
     raise RuntimeError(f"LLM initialization failed: {str(e)}. Set OPENAI_API_KEY or add a local LLM.")
 
 
-def _rag_answer(key: str, question: str, system_prompt: str, k: int = 10) -> dict:
-  """Generate RAG answer with comprehensive error handling."""
+def _rag_answer(key: str, retrieval_query: str, system_prompt: str, final_question: Optional[str] = None, k: int = 10) -> dict:
+  """Generate a RAG answer while allowing separation of:
+    - retrieval_query: the text sent to the retriever (task excluded)
+    - final_question: the text sent to the LLM (task may be prepended here)
+
+  If final_question is None, the retrieval_query is used as the LLM question.
+  Returns a dict with keys: 'answer' (str), 'context' (list of docs), and optionally 'error'.
+  """
   try:
     retriever = _load_retriever(key, k=k)
-    llm = _llm()
-    prompt = ChatPromptTemplate.from_messages([
-      ("system", system_prompt),
-      ("human", "Question:\n{question}\n\nReturn a grounded, citation-rich answer."),
-    ])
-    doc_chain = create_stuff_documents_chain(llm, prompt)
-    rag_chain = create_retrieval_chain(retriever, doc_chain)
-    return rag_chain.invoke({"question": question})
   except FileNotFoundError:
     return {
       "error": f"Collection '{key}' not found. Run 'make lc-index {key}' to create it.",
-      "answer": "Failed to load collection."
+      "answer": "Failed to load collection.",
+      "context": []
     }
   except Exception as e:
     return {
-      "error": f"RAG generation failed: {str(e)}",
-      "answer": "An error occurred while generating the answer."
+      "error": f"Failed to load retriever: {str(e)}",
+      "answer": "Failed to load retriever.",
+      "context": []
     }
+
+  # Fetch documents using ONLY the retrieval_query
+  try:
+    if hasattr(retriever, "get_relevant_documents"):
+      docs = retriever.get_relevant_documents(retrieval_query)
+    elif hasattr(retriever, "invoke"):
+      docs = retriever.invoke(retrieval_query)
+    elif hasattr(retriever, "retrieve"):
+      docs = retriever.retrieve(retrieval_query)
+    else:
+      docs = retriever(retrieval_query)
+  except Exception as e:
+    return {"error": f"Retriever failed: {str(e)}", "answer": "Failed to retrieve documents.", "context": []}
+
+  # Initialize LLM
+  try:
+    llm = _llm()
+  except Exception as e:
+    return {"error": f"LLM initialization failed: {str(e)}", "answer": "Failed to initialize LLM.", "context": docs}
+
+  prompt = ChatPromptTemplate.from_messages([
+    ("system", system_prompt),
+    ("human", "Question:\n{question}\n\nReturn a grounded, citation-rich answer."),
+  ])
+  doc_chain = create_stuff_documents_chain(llm, prompt)
+
+  # Final question passed to the LLM (task may be prepended)
+  q = final_question if final_question is not None and final_question != "" else retrieval_query
+
+  try:
+    out = doc_chain.invoke({"input_documents": docs, "question": q})
+    # Normalize output into a string answer
+    if isinstance(out, dict):
+      if "answer" in out:
+        answer = out["answer"]
+      elif "output" in out:
+        answer = out["output"]
+      else:
+        # pick first str value if present
+        val = next((v for v in out.values() if isinstance(v, str)), None)
+        answer = val if val is not None else str(out)
+    elif isinstance(out, str):
+      answer = out
+    else:
+      answer = str(out)
+    return {"answer": answer, "context": docs}
+  except Exception as e:
+    return {"error": f"RAG generation failed: {str(e)}", "answer": "An error occurred while generating the answer.", "context": docs}
 
 
 def _collect_inputs(inputs_spec, context):
@@ -346,8 +394,7 @@ def _graceful_shutdown():
   print("Goodbye!")
 
 
-@app.command()
-def shell(key: str = typer.Option(DEFAULT_KEY, "--key", "-k", help="Collection key (e.g., llms_education)")):
+def shell(key: str = DEFAULT_KEY):
   """Interactive shell using the specified collection key."""
   try:
     faiss_dir, playbooks_path = _paths(key)
@@ -559,12 +606,33 @@ def shell(key: str = typer.Option(DEFAULT_KEY, "--key", "-k", help="Collection k
 
 
 if __name__ == "__main__":
-  try:
-    app()
-  except KeyboardInterrupt:
-    print("\n[yellow]Application interrupted by user[/]")
-    sys.exit(0)
-  except Exception as e:
-    print(f"\n[red]Critical application error: {str(e)}[/]")
-    print("[red]Please check your configuration and try again.[/]")
-    sys.exit(1)
+    parser = argparse.ArgumentParser(description="Unified RAG CLI + Interactive Shell")
+    subparsers = parser.add_subparsers(dest="cmd", help="Sub-commands")
+
+    # Interactive shell (default)
+    p_shell = subparsers.add_parser("shell", help="Start interactive shell")
+    p_shell.add_argument("--key", "-k", default=DEFAULT_KEY, help="Collection key (e.g., llms_education)")
+
+    # One-shot ask via CLI: supports separate instruction (retrieval) and task (LLM prefix)
+    p_ask = subparsers.add_parser("ask", help="Run a single RAG query (non-interactive)")
+    p_ask.add_argument("--key", "-k", default=DEFAULT_KEY, help="Collection key (e.g., llms_education)")
+    p_ask.add_argument("--instruction", "-i", required=True, help="Instruction/query to retrieve on (used for RAG retrieval)")
+    p_ask.add_argument("--task", "-t", default="", help="Optional task prefix prepended to the final LLM question (excluded from retrieval)")
+    p_ask.add_argument("--k", type=int, default=10, help="Top-k for retriever")
+
+    args = parser.parse_args()
+
+    if args.cmd == "ask":
+        retrieval_query = args.instruction
+        final_question = f"{args.task} {retrieval_query}".strip() if args.task else None
+        result = _rag_answer(args.key, retrieval_query, COMMON_SYSTEM, final_question=final_question, k=args.k)
+        if "error" in result:
+          _display_error_with_suggestions(result['error'], args.key)
+          print(result.get("answer", "No answer generated"))
+        else:
+          print("\n" + result.get("answer", "No answer generated"))
+          print("\n[dim]Type 'sources' to list retrieved source chunks.[/dim]")
+        sys.exit(0)
+    else:
+        # default to interactive shell
+        shell(getattr(args, "key", DEFAULT_KEY))
