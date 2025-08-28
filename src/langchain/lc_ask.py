@@ -16,7 +16,8 @@ import os
 from pathlib import Path
 import typer
 import json
-import re 
+import re
+import yaml
 
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -25,6 +26,13 @@ from langchain.retrievers import EnsembleRetriever
 from langchain.retrievers import ContextualCompressionRetriever
 from langchain.retrievers.document_compressors import DocumentCompressorPipeline
 from langchain_core.prompts import ChatPromptTemplate
+
+from rich.console import Console
+from rich.table import Table
+from rich.panel import Panel
+from rich.text import Text
+
+console = Console()
 
 # --- Optional reranker: Flashrank ---
 _have_flashrank = False
@@ -44,15 +52,64 @@ DEFAULT_KEY = "default"
 EMBED_MODEL = "BAAI/bge-small-en"  # CPU-friendly
 LLM_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
-system_prompts = []
+def load_content_types():
+    """Load content types from YAML file."""
+    content_types_path = ROOT / "src/tool/prompts/content_types.yaml"
+    try:
+        with open(content_types_path, 'r', encoding='utf-8') as f:
+            data = yaml.safe_load(f) or {}
+        return data
+    except FileNotFoundError:
+        print(f"Warning: Content types file not found: {content_types_path}")
+        return {}
+    except yaml.YAMLError as e:
+        print(f"Error parsing content types YAML: {e}")
+        return {}
 
-system_prompts['pure_research']   = (
-    "You are a careful research assistant.\n"
-    "Use ONLY the provided context\n."
-    "Every claim MUST include inline citations like ([filename], p.X) or ([filename], pp.X–Y). Where [filename] is the filename of the source article which will match exactly the listing in the sources list \n"
-    "If the context is insufficient or conflicting, state what is missing and stop."
-    "Do not cite sources you did not use. Aim to use at least two distinct sources when available.\n"  
-) 
+def get_system_prompt(content_type: str) -> str:
+    """Get system prompt for a content type."""
+    content_types = load_content_types()
+
+    if content_type not in content_types:
+        available_types = list(content_types.keys())
+        raise ValueError(f"Unknown content type '{content_type}'. Available types: {', '.join(available_types)}")
+
+    system_prompt_parts = content_types[content_type].get("system_prompt", [])
+    if not system_prompt_parts:
+        raise ValueError(f"No system prompt defined for content type '{content_type}'")
+
+    return "".join(system_prompt_parts)
+
+def list_content_types():
+    """List all available content types with Rich formatting."""
+    content_types = load_content_types()
+
+    if not content_types:
+        console.print("[red]No content types found.[/red]")
+        return
+
+    # Create a table for content types
+    table = Table(title="Available Content Types")
+    table.add_column("Content Type", style="cyan", no_wrap=True)
+    table.add_column("Description", style="magenta")
+    table.add_column("System Prompt Parts", style="green", justify="center")
+
+    for name, config in sorted(content_types.items()):
+        description = config.get("description", "No description available")
+        system_prompt_parts = len(config.get("system_prompt", []))
+        table.add_row(name, description, str(system_prompt_parts))
+
+    # Display the table in a panel
+    panel = Panel(
+        table,
+        title="[bold blue]Content Type Configuration[/bold blue]",
+        border_style="blue",
+        padding=(1, 2)
+    )
+
+    console.print(panel)
+    console.print(f"\n[dim]Use with: --content-type [cyan]<type>[/cyan][/dim]")
+    console.print(f"[dim]Example: --content-type [cyan]pure_research[/cyan][/dim]")
 
 USER_PROMPT = (
     "Question:\n{question}\n\n"
@@ -180,13 +237,18 @@ def _select_backend():
 app = typer.Typer(add_completion=False)
 
 @app.command()
-def main(
+def list_types():
+    """List all available content types."""
+    list_content_types()
+
+@app.command()
+def ask(
   question: str = typer.Argument(..., help="Your question or instruction to retrieve on"),
-  conttype: str = typer.Option('pure_research',"--content-type", "-ct" help="The type of writing to perform")
+  conttype: str = typer.Option('pure_research',"--content-type", "-ct", help="The type of writing to perform"),
   key: str = typer.Option(DEFAULT_KEY, "--key", "-k", help="Collection key"),
   k: int = typer.Option(15, help="Top-k to retrieve"),
-  file: str = typer.Option("", help="File containing prompt question"),
-  task: str = typer.Option("", help="Optional task prefix to prepend to final LLM question (excluded from retriever)")
+  task: str = typer.Option("", "--task", help="Optional task prefix to prepend to final LLM question (excluded from retriever)"),
+  file: str = typer.Option("", "--file", help="File containing prompt question")
   ):
   """
   CLI entrypoint that supports a separate 'task' prefix which is:
@@ -233,8 +295,14 @@ def main(
   # Build the final question for the LLM by prepending the task (if any)
   final_question = f"{final_task} {instruction}".strip() if final_task else instruction
 
+  # Get system prompt from YAML configuration
+  try:
+    system_prompt = get_system_prompt(conttype)
+  except ValueError as e:
+    raise SystemExit(f"Error: {e}")
+
   prompt = ChatPromptTemplate.from_messages([
-    ("system", system_prompts[conttype]),
+    ("system", system_prompt),
     ("human", USER_PROMPT),
   ])
 

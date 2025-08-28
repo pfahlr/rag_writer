@@ -55,11 +55,11 @@ lc-ask:
 	if [ -z "$$instr" -a -z "$$file" ]; then echo "Usage: make lc-ask INSTR=\"instruction\" [TASK=\"task prefix\"] [KEY=\"collection_key\"] OR make lc-ask \"instruction\" OR make lc-ask FILE=\"path/to/json\""; exit 1; fi; \
 	if [ -z "$$key" ]; then key=default; fi; \
 	if [ -n "$$file" ]; then \
-	  $(PY) $(ROOT)/src/langchain/lc_ask.py --file "$$file" --key "$$key"; \
+	  $(PY) $(ROOT)/src/langchain/lc_ask.py ask --file "$$file" --key "$$key"; \
 	elif [ -n "$$task" ]; then \
-	  $(PY) $(ROOT)/src/langchain/lc_ask.py "$$instr" --task "$$task" --key "$$key"; \
+	  $(PY) $(ROOT)/src/langchain/lc_ask.py ask "$$instr" --task "$$task" --key "$$key"; \
 	else \
-	  $(PY) $(ROOT)/src/langchain/lc_ask.py "$$instr" --key "$$key"; \
+	  $(PY) $(ROOT)/src/langchain/lc_ask.py ask "$$instr" --key "$$key"; \
 	fi
 
 # lc-batch: process multiple lc-ask calls from JSON file or stdin
@@ -82,6 +82,10 @@ content-viewer:
 # cleanup-sources: clean up sources in existing batch files
 cleanup-sources:
 	$(PY) $(ROOT)/src/langchain/cleanup_sources.py
+
+# list-content-types: list available content types for lc-ask
+list-content-types:
+	$(PY) $(ROOT)/src/langchain/lc_ask.py list-types
 
 # ----- Unified Tool -----
 
