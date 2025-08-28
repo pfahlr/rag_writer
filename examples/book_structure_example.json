@@ -1,0 +1,233 @@
+{
+  "title": "Professional Development Handbook for Primary School Educators",
+  "metadata": {
+    "author": "AI Content Generator",
+    "version": "1.0",
+    "target_audience": "Primary school teachers",
+    "word_count_target": 100000,
+    "created_date": "2025-08-28",
+    "description": "Comprehensive handbook covering modern teaching methodologies and classroom management"
+  },
+  "sections": [
+    {
+      "subsection_id": "1A1",
+      "title": "Constructivist Learning Theory",
+      "job_file": "data_jobs/1A1.jsonl",
+      "batch_params": {
+        "key": "education",
+        "k": 5
+      },
+      "merge_params": {
+        "key": "education",
+        "k": 3
+      },
+      "dependencies": []
+    },
+    {
+      "subsection_id": "1A2",
+      "title": "Social Learning and Connectivism",
+      "job_file": "data_jobs/1A2.jsonl",
+      "batch_params": {
+        "key": "education",
+        "k": 5
+      },
+      "merge_params": {
+        "key": "education",
+        "k": 3
+      },
+      "dependencies": [
+        "1A1"
+      ]
+    },
+    {
+      "subsection_id": "1A3",
+      "title": "Piaget's Cognitive Development Stages",
+      "job_file": "data_jobs/1A3.jsonl",
+      "batch_params": {
+        "key": "education",
+        "k": 5
+      },
+      "merge_params": {
+        "key": "education",
+        "k": 3
+      },
+      "dependencies": [
+        "1A1"
+      ]
+    },
+    {
+      "subsection_id": "1B1",
+      "title": "Establishing Classroom Rules",
+      "job_file": "data_jobs/1B1.jsonl",
+      "batch_params": {
+        "key": "education",
+        "k": 5
+      },
+      "merge_params": {
+        "key": "education",
+        "k": 3
+      },
+      "dependencies": []
+    },
+    {
+      "subsection_id": "1B2",
+      "title": "Positive Behavior Reinforcement",
+      "job_file": "data_jobs/1B2.jsonl",
+      "batch_params": {
+        "key": "education",
+        "k": 5
+      },
+      "merge_params": {
+        "key": "education",
+        "k": 3
+      },
+      "dependencies": [
+        "1B1"
+      ]
+    },
+    {
+      "subsection_id": "1B3",
+      "title": "Managing Challenging Behaviors",
+      "job_file": "data_jobs/1B3.jsonl",
+      "batch_params": {
+        "key": "education",
+        "k": 5
+      },
+      "merge_params": {
+        "key": "education",
+        "k": 3
+      },
+      "dependencies": [
+        "1B1",
+        "1B2"
+      ]
+    },
+    {
+      "subsection_id": "1C1",
+      "title": "Formative Assessment Techniques",
+      "job_file": "data_jobs/1C1.jsonl",
+      "batch_params": {
+        "key": "education",
+        "k": 5
+      },
+      "merge_params": {
+        "key": "education",
+        "k": 3
+      },
+      "dependencies": [
+        "1A1",
+        "1A2"
+      ]
+    },
+    {
+      "subsection_id": "1C2",
+      "title": "Providing Effective Feedback",
+      "job_file": "data_jobs/1C2.jsonl",
+      "batch_params": {
+        "key": "education",
+        "k": 5
+      },
+      "merge_params": {
+        "key": "education",
+        "k": 3
+      },
+      "dependencies": [
+        "1C1"
+      ]
+    },
+    {
+      "subsection_id": "2A1",
+      "title": "Digital Tools for Learning",
+      "job_file": "data_jobs/2A1.jsonl",
+      "batch_params": {
+        "key": "education",
+        "k": 5
+      },
+      "merge_params": {
+        "key": "education",
+        "k": 3
+      },
+      "dependencies": []
+    },
+    {
+      "subsection_id": "2A2",
+      "title": "Interactive Whiteboard Integration",
+      "job_file": "data_jobs/2A2.jsonl",
+      "batch_params": {
+        "key": "education",
+        "k": 5
+      },
+      "merge_params": {
+        "key": "education",
+        "k": 3
+      },
+      "dependencies": [
+        "2A1"
+      ]
+    },
+    {
+      "subsection_id": "2B1",
+      "title": "Designing PBL Units",
+      "job_file": "data_jobs/2B1.jsonl",
+      "batch_params": {
+        "key": "education",
+        "k": 5
+      },
+      "merge_params": {
+        "key": "education",
+        "k": 3
+      },
+      "dependencies": [
+        "1A1",
+        "1A2"
+      ]
+    },
+    {
+      "subsection_id": "2B2",
+      "title": "Student-Centered Assessment in PBL",
+      "job_file": "data_jobs/2B2.jsonl",
+      "batch_params": {
+        "key": "education",
+        "k": 5
+      },
+      "merge_params": {
+        "key": "education",
+        "k": 3
+      },
+      "dependencies": [
+        "2B1",
+        "1C1"
+      ]
+    },
+    {
+      "subsection_id": "2C1",
+      "title": "Reflective Practice Techniques",
+      "job_file": "data_jobs/2C1.jsonl",
+      "batch_params": {
+        "key": "education",
+        "k": 5
+      },
+      "merge_params": {
+        "key": "education",
+        "k": 3
+      },
+      "dependencies": []
+    },
+    {
+      "subsection_id": "2C2",
+      "title": "Continuing Education Opportunities",
+      "job_file": "data_jobs/2C2.jsonl",
+      "batch_params": {
+        "key": "education",
+        "k": 5
+      },
+      "merge_params": {
+        "key": "education",
+        "k": 3
+      },
+      "dependencies": [
+        "2C1"
+      ]
+    }
+  ]
+}

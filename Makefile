@@ -8,7 +8,7 @@ PY_CMD := $(shell command -v python3.11 || command -v python3.10 || command -v p
 PY := $(ROOT)/venv/bin/python
 PIP := $(ROOT)/venv/bin/pip
 
-.PHONY: all init ingest index ask lc-index lc-ask lc-batch content-viewer cleanup-sources lc-merge-runner tool-shell clean
+.PHONY: all init ingest index ask lc-index lc-ask lc-batch content-viewer cleanup-sources lc-merge-runner lc-outline-generator lc-outline-converter lc-book-runner tool-shell clean
 
 all: init ingest index
 
@@ -85,6 +85,37 @@ content-viewer:
 # lc-merge-runner: merge batch-generated content variations into cohesive subsections
 lc-merge-runner:
 	$(PY) $(ROOT)/src/langchain/lc_merge_runner.py
+
+# lc-outline-generator: interactive outline generation using LangChain index
+lc-outline-generator:
+	@output="$(OUTPUT)"; \
+	if [ -n "$$output" ]; then \
+	  $(PY) $(ROOT)/src/langchain/lc_outline_generator.py --output "$$output"; \
+	else \
+	  $(PY) $(ROOT)/src/langchain/lc_outline_generator.py; \
+	fi
+
+# lc-outline-converter: convert outlines to book structure and job files
+lc-outline-converter:
+	@outline="$(filter-out $@,$(MAKECMDGOALS))"; output="$(OUTPUT)"; title="$(TITLE)"; topic="$(TOPIC)"; audience="$(AUDIENCE)"; wordcount="$(WORDCOUNT)"; \
+	if [ -z "$$outline" ]; then echo "Usage: make lc-outline-converter OUTLINE=\"path/to/outline\" [OUTPUT=\"output.json\"] [TITLE=\"Book Title\"] [TOPIC=\"topic\"] [AUDIENCE=\"audience\"] [WORDCOUNT=50000]"; exit 1; fi; \
+	cmd="$(PY) $(ROOT)/src/langchain/lc_outline_converter.py --outline \"$$outline\""; \
+	if [ -n "$$output" ]; then cmd="$$cmd --output \"$$output\""; fi; \
+	if [ -n "$$title" ]; then cmd="$$cmd --title \"$$title\""; fi; \
+	if [ -n "$$topic" ]; then cmd="$$cmd --topic \"$$topic\""; fi; \
+	if [ -n "$$audience" ]; then cmd="$$cmd --audience \"$$audience\""; fi; \
+	if [ -n "$$wordcount" ]; then cmd="$$cmd --wordcount $$wordcount"; fi; \
+	eval $$cmd
+
+# lc-book-runner: orchestrate complete book generation pipeline
+lc-book-runner:
+	@book="$(filter-out $@,$(MAKECMDGOALS))"; output="$(OUTPUT)"; force="$(FORCE)"; skip_merge="$(SKIP_MERGE)"; \
+	if [ -z "$$book" ]; then echo "Usage: make lc-book-runner BOOK=\"path/to/book_structure.json\" [OUTPUT=\"output.md\"] [FORCE=1] [SKIP_MERGE=1]"; exit 1; fi; \
+	cmd="$(PY) $(ROOT)/src/langchain/lc_book_runner.py --book \"$$book\""; \
+	if [ -n "$$output" ]; then cmd="$$cmd --output \"$$output\""; fi; \
+	if [ -n "$$force" ]; then cmd="$$cmd --force"; fi; \
+	if [ -n "$$skip_merge" ]; then cmd="$$cmd --skip-merge"; fi; \
+	eval $$cmd
 
 # cleanup-sources: clean up sources in existing batch files
 cleanup-sources:
