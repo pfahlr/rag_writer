@@ -126,13 +126,16 @@ def display_variations(section_name: str, variations: List[Dict[str, Any]]):
         console.print(panel)
         console.print()
 
-    # Let user select a variation to view in full
+    # Let user choose viewing mode
     while True:
         try:
-            choice = Prompt.ask("Select variation to view in full (number) or 'back' to return", console=console)
+            choice = Prompt.ask("Choose view mode: (number) for detailed view, 'slideshow' for sequential view, or 'back' to return", console=console)
             if choice.lower() == 'back':
                 return
-            if choice.isdigit():
+            elif choice.lower() == 'slideshow':
+                slideshow_variations(section_name, variations)
+                return
+            elif choice.isdigit():
                 idx = int(choice) - 1
                 if 0 <= idx < len(variations):
                     display_full_variation(section_name, variations[idx], idx + 1)
@@ -175,6 +178,51 @@ def display_full_variation(section_name: str, variation: Dict[str, Any], variati
 
     console.print("\n[dim]Press Enter to return to variations list...[/dim]")
     input()
+
+def slideshow_variations(section_name: str, variations: List[Dict[str, Any]]):
+    """Display variations in slideshow mode without sources."""
+    current_idx = 0
+    total_variations = len(variations)
+
+    while True:
+        console.clear()
+        variation = variations[current_idx]
+        content = variation.get('generated_content', 'No content')
+        task = variation.get('task', 'No task')
+        instruction = variation.get('instruction', 'No instruction')
+
+        # Display header with progress
+        console.print(f"[bold cyan]Section: {section_name}[/bold cyan]")
+        console.print(f"[dim]Variation {current_idx + 1} of {total_variations}[/dim]\n")
+
+        # Display task and instruction (brief)
+        console.print(f"[bold]Task:[/bold] {task}")
+        console.print(f"[bold]Instruction:[/bold] {instruction}\n")
+
+        # Display content without sources
+        console.print("[bold]Generated Content:[/bold]")
+        console.print(Panel(content, border_style="green", padding=(1, 2)))
+
+        # Navigation instructions
+        console.print("\n[dim]Navigation: 'n' (next), 'p' (previous), 'b' (back to variations), 'q' (quit)[/dim]")
+
+        try:
+            nav = Prompt.ask("Navigate", console=console, default="n").lower()
+            if nav in ['n', 'next', '']:
+                current_idx = (current_idx + 1) % total_variations
+            elif nav in ['p', 'previous']:
+                current_idx = (current_idx - 1) % total_variations
+            elif nav in ['b', 'back']:
+                return
+            elif nav in ['q', 'quit']:
+                console.print("\n[yellow]Goodbye![/yellow]")
+                sys.exit(0)
+            else:
+                console.print("[red]Invalid navigation command.[/red]")
+                continue
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Returning to variations list...[/yellow]")
+            return
 
 def main():
     """Main application loop."""
