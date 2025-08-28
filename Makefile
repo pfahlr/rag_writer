@@ -8,7 +8,7 @@ PY_CMD := $(shell command -v python3.11 || command -v python3.10 || command -v p
 PY := $(ROOT)/venv/bin/python
 PIP := $(ROOT)/venv/bin/pip
 
-.PHONY: all init ingest index ask lc-index lc-ask tool-shell clean
+.PHONY: all init ingest index ask lc-index lc-ask lc-batch content-viewer tool-shell clean
 
 all: init ingest index
 
@@ -61,6 +61,23 @@ lc-ask:
 	else \
 	  $(PY) $(ROOT)/src/langchain/lc_ask.py "$$instr" --key "$$key"; \
 	fi
+
+# lc-batch: process multiple lc-ask calls from JSON file or stdin
+# Usage:
+#   make lc-batch FILE="path/to/batch.json" [KEY="collection_key"]
+#   cat batch.json | make lc-batch [KEY="collection_key"]
+lc-batch:
+	@file="$(FILE)"; key="$(KEY)"; \
+	if [ -z "$$key" ]; then key=default; fi; \
+	if [ -n "$$file" ]; then \
+	  $(PY) $(ROOT)/src/langchain/lc_batch.py "$$file" "$$key"; \
+	else \
+	  $(PY) $(ROOT)/src/langchain/lc_batch.py "$$key"; \
+	fi
+
+# content-viewer: interactive viewer for batch-generated content
+content-viewer:
+	$(PY) $(ROOT)/src/langchain/content_viewer.py
 
 # ----- Unified Tool -----
 
