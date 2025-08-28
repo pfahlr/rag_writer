@@ -12,3 +12,5 @@ venv/*
 tasks/*
 .kilocode/*
 output/*
+data_jobs/*
+outlines/*

@@ -53,26 +53,26 @@ class BookMetadata:
     description: str = ""
 
 def parse_markdown_outline(content: str) -> Tuple[List[OutlineSection], BookMetadata]:
-    """Parse markdown outline format."""
+    """Parse markdown outline format with proper hierarchical structure."""
     lines = content.strip().split('\n')
     sections = []
     metadata = BookMetadata(title="Converted from Markdown Outline")
 
-    current_chapter = None
-    current_section = None
+    # Track hierarchy levels
+    level_stack = []  # [(level, section_id), ...]
 
     for line in lines:
         line = line.strip()
         if not line:
             continue
 
-        # Extract title if it's the first line
+        # Extract title if it's the first line and doesn't start with #
         if not sections and not line.startswith('#'):
             metadata.title = line
             continue
 
         # Parse markdown headers
-        header_match = re.match(r'^(#{1,5})\s+(.+)$', line)
+        header_match = re.match(r'^(#{1,6})\s+(.+)$', line)
         if header_match:
             level = len(header_match.group(1))
             title = header_match.group(2).strip()
@@ -80,88 +80,274 @@ def parse_markdown_outline(content: str) -> Tuple[List[OutlineSection], BookMeta
             if level == 1:
                 # Book title
                 metadata.title = title
-            elif level == 2:
-                # Chapter
-                current_chapter = len(sections) + 1
-                section_id = f"{current_chapter}"
-                sections.append(OutlineSection(
-                    id=section_id,
-                    title=title,
-                    level=level,
-                    description=f"Chapter {current_chapter}: {title}"
-                ))
-            elif level == 3:
-                # Section
-                if current_chapter:
-                    current_section = len([s for s in sections if s.level == 3]) + 1
-                    section_id = f"{current_chapter}{chr(64 + current_section)}"
-                    sections.append(OutlineSection(
-                        id=section_id,
-                        title=title,
-                        level=level,
-                        parent_id=str(current_chapter),
-                        description=f"Section {chr(64 + current_section)}: {title}"
-                    ))
-            elif level == 4:
-                # Subsection
-                if current_chapter and current_section:
-                    subsection_num = len([s for s in sections if s.level == 4 and s.parent_id == f"{current_chapter}{chr(64 + current_section)}"]) + 1
-                    section_id = f"{current_chapter}{chr(64 + current_section)}{subsection_num}"
-                    sections.append(OutlineSection(
-                        id=section_id,
-                        title=title,
-                        level=level,
-                        parent_id=f"{current_chapter}{chr(64 + current_section)}",
-                        description=f"Subsection {subsection_num}: {title}"
-                    ))
+                continue  # Don't add book title as a section
 
-    return sections, metadata
+            # Generate hierarchical ID
+            section_id = generate_markdown_hierarchical_id(level, level_stack)
 
-def parse_text_outline(content: str) -> Tuple[List[OutlineSection], BookMetadata]:
-    """Parse plain text outline format."""
-    lines = content.strip().split('\n')
-    sections = []
-    metadata = BookMetadata(title="Converted from Text Outline")
+            # Find parent ID
+            parent_id = None
+            if level > 2 and level_stack:
+                # Find the most recent parent at the previous level
+                for stack_level, stack_parent in reversed(level_stack):
+                    if stack_level == level - 1:
+                        parent_id = stack_parent
+                        break
 
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-
-        # Extract title if it's the first line
-        if not sections and not any(char in line for char in ['1.', '2.', '3.', 'A.', 'B.', 'C.']):
-            metadata.title = line
-            continue
-
-        # Parse numbered/bulleted structure
-        indent_match = re.match(r'^(\s*)([\d\w]+)[\.\)]\s+(.+)$', line)
-        if indent_match:
-            indent, number, title = indent_match.groups()
-            level = len(indent) // 2 + 1  # 2 spaces per level
-
-            # Convert number to hierarchical ID
-            if number.isdigit():
-                if level == 1:
-                    section_id = number
-                elif level == 2:
-                    section_id = f"{number[0]}{chr(64 + int(number))}" if len(number) == 1 else number
-                elif level == 3:
-                    section_id = f"{number[0]}{chr(64 + int(number[1:]))}{number[2:]}" if len(number) > 1 else number
-                else:
-                    section_id = number
-            else:
-                # Letter-based numbering
-                section_id = number.upper()
+            # Update level stack
+            # Remove any levels deeper than current
+            level_stack = [(l, p) for l, p in level_stack if l < level]
+            # Add current level
+            level_stack.append((level, section_id))
 
             sections.append(OutlineSection(
                 id=section_id,
                 title=title,
                 level=level,
+                parent_id=parent_id,
                 description=f"Level {level}: {title}"
             ))
 
     return sections, metadata
 
+def generate_markdown_hierarchical_id(level: int, level_stack: List[Tuple[int, str]]) -> str:
+    """Generate hierarchical ID for markdown headers."""
+    if level == 2:
+        # Chapter level - count existing chapters
+        chapter_num = len([s for s in level_stack if s[0] == 2]) + 1
+        return str(chapter_num)
+
+    elif level == 3:
+        # Section level - find parent chapter
+        parent_chapter = "1"  # Default
+        for stack_level, stack_id in level_stack:
+            if stack_level == 2:
+                parent_chapter = stack_id
+                break
+
+        # Count sections under this chapter by looking at recent sections with same parent
+        section_num = 1
+        for stack_level, stack_id in reversed(level_stack):
+            if stack_level == 3 and stack_id.startswith(parent_chapter):
+                # Extract the letter part and increment
+                if len(stack_id) > len(parent_chapter):
+                    letter_part = stack_id[len(parent_chapter):]
+                    if letter_part.isalpha():
+                        section_num = ord(letter_part.upper()) - 64 + 1
+                        break
+            elif stack_level == 2:
+                # We've gone past sections of this chapter, start over
+                break
+
+        return f"{parent_chapter}{chr(64 + section_num)}"  # 1A, 1B, 2A, etc.
+
+    elif level == 4:
+        # Subsection level - find parent section
+        parent_section = "1A"  # Default
+        for stack_level, stack_id in level_stack:
+            if stack_level == 3:
+                parent_section = stack_id
+
+        # Count subsections under this section by looking at recent subsections
+        subsection_num = 1
+        for stack_level, stack_id in reversed(level_stack):
+            if stack_level == 4 and stack_id.startswith(parent_section):
+                # Extract the number part and increment
+                if len(stack_id) > len(parent_section):
+                    num_part = stack_id[len(parent_section):]
+                    if num_part.isdigit():
+                        subsection_num = int(num_part) + 1
+                        break
+            elif stack_level == 3:
+                # We've gone past subsections of this section, start over
+                break
+
+        return f"{parent_section}{subsection_num}"  # 1A1, 1A2, 1B1, etc.
+
+    elif level == 5:
+        # Sub-subsection level - find parent subsection
+        parent_subsection = "1A1"  # Default
+        for stack_level, stack_id in level_stack:
+            if stack_level == 4:
+                parent_subsection = stack_id
+
+        # Count sub-subsections under this subsection
+        subsubsection_num = 1
+        for stack_level, stack_id in reversed(level_stack):
+            if stack_level == 5 and stack_id.startswith(parent_subsection):
+                # Extract the letter part and increment
+                if len(stack_id) > len(parent_subsection):
+                    letter_part = stack_id[len(parent_subsection):]
+                    if letter_part.isalpha():
+                        subsubsection_num = ord(letter_part.lower()) - 96 + 1
+                        break
+            elif stack_level == 4:
+                # We've gone past sub-subsections of this subsection
+                break
+
+        return f"{parent_subsection}{chr(96 + subsubsection_num)}"  # 1A1a, 1A1b, etc.
+
+    elif level == 6:
+        # Sub-sub-subsection level - find parent sub-subsection
+        parent_subsubsection = "1A1a"  # Default
+        for stack_level, stack_id in level_stack:
+            if stack_level == 5:
+                parent_subsubsection = stack_id
+
+        # Count sub-sub-subsections under this sub-subsection
+        subsubsubsection_num = 1
+        for stack_level, stack_id in reversed(level_stack):
+            if stack_level == 6 and stack_id.startswith(parent_subsubsection):
+                # Extract the number part and increment
+                if len(stack_id) > len(parent_subsubsection):
+                    num_part = stack_id[len(parent_subsubsection):]
+                    if num_part.isdigit():
+                        subsubsubsection_num = int(num_part) + 1
+                        break
+            elif stack_level == 5:
+                # We've gone past sub-sub-subsections of this sub-subsection
+                break
+
+        return f"{parent_subsubsection}{subsubsection_num}"  # 1A1a1, 1A1a2, etc.
+
+    else:
+        # Fallback for any other levels
+        return f"L{level}_{len(level_stack) + 1}"
+
+def parse_text_outline(content: str) -> Tuple[List[OutlineSection], BookMetadata]:
+    """Parse plain text outline format with proper hierarchical structure."""
+    lines = content.strip().split('\n')
+    sections = []
+    metadata = BookMetadata(title="Converted from Text Outline")
+
+    # Track hierarchy levels
+    level_stack = []  # [(level, parent_id), ...]
+
+    for line in lines:
+        # Only strip trailing whitespace, preserve leading indentation
+        line = line.rstrip()
+        if not line:
+            continue
+
+        # Extract title if it's the first line and doesn't look like an outline item
+        if not sections and not re.match(r'^\s*[\d\w]+[\.\)]\s+', line):
+            metadata.title = line
+            continue
+
+        # Parse outline structure with comprehensive regex
+        # Matches: "1. Title", "  1A. Subtitle", "    1A1. Sub-sub", etc.
+        outline_match = re.match(r'^(\s*)([\d]+[A-Za-z\d]*|[A-Za-z]+)[\.\)]\s*(.+)$', line)
+
+        if outline_match:
+            indent, number, title = outline_match.groups()
+
+            # Calculate level based on indentation pattern
+            indent_len = len(indent)
+            if indent_len == 0:
+                level = 1  # "1. Title" - chapter level
+            elif indent_len == 2:
+                level = 2  # "  1A. Title" - section level
+            elif indent_len == 4:
+                level = 3  # "    1A1. Title" - subsection level
+            elif indent_len == 6:
+                level = 4  # "      1A1a. Title" - sub-subsection level
+            else:
+                level = min(5, (indent_len // 2) + 1)  # Fallback for deeper levels
+
+            # Generate hierarchical ID
+            section_id = generate_hierarchical_id(number, level, level_stack)
+
+            # Find parent ID
+            parent_id = None
+            if level > 1 and level_stack:
+                # Find the most recent parent at the previous level
+                for stack_level, stack_parent in reversed(level_stack):
+                    if stack_level == level - 1:
+                        parent_id = stack_parent
+                        break
+
+            # Update level stack
+            # Remove any levels deeper than current
+            level_stack = [(l, p) for l, p in level_stack if l < level]
+            # Add current level
+            level_stack.append((level, section_id))
+
+            sections.append(OutlineSection(
+                id=section_id,
+                title=title,
+                level=level,
+                parent_id=parent_id,
+                description=f"Level {level}: {title}"
+            ))
+
+    return sections, metadata
+
+def generate_hierarchical_id(number: str, level: int, level_stack: List[Tuple[int, str]]) -> str:
+    """Generate a hierarchical ID based on outline numbering and current stack."""
+    # Handle alphanumeric combinations like "1A", "2B", "1A1", "1A2", etc.
+    if re.match(r'^\d+[A-Za-z]+\d*$', number):
+        # This is already a hierarchical ID like "1A", "2B", "1A1", "1A2"
+        return number
+
+    elif number.isdigit():
+        # Pure numeric (1, 2, 3, etc.)
+        num = int(number)
+
+        if level == 1:
+            return str(num)
+        elif level == 2:
+            # Get parent chapter number
+            parent_chapter = "1"  # Default
+            for stack_level, stack_id in level_stack:
+                if stack_level == 1:
+                    parent_chapter = stack_id
+                    break
+            return f"{parent_chapter}{chr(64 + num)}"  # 1A, 1B, 2A, etc.
+        elif level == 3:
+            # Get parent section
+            parent_section = "1A"  # Default
+            for stack_level, stack_id in level_stack:
+                if stack_level == 2:
+                    parent_section = stack_id
+                    break
+            return f"{parent_section}{num}"  # 1A1, 1A2, 1B1, etc.
+        elif level == 4:
+            # Get parent subsection
+            parent_subsection = "1A1"  # Default
+            for stack_level, stack_id in level_stack:
+                if stack_level == 3:
+                    parent_subsection = stack_id
+                    break
+            return f"{parent_subsection}{chr(96 + num)}"  # 1A1a, 1A1b, etc.
+        else:
+            # For deeper levels, just append the number
+            return f"{level_stack[-1][1] if level_stack else '1'}{num}"
+
+    elif number.isalpha():
+        # Letter-based numbering (A, B, C, etc.)
+        letter = number.upper()
+
+        if level == 1:
+            return letter
+        elif level == 2:
+            parent_chapter = "1"  # Default
+            for stack_level, stack_id in level_stack:
+                if stack_level == 1:
+                    parent_chapter = stack_id
+                    break
+            return f"{parent_chapter}{letter}"
+        else:
+            # For deeper levels with letters
+            parent_id = level_stack[-1][1] if level_stack else "1"
+            return f"{parent_id}{letter.lower()}"
+
+    else:
+        # Roman numerals or other formats - treat as generic
+        if level == 1:
+            return f"1{number}"
+        else:
+            parent_id = level_stack[-1][1] if level_stack else "1"
+            return f"{parent_id}{number}"
 def parse_json_outline(content: str) -> Tuple[List[OutlineSection], BookMetadata]:
     """Parse JSON outline format (from lc_outline_generator.py)."""
     try:
@@ -300,8 +486,9 @@ def generate_book_structure(sections: List[OutlineSection], metadata: BookMetada
     book_sections = []
 
     for section in sections:
-        # Skip top-level sections (chapters) as they're not processed individually
-        if section.level <= 2:
+        # Include level 1+ sections (chapters, sections, and subsections)
+        # Level 1 = chapters, Level 2 = sections, Level 3+ = subsections
+        if section.level < 1:
             continue
 
         # Determine topic for batch/merge parameters
@@ -330,7 +517,6 @@ def generate_book_structure(sections: List[OutlineSection], metadata: BookMetada
                 section_entry["dependencies"].append(parent.id)
 
         book_sections.append(section_entry)
-
     # Create the complete book structure
     book_structure = {
         "title": metadata.title,
@@ -468,11 +654,11 @@ def display_conversion_summary(sections: List[OutlineSection], metadata: BookMet
     breakdown_table.add_column("Description", style="white")
 
     level_names = {
-        1: "Book Title",
-        2: "Chapters",
-        3: "Sections",
-        4: "Subsections",
-        5: "Sub-subsections",
+        1: "Chapters",
+        2: "Sections",
+        3: "Subsections",
+        4: "Sub-subsections",
+        5: "Sub-sub-subsections",
         6: "Sub-sub-subsections"
     }
 
@@ -539,7 +725,7 @@ def main():
     console.print("[blue]Generating job files...[/blue]")
     generated_jobs = 0
     for section in sections:
-        if section.level >= 3:  # Only generate jobs for subsections and below
+        if section.level >= 1:  # Generate jobs for chapters, sections and subsections
             generate_job_file(section, metadata, sections)
             generated_jobs += 1
 
