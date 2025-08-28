@@ -26,6 +26,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.prompt import Prompt, Confirm, IntPrompt
 
+from .job_generation import generate_job_file
+
 # --- ROOT relative to repo ---
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 ROOT = Path(root_dir)
@@ -536,94 +538,6 @@ def generate_book_structure(sections: List[OutlineSection], metadata: BookMetada
 
     return book_structure
 
-def generate_job_file(section: OutlineSection, metadata: BookMetadata, sections: List[OutlineSection]) -> Path:
-    """Generate a job file for a section with hierarchical context."""
-    job_file = ROOT / "data_jobs" / f"{section.id}.jsonl"
-    job_file.parent.mkdir(parents=True, exist_ok=True)
-
-    # Build hierarchical context
-    context_parts = []
-    current_id = section.id
-
-    # Build context by walking up the hierarchy
-    for _ in range(section.level):
-        current_section = next((s for s in sections if s.id == current_id), None)
-        if current_section:
-            if current_section.level == 2:
-                context_parts.insert(0, f"Chapter {current_section.id}")
-            elif current_section.level == 3:
-                context_parts.insert(0, f"Section {current_section.id[1]}")
-            elif current_section.level == 4:
-                context_parts.insert(0, f"Subsection {current_section.id[2]}")
-            elif current_section.level >= 5:
-                context_parts.insert(0, f"Sub-subsection {current_section.id[3:]}")
-
-            # Move to parent
-            current_section = next((s for s in sections if s.id == current_section.parent_id), None)
-            if current_section:
-                current_id = current_section.id
-            else:
-                break
-
-    hierarchy_context = " > ".join(context_parts)
-
-    # Generate contextual jobs
-    jobs = [
-        {
-            "task": f"You are a content writer creating educational material for '{metadata.title}'. Focus on practical applications for {metadata.target_audience}.",
-            "instruction": f"Write an engaging introduction to {section.title.lower()} within the context of {hierarchy_context}. Hook the reader and establish the importance of this subsection.",
-            "context": {
-                "book_title": metadata.title,
-                "hierarchy": hierarchy_context,
-                "subsection_id": section.id,
-                "target_audience": metadata.target_audience,
-                "topic": metadata.topic
-            }
-        },
-        {
-            "task": f"You are a content writer creating educational material for '{metadata.title}'. Focus on practical applications for {metadata.target_audience}.",
-            "instruction": f"Provide detailed explanations and examples for {section.title.lower()} as part of {hierarchy_context}. Include step-by-step processes where applicable.",
-            "context": {
-                "book_title": metadata.title,
-                "hierarchy": hierarchy_context,
-                "subsection_id": section.id,
-                "target_audience": metadata.target_audience,
-                "topic": metadata.topic
-            }
-        },
-        {
-            "task": f"You are a content writer creating educational material for '{metadata.title}'. Focus on practical applications for {metadata.target_audience}.",
-            "instruction": f"Create practical exercises, case studies, or activities related to {section.title.lower()} within {hierarchy_context}. Ensure activities are immediately applicable.",
-            "context": {
-                "book_title": metadata.title,
-                "hierarchy": hierarchy_context,
-                "subsection_id": section.id,
-                "target_audience": metadata.target_audience,
-                "topic": metadata.topic
-            }
-        },
-        {
-            "task": f"You are a content writer creating educational material for '{metadata.title}'. Focus on practical applications for {metadata.target_audience}.",
-            "instruction": f"Write a comprehensive summary of {section.title.lower()} that reinforces key concepts from {hierarchy_context} and provides actionable takeaways.",
-            "context": {
-                "book_title": metadata.title,
-                "hierarchy": hierarchy_context,
-                "subsection_id": section.id,
-                "target_audience": metadata.target_audience,
-                "topic": metadata.topic
-            }
-        }
-    ]
-
-    # Write jobs to file
-    with open(job_file, 'w', encoding='utf-8') as f:
-        for job in jobs:
-            f.write(json.dumps(job, ensure_ascii=False) + '\n')
-
-    console.print(f"[green]Generated job file: {job_file}[/green]")
-    console.print(f"[dim]Context: {hierarchy_context}[/dim]")
-
-    return job_file
 
 def display_conversion_summary(sections: List[OutlineSection], metadata: BookMetadata, book_structure: Dict[str, Any]):
     """Display summary of the conversion."""
@@ -726,7 +640,7 @@ def main():
     generated_jobs = 0
     for section in sections:
         if section.level >= 1:  # Generate jobs for chapters, sections and subsections
-            generate_job_file(section, metadata, sections)
+            generate_job_file(section, metadata, sections, use_llm=True, use_rag=False, rag_key=None)
             generated_jobs += 1
 
     # Save book structure

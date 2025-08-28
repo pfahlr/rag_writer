@@ -28,6 +28,8 @@ from rich.table import Table
 from rich.progress import Progress, TaskID
 from rich.prompt import Prompt, Confirm
 
+from .job_generation import generate_llm_job_file, generate_fallback_job_file
+
 # --- ROOT relative to repo ---
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 ROOT = Path(root_dir)
@@ -93,94 +95,8 @@ def load_book_structure(book_file: Path) -> BookStructure:
         console.print(f"[red]Error loading book structure: {e}[/red]")
         sys.exit(1)
 
-def generate_job_file(section: SectionConfig, book_structure: BookStructure, base_dir: Path) -> Path:
-    """Generate a job file for a section if it doesn't exist."""
-    if section.job_file and section.job_file.exists():
-        return section.job_file
 
-    # Create default job file
-    job_file = base_dir / "data_jobs" / f"{section.subsection_id}.jsonl"
-    job_file.parent.mkdir(parents=True, exist_ok=True)
-
-    # Parse hierarchical context from subsection_id
-    # Format: Chapter + Section + Subsection + Sub-subsection (e.g., "1A1", "2B3a")
-    subsection_id = section.subsection_id
-
-    # Extract hierarchical levels
-    chapter_num = subsection_id[0] if subsection_id[0].isdigit() else "1"
-    section_letter = subsection_id[1] if len(subsection_id) > 1 and subsection_id[1].isalpha() else "A"
-    subsection_num = subsection_id[2] if len(subsection_id) > 2 and subsection_id[2].isdigit() else "1"
-    subsubsection = subsection_id[3:] if len(subsection_id) > 3 else ""
-
-    # Build hierarchical context
-    chapter_title = f"Chapter {chapter_num}"
-    section_title = f"Section {section_letter}"
-    subsection_title = f"Subsection {subsection_num}"
-    if subsubsection:
-        subsection_title += f"{subsubsection}"
-
-    # Generate contextualized jobs
-    jobs = [
-        {
-            "task": f"You are a content writer creating educational material for '{book_structure.title}'. Focus on practical applications for {book_structure.metadata.get('target_audience', 'professionals')}.",
-            "instruction": f"Write an engaging introduction to {section.title.lower()} within the context of {chapter_title} > {section_title}. Hook the reader and establish the importance of this subsection.",
-            "context": {
-                "book_title": book_structure.title,
-                "chapter": chapter_title,
-                "section": section_title,
-                "subsection": subsection_title,
-                "subsection_id": subsection_id,
-                "target_audience": book_structure.metadata.get('target_audience', 'general audience')
-            }
-        },
-        {
-            "task": f"You are a content writer creating educational material for '{book_structure.title}'. Focus on practical applications for {book_structure.metadata.get('target_audience', 'professionals')}.",
-            "instruction": f"Provide detailed explanations and examples for {section.title.lower()} as part of {chapter_title} > {section_title} > {subsection_title}. Include step-by-step processes where applicable.",
-            "context": {
-                "book_title": book_structure.title,
-                "chapter": chapter_title,
-                "section": section_title,
-                "subsection": subsection_title,
-                "subsection_id": subsection_id,
-                "target_audience": book_structure.metadata.get('target_audience', 'general audience')
-            }
-        },
-        {
-            "task": f"You are a content writer creating educational material for '{book_structure.title}'. Focus on practical applications for {book_structure.metadata.get('target_audience', 'professionals')}.",
-            "instruction": f"Create practical exercises, case studies, or activities related to {section.title.lower()} within {chapter_title} > {section_title}. Ensure activities are immediately applicable.",
-            "context": {
-                "book_title": book_structure.title,
-                "chapter": chapter_title,
-                "section": section_title,
-                "subsection": subsection_title,
-                "subsection_id": subsection_id,
-                "target_audience": book_structure.metadata.get('target_audience', 'general audience')
-            }
-        },
-        {
-            "task": f"You are a content writer creating educational material for '{book_structure.title}'. Focus on practical applications for {book_structure.metadata.get('target_audience', 'professionals')}.",
-            "instruction": f"Write a comprehensive summary of {section.title.lower()} that reinforces key concepts from {chapter_title} > {section_title} and provides actionable takeaways.",
-            "context": {
-                "book_title": book_structure.title,
-                "chapter": chapter_title,
-                "section": section_title,
-                "subsection": subsection_title,
-                "subsection_id": subsection_id,
-                "target_audience": book_structure.metadata.get('target_audience', 'general audience')
-            }
-        }
-    ]
-
-    # Write jobs to file
-    with open(job_file, 'w', encoding='utf-8') as f:
-        for job in jobs:
-            f.write(json.dumps(job, ensure_ascii=False) + '\n')
-
-    console.print(f"[green]Generated contextualized job file: {job_file}[/green]")
-    console.print(f"[dim]Context: {chapter_title} > {section_title} > {subsection_title}[/dim]")
-    return job_file
-
-def run_batch_processing(section: SectionConfig, job_file: Path, progress: Progress, task: TaskID) -> bool:
+def run_batch_processing(section: SectionConfig, job_file: Path) -> bool:
     """Run batch processing for a section."""
     console.print(f"[blue]Running batch processing for {section.subsection_id}[/blue]")
 
@@ -207,7 +123,6 @@ def run_batch_processing(section: SectionConfig, job_file: Path, progress: Progr
             text=True,
             check=True
         )
-        progress.update(task, advance=50)
         console.print(f"[green]✓ Batch processing completed for {section.subsection_id}[/green]")
         return True
     except subprocess.CalledProcessError as e:
@@ -215,13 +130,28 @@ def run_batch_processing(section: SectionConfig, job_file: Path, progress: Progr
         console.print(f"[red]STDERR: {e.stderr}[/red]")
         return False
 
-def run_merge_processing(section: SectionConfig, progress: Progress, task: TaskID) -> Tuple[bool, str]:
+def run_merge_processing(section: SectionConfig, book_structure: BookStructure) -> Tuple[bool, str]:
     """Run merge processing for a section."""
     console.print(f"[blue]Running merge processing for {section.subsection_id}[/blue]")
 
+    # Parse hierarchical context from subsection_id
+    subsection_id = section.subsection_id
+    chapter_num = subsection_id[0] if subsection_id[0].isdigit() else "1"
+    section_letter = subsection_id[1] if len(subsection_id) > 1 and subsection_id[1].isalpha() else "A"
+    subsection_num = subsection_id[2] if len(subsection_id) > 2 and subsection_id[2].isdigit() else "1"
+
+    # Build hierarchical context using actual titles from book structure
+    chapter_title = f"Chapter {chapter_num}"
+    section_title = f"Section {section_letter}"
+    subsection_title = section.title  # Use the actual section title
+
+    # Use batch-only mode to avoid interactive prompts
     cmd = [
         sys.executable, str(ROOT / "src/langchain/lc_merge_runner.py"),
-        "--sub", section.subsection_id
+        "--batch-only",  # Force batch-only mode to avoid interactive prompts
+        "--chapter", chapter_title,
+        "--section", section_title,
+        "--subsection", subsection_title
     ]
 
     # Add merge parameters
@@ -238,22 +168,26 @@ def run_merge_processing(section: SectionConfig, progress: Progress, task: TaskI
             text=True,
             check=True
         )
-        progress.update(task, advance=50)
 
         # Extract merged content from result
-        merged_file = ROOT / "output" / "merged" / f"merged_content_{int(time.time())}.json"
-        if merged_file.exists():
-            with open(merged_file, 'r', encoding='utf-8') as f:
-                merge_data = json.load(f)
-                content = ""
-                for section_data in merge_data.get('sections', {}).values():
-                    content += section_data.get('merged_content', '')
+        # Look for the most recent merged content file
+        merged_dir = ROOT / "output" / "merged"
+        if merged_dir.exists():
+            merged_files = list(merged_dir.glob("merged_content_*.json"))
+            if merged_files:
+                # Get the most recent file
+                merged_file = max(merged_files, key=lambda f: f.stat().st_mtime)
+                with open(merged_file, 'r', encoding='utf-8') as f:
+                    merge_data = json.load(f)
+                    content = ""
+                    for section_data in merge_data.get('sections', {}).values():
+                        content += section_data.get('merged_content', '')
 
-            console.print(f"[green]✓ Merge processing completed for {section.subsection_id}[/green]")
-            return True, content
-        else:
-            console.print(f"[yellow]⚠ Merge completed but no output file found for {section.subsection_id}[/yellow]")
-            return True, ""
+                console.print(f"[green]✓ Merge processing completed for {section.subsection_id}[/green]")
+                return True, content
+
+        console.print(f"[yellow]⚠ Merge completed but no output file found for {section.subsection_id}[/yellow]")
+        return True, ""
 
     except subprocess.CalledProcessError as e:
         console.print(f"[red]✗ Merge processing failed for {section.subsection_id}: {e}[/red]")
@@ -314,7 +248,13 @@ def main():
     ap.add_argument("--output", help="Output markdown file path")
     ap.add_argument("--force", action="store_true", help="Force regeneration of all content")
     ap.add_argument("--skip-merge", action="store_true", help="Skip merge processing, only run batch")
+    ap.add_argument("--use-rag", action="store_true", help="Use RAG for additional context when generating job prompts")
+    ap.add_argument("--rag-key", help="Collection key for RAG retrieval (required if --use-rag is specified)")
     args = ap.parse_args()
+
+    # Validate RAG arguments
+    if args.use_rag and not args.rag_key:
+        ap.error("--rag-key is required when --use-rag is specified")
 
     # Display header
     console.print()
@@ -364,11 +304,33 @@ def main():
         for section in book_structure.sections:
             progress.update(main_task, description=f"Processing {section.subsection_id}...")
 
+            # Parse hierarchical context from subsection_id
+            subsection_id = section.subsection_id
+            chapter_num = subsection_id[0] if subsection_id[0].isdigit() else "1"
+            section_letter = subsection_id[1] if len(subsection_id) > 1 and subsection_id[1].isalpha() else "A"
+            subsection_num = subsection_id[2] if len(subsection_id) > 2 and subsection_id[2].isdigit() else "1"
+
+            # Build hierarchical context
+            chapter_title = f"Chapter {chapter_num}"
+            section_title = f"Section {section_letter}"
+
             # Generate job file if needed
-            job_file = generate_job_file(section, book_structure, ROOT)
+            job_file = generate_llm_job_file(
+                section_id=section.subsection_id,
+                section_title=section.title,
+                book_title=book_structure.title,
+                chapter_title=chapter_title,
+                section_title_hierarchy=section_title,
+                subsection_title=section.title,
+                target_audience=book_structure.metadata.get('target_audience', 'general audience'),
+                topic=book_structure.metadata.get('topic', ''),
+                use_rag=args.use_rag,
+                rag_key=args.rag_key,
+                base_dir=ROOT
+            )
 
             # Run batch processing
-            batch_success = run_batch_processing(section, job_file, progress, main_task)
+            batch_success = run_batch_processing(section, job_file)
 
             if not batch_success:
                 failed_sections.append(section.subsection_id)
@@ -377,7 +339,7 @@ def main():
 
             # Run merge processing (unless skipped)
             if not args.skip_merge:
-                merge_success, content = run_merge_processing(section, progress, main_task)
+                merge_success, content = run_merge_processing(section, book_structure)
                 if merge_success:
                     section_contents[section.subsection_id] = content
                 else:

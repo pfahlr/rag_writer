@@ -738,6 +738,9 @@ def main():
     ap.add_argument("--key", help="Collection key for lc_ask")
     ap.add_argument("--k", type=int, help="Retriever top-k for lc_ask")
     ap.add_argument("--batch-only", action="store_true", help="Force use of batch results only (skip job file prompts)")
+    ap.add_argument("--chapter", help="Chapter title for context")
+    ap.add_argument("--section", help="Section title for context")
+    ap.add_argument("--subsection", help="Subsection title for context")
     args = ap.parse_args()
 
     # Display header
@@ -751,13 +754,26 @@ def main():
     # Load batch results (always available as fallback)
     console.print()
     console.print("[dim]Loading batch results...[/dim]")
-    sections = load_batch_results()
+    try:
+        sections = load_batch_results()
+    except SystemExit:
+        # If no batch results and we're in batch-only mode, exit gracefully
+        if args.batch_only:
+            console.print("[yellow]No batch results found. Nothing to process.[/yellow]")
+            return
+        else:
+            # Re-raise for interactive mode
+            raise
 
     # Load available merge types
     merge_types = load_merge_types()
 
-    # Select merge type
-    selected_merge_type = select_merge_type(merge_types)
+    # Select merge type (use default in batch-only mode)
+    if args.batch_only:
+        selected_merge_type = list(merge_types.keys())[0]  # Use first available merge type
+        console.print(f"[dim]Batch-only mode: Using default merge type '{selected_merge_type}'[/dim]")
+    else:
+        selected_merge_type = select_merge_type(merge_types)
     merge_config = merge_types[selected_merge_type]
 
     console.print()
@@ -814,8 +830,23 @@ def main():
             console.print("[red]No valid jobs found in the file.[/red]")
             return
 
-        # Get context information
-        context = get_context_info()
+        # Get context information (use command line args if provided, otherwise prompt)
+        if args.chapter and args.section and args.subsection:
+            context = {
+                'chapter': args.chapter,
+                'section': args.section,
+                'subsection': args.subsection
+            }
+            console.print(f"[dim]Using provided context: {args.chapter} > {args.section} > {args.subsection}[/dim]")
+        elif args.batch_only:
+            context = {
+                'chapter': 'Chapter',
+                'section': 'Section',
+                'subsection': 'Subsection'
+            }
+            console.print(f"[dim]Batch-only mode: Using default context[/dim]")
+        else:
+            context = get_context_info()
 
         # Set processing parameters
         subsection_id = job_file.stem
@@ -878,17 +909,26 @@ def main():
     else:
         # Batch processing mode
         if not sections:
-            console.print("[red]No batch results found and job processing not selected.[/red]")
+            console.print("[red]No batch results found. Please run lc-batch first or specify job files.[/red]")
             return
 
         # Display available sections
         display_sections(sections)
 
         # Select sections to merge
-        selected_sections = select_sections(sections)
+        if args.batch_only:
+            # In batch-only mode, process all sections automatically
+            selected_sections = list(sections.keys())
+            console.print(f"[green]Batch-only mode: Processing all {len(selected_sections)} sections[/green]")
+        else:
+            selected_sections = select_sections(sections)
 
         # Filter sections based on selection
         sections_to_process = {name: sections[name] for name in selected_sections}
+
+        if not sections_to_process:
+            console.print("[yellow]No sections selected for processing.[/yellow]")
+            return
 
         console.print()
         console.print(f"[green]Selected {len(selected_sections)} section(s) for merging:[/green]")
@@ -896,8 +936,23 @@ def main():
             console.print(f"[dim]• {section}[/dim]")
         console.print()
 
-        # Get context information
-        context = get_context_info()
+        # Get context information (use command line args if provided, otherwise prompt)
+        if args.chapter and args.section and args.subsection:
+            context = {
+                'chapter': args.chapter,
+                'section': args.section,
+                'subsection': args.subsection
+            }
+            console.print(f"[dim]Using provided context: {args.chapter} > {args.section} > {args.subsection}[/dim]")
+        elif args.batch_only:
+            context = {
+                'chapter': 'Chapter',
+                'section': 'Section',
+                'subsection': 'Subsection'
+            }
+            console.print(f"[dim]Batch-only mode: Using default context[/dim]")
+        else:
+            context = get_context_info()
 
         # Check if this is a multi-stage pipeline
         is_advanced_pipeline = merge_config.get("stages") is not None
