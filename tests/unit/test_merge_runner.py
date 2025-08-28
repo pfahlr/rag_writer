@@ -27,8 +27,11 @@ class TestMergeTypeLoading:
 
     def test_load_merge_types_valid(self, temp_dir):
         """Test loading valid merge types YAML."""
-        # Create test merge types file
-        merge_types_file = temp_dir / "merge_types.yaml"
+        # Create test merge types file in the expected location
+        merge_types_dir = temp_dir / "src" / "tool" / "prompts"
+        merge_types_dir.mkdir(parents=True, exist_ok=True)
+        merge_types_file = merge_types_dir / "merge_types.yaml"
+
         merge_config = {
             "generic_editor": {
                 "description": "Basic editor merge",
