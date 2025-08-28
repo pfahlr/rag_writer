@@ -39,11 +39,22 @@ def load_batch_results() -> Dict[str, List[Dict[str, Any]]]:
     # Load all batch result files
     for json_file in output_dir.glob("batch_results_*.json"):
         try:
+            # Extract timestamp from filename
+            timestamp = int(json_file.stem.split('_')[-1])
+
             with open(json_file, 'r', encoding='utf-8') as f:
                 results = json.load(f)
 
-            for result in results:
+            for i, result in enumerate(results):
                 section = result.get('section', 'unknown')
+                # Add metadata for sorting
+                result['_timestamp'] = timestamp
+                result['_file_position'] = i
+                result['_filename'] = json_file.name
+                # Format date for display
+                from datetime import datetime
+                dt = datetime.fromtimestamp(timestamp)
+                result['_formatted_date'] = dt.strftime('%Y-%m-%d %H:%M:%S')
                 sections[section].append(result)
 
         except Exception as e:
@@ -87,13 +98,21 @@ def display_sections(sections: Dict[str, List[Dict[str, Any]]]) -> str:
     for i, name in enumerate(section_names, 1):
         console.print(f"[cyan]{i}[/cyan]. {name}")
 
+    console.print(f"[cyan]{len(section_names) + 1}[/cyan]. Exit")
+
     while True:
         try:
-            choice = Prompt.ask("\nSelect a section (number or name)", console=console)
-            if choice.isdigit():
+            choice = Prompt.ask("\nSelect a section (number or name) or 'exit' to quit", console=console)
+            if choice.lower() in ['exit', 'quit', 'q']:
+                console.print("[yellow]Goodbye![/yellow]")
+                sys.exit(0)
+            elif choice.isdigit():
                 idx = int(choice) - 1
                 if 0 <= idx < len(section_names):
                     return section_names[idx]
+                elif idx == len(section_names):  # Exit option
+                    console.print("[yellow]Goodbye![/yellow]")
+                    sys.exit(0)
             elif choice in section_names:
                 return choice
             console.print("[red]Invalid choice. Please try again.[/red]")
@@ -129,11 +148,14 @@ def display_variations(section_name: str, variations: List[Dict[str, Any]]):
     # Let user choose viewing mode
     while True:
         try:
-            choice = Prompt.ask("Choose view mode: (number) for detailed view, 'slideshow' for sequential view, or 'back' to return", console=console)
+            choice = Prompt.ask("Choose view mode: (number) for detailed view, 'slideshow' for sequential view, 'consolidated' for all-in-one view, or 'back' to return", console=console)
             if choice.lower() == 'back':
                 return
             elif choice.lower() == 'slideshow':
                 slideshow_variations(section_name, variations)
+                return
+            elif choice.lower() == 'consolidated':
+                consolidated_view(section_name, variations)
                 return
             elif choice.isdigit():
                 idx = int(choice) - 1
@@ -220,6 +242,73 @@ def slideshow_variations(section_name: str, variations: List[Dict[str, Any]]):
             else:
                 console.print("[red]Invalid navigation command.[/red]")
                 continue
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Returning to variations list...[/yellow]")
+            return
+
+def consolidated_view(section_name: str, variations: List[Dict[str, Any]]):
+    """Display all variations in one consolidated view with save functionality."""
+    # Sort variations by timestamp and file position
+    sorted_variations = sorted(variations, key=lambda x: (x['_timestamp'], x['_file_position']))
+
+    while True:
+        console.clear()
+
+        console.print(f"[bold cyan]Consolidated View - Section: {section_name}[/bold cyan]")
+        console.print(f"[dim]Showing {len(sorted_variations)} variations[/dim]\n")
+
+        # Build the full content for display and potential saving
+        full_content = []
+        for i, variation in enumerate(sorted_variations, 1):
+            content = variation.get('generated_content', 'No content')
+            timestamp = variation['_timestamp']
+            date_str = variation.get('_formatted_date', 'Unknown date')
+
+            # Create separator
+            separator = f"---\nsection {section_name}, variation {i}, date {date_str}\n---"
+
+            full_content.append(separator)
+            full_content.append(content)
+            full_content.append("")  # Empty line after content
+
+        # Display the content
+        for line in full_content:
+            console.print(line)
+
+        console.print("\n[dim]Navigation: 'w' (write to file), 'back' (return to variations)[/dim]")
+
+        try:
+            choice = Prompt.ask("Choose action", console=console, default="back").lower()
+            if choice in ['back', 'b', '']:
+                return
+            elif choice in ['w', 'write']:
+                # Prompt for filename
+                filename_base = Prompt.ask("Enter filename (without extension)", console=console)
+                if filename_base.strip():
+                    # Generate filename with timestamp and .md extension
+                    import time
+                    timestamp = int(time.time())
+                    filename = f"{filename_base}_{timestamp}.md"
+
+                    # Write content to file
+                    try:
+                        with open('./output/'+filename, 'w', encoding='utf-8') as f:
+                            f.write('\n'.join(full_content))
+                        console.print(f"[green]Content saved to: {filename}[/green]")
+                        console.print("[dim]Press Enter to continue...[/dim]")
+                        input()
+                    except Exception as e:
+                        console.print(f"[red]Error saving file: {e}[/red]")
+                        console.print("[dim]Press Enter to continue...[/dim]")
+                        input()
+                else:
+                    console.print("[yellow]Filename cannot be empty.[/yellow]")
+                    console.print("[dim]Press Enter to continue...[/dim]")
+                    input()
+            else:
+                console.print("[red]Invalid choice. Use 'w' to write or 'back' to return.[/red]")
+                console.print("[dim]Press Enter to continue...[/dim]")
+                input()
         except KeyboardInterrupt:
             console.print("\n[yellow]Returning to variations list...[/yellow]")
             return
