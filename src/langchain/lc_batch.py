@@ -12,6 +12,7 @@ import json
 import time
 import subprocess
 from pathlib import Path
+from typing import Dict, List, Any
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -25,7 +26,7 @@ ROOT = Path(root_dir)
 
 console = Console()
 
-def run_lc_ask(task: str, instruction: str, key: str = "default", content_type: str = "pure_research"):
+def run_lc_ask(task: str, instruction: str, key: str = "default", content_type: str = "pure_research", topk: int = None):
     """Run lc-ask with given parameters and return parsed JSON result."""
     cmd = [
         sys.executable, str(ROOT / "src/langchain/lc_ask.py"),
@@ -37,7 +38,14 @@ def run_lc_ask(task: str, instruction: str, key: str = "default", content_type: 
         cmd.extend(["--task", task])
 
     # Add key, content type, and instruction
-    cmd.extend(["--key", key, "--content-type", content_type, instruction])
+    cmd.extend(["--key", key, "--content-type", content_type])
+
+    # Add top-k if specified
+    if topk:
+        cmd.extend(["--k", str(topk)])
+
+    # Add instruction as the final argument
+    cmd.append(instruction)
 
     try:
         result = subprocess.run(
@@ -55,7 +63,50 @@ def run_lc_ask(task: str, instruction: str, key: str = "default", content_type: 
         # Return error info instead of printing
         return {"error": f"JSON decode error: {e}", "generated_content": "", "sources": []}
 
+def load_jsonl_file(file_path: str) -> List[Dict[str, Any]]:
+    """Load data from a JSONL file (one JSON object per line)."""
+    data = []
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if line:
+                    try:
+                        item = json.loads(line)
+                        data.append(item)
+                    except json.JSONDecodeError as e:
+                        console.print(f"[yellow]Warning: Invalid JSON on line {line_num}: {e}[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error reading file {file_path}: {e}[/red]")
+        sys.exit(1)
+
+    return data
+
 def main():
+    # Parse command line arguments
+    import argparse
+    ap = argparse.ArgumentParser(description="Process multiple queries and save results to timestamped files")
+    ap.add_argument("--jobs", help="JSON or JSONL file containing job definitions")
+    ap.add_argument("--key", default="default", help="Collection key for lc_ask")
+    ap.add_argument("--content-type", default="pure_research", help="Content type for lc_ask")
+    ap.add_argument("--k", type=int, help="Retriever top-k for lc_ask")
+
+    # For backward compatibility, also accept positional arguments
+    if len(sys.argv) > 1 and not sys.argv[1].startswith('--'):
+        # Legacy mode: positional arguments
+        args = ap.parse_args([])
+        input_file = sys.argv[1]
+        args.key = sys.argv[2] if len(sys.argv) > 2 else "default"
+        args.content_type = sys.argv[3] if len(sys.argv) > 3 else "pure_research"
+    else:
+        # New mode: named arguments
+        args = ap.parse_args()
+
+        if not args.jobs:
+            console.print("[red]Error: --jobs argument is required[/red]")
+            sys.exit(1)
+        input_file = args.jobs
+
     # Display header
     console.print()
     console.print(Panel.fit(
@@ -66,35 +117,30 @@ def main():
     console.print()
 
     # Input handling
-    if len(sys.argv) > 1:
-        input_file = sys.argv[1]
-        console.print(f"[dim]Reading from file: {input_file}[/dim]")
-        try:
-            with open(input_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-        except FileNotFoundError:
-            console.print(f"[red]Error: File '{input_file}' not found[/red]")
-            sys.exit(1)
-        except json.JSONDecodeError as e:
-            console.print(f"[red]Error parsing JSON file: {e}[/red]")
-            sys.exit(1)
-    else:
-        console.print("[dim]Reading from stdin...[/dim]")
-        try:
-            data = json.load(sys.stdin)
-        except json.JSONDecodeError as e:
-            console.print(f"[red]Error parsing JSON from stdin: {e}[/red]")
-            sys.exit(1)
+    console.print(f"[dim]Reading from file: {input_file}[/dim]")
 
-    if not isinstance(data, list):
-        console.print("[red]Error: Input must be a JSON array[/red]")
-        sys.exit(1)
+    # Try JSON first, then JSONL
+    data = None
+    try:
+        with open(input_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if not isinstance(data, list):
+            console.print("[red]Error: JSON file must contain an array[/red]")
+            sys.exit(1)
+        console.print("[dim]Detected JSON array format[/dim]")
+    except json.JSONDecodeError:
+        # Try JSONL format
+        console.print("[dim]JSON array failed, trying JSONL format...[/dim]")
+        data = load_jsonl_file(input_file)
+        if not data:
+            console.print("[red]Error: No valid data found in file[/red]")
+            sys.exit(1)
+        console.print("[dim]Detected JSONL format[/dim]")
 
-    # Get optional key and content_type parameters
-    key = sys.argv[2] if len(sys.argv) > 2 else "default"
-    content_type = sys.argv[3] if len(sys.argv) > 3 else "pure_research"
-    console.print(f"[dim]Using collection key: {key}[/dim]")
-    console.print(f"[dim]Using content type: {content_type}[/dim]")
+    console.print(f"[dim]Using collection key: {args.key}[/dim]")
+    console.print(f"[dim]Using content type: {args.content_type}[/dim]")
+    if hasattr(args, 'k') and args.k:
+        console.print(f"[dim]Using retriever top-k: {args.k}[/dim]")
     console.print()
 
     # Validate data
@@ -142,7 +188,7 @@ def main():
 
             try:
                 # Run lc-ask
-                result = run_lc_ask(task_text, instruction, key, content_type)
+                result = run_lc_ask(task_text, instruction, args.key, args.content_type, getattr(args, 'k', None))
 
                 # Add metadata to result
                 result['section'] = section

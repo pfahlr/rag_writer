@@ -192,8 +192,12 @@ def run_batch_processing(section: SectionConfig, job_file: Path, progress: Progr
     # Add batch parameters
     if section.batch_params.get('key'):
         cmd.extend(["--key", section.batch_params['key']])
+    if section.batch_params.get('content_type'):
+        cmd.extend(["--content-type", section.batch_params['content_type']])
     if section.batch_params.get('k'):
         cmd.extend(["--k", str(section.batch_params['k'])])
+
+    console.print(f"[dim]Command: {' '.join(cmd)}[/dim]")
 
     try:
         result = subprocess.run(
