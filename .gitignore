@@ -9,4 +9,5 @@ storage/*
 venv/*
 .vscode/*
 tasks/*
+.kilocode/*
 
