@@ -218,26 +218,38 @@ def mock_subprocess_run():
 
 @pytest.fixture(autouse=True)
 def mock_root_directory(temp_dir):
-    """Mock the ROOT directory for testing."""
-    with patch('langchain.lc_outline_converter.ROOT', temp_dir), \
-         patch('langchain.lc_batch.ROOT', temp_dir), \
-         patch('langchain.lc_merge_runner.ROOT', temp_dir), \
-         patch('langchain.lc_book_runner.ROOT', temp_dir):
+    """Mock the root directory for testing by patching the config system."""
+    # Mock the config to use our temp directory
+    with patch('src.config.settings.get_config') as mock_get_config:
+        mock_config = Mock()
+        mock_config.paths.root_dir = temp_dir
+        mock_config.paths.data_raw_dir = temp_dir / "data_raw"
+        mock_config.paths.data_processed_dir = temp_dir / "data_processed"
+        mock_config.paths.storage_dir = temp_dir / "storage"
+        mock_config.paths.output_dir = temp_dir / "output"
+        mock_config.paths.exports_dir = temp_dir / "exports"
+        mock_config.paths.outlines_dir = temp_dir / "outlines"
+        mock_config.paths.data_jobs_dir = temp_dir / "data_jobs"
+        mock_config.rag_key = "test"
+        mock_config.job_generation.default_prompts_per_section = 4
+        mock_config.job_generation.min_prompts_per_section = 1
+        mock_config.job_generation.max_prompts_per_section = 10
+        mock_get_config.return_value = mock_config
         yield temp_dir
 
 
 @pytest.fixture
 def mock_console():
     """Mock Rich console for testing."""
-    with patch('langchain.lc_outline_converter.console') as mock_console, \
-         patch('langchain.lc_batch.console') as mock_batch_console, \
-         patch('langchain.lc_merge_runner.console') as mock_merge_console, \
-         patch('langchain.lc_book_runner.console') as mock_book_console:
+    console_mock = Mock()
+    console_mock.print = Mock()
+    console_mock.rule = Mock()
+    console_mock.status = Mock()
 
-        # Configure all console mocks to do nothing
-        for console_mock in [mock_console, mock_batch_console, mock_merge_console, mock_book_console]:
-            console_mock.print = Mock()
-            console_mock.rule = Mock()
-            console_mock.status = Mock()
+    # Patch console imports in the modules that use it
+    with patch('src.langchain.lc_outline_converter.console', console_mock), \
+         patch('src.langchain.lc_merge_runner.console', console_mock), \
+         patch('src.langchain.lc_book_runner.console', console_mock), \
+         patch('src.langchain.job_generation.console', console_mock):
 
-        yield mock_console
+        yield console_mock

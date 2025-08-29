@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch, Mock
 
-from langchain.lc_outline_converter import (
+from src.langchain.lc_outline_converter import (
     parse_text_outline,
     parse_markdown_outline,
     parse_json_outline,
@@ -197,7 +197,8 @@ class TestBookStructureGeneration:
 
     def test_generate_book_structure(self, sample_outline_sections, sample_book_metadata, temp_dir):
         """Test generation of book structure JSON."""
-        with patch('langchain.lc_outline_converter.ROOT', temp_dir):
+        with patch('src.langchain.lc_outline_converter.ROOT', temp_dir), \
+             patch('src.langchain.job_generation.ROOT', temp_dir):
             book_structure = generate_book_structure(sample_outline_sections, sample_book_metadata)
 
             assert book_structure["title"] == sample_book_metadata.title
@@ -212,7 +213,7 @@ class TestBookStructureGeneration:
 
     def test_book_structure_dependencies(self, sample_outline_sections, sample_book_metadata, temp_dir):
         """Test dependency generation in book structure."""
-        with patch('langchain.lc_outline_converter.ROOT', temp_dir):
+        with patch('src.langchain.lc_outline_converter.ROOT', temp_dir):
             book_structure = generate_book_structure(sample_outline_sections, sample_book_metadata)
 
             # Find sections with dependencies
@@ -232,7 +233,7 @@ class TestJobFileGeneration:
 
     def test_generate_job_file(self, sample_outline_sections, sample_book_metadata, temp_dir, mock_console):
         """Test generation of job files."""
-        with patch('langchain.lc_outline_converter.ROOT', temp_dir):
+        with patch('src.langchain.lc_outline_converter.ROOT', temp_dir):
             section = sample_outline_sections[2]  # 1A1 subsection
             job_file = generate_job_file(section, sample_book_metadata, sample_outline_sections)
 
@@ -250,7 +251,8 @@ class TestJobFileGeneration:
 
     def test_job_file_context(self, sample_outline_sections, sample_book_metadata, temp_dir, mock_console):
         """Test hierarchical context in job files."""
-        with patch('langchain.lc_outline_converter.ROOT', temp_dir):
+        with patch('src.langchain.lc_outline_converter.ROOT', temp_dir), \
+             patch('src.langchain.job_generation.ROOT', temp_dir):
             section = sample_outline_sections[2]  # 1A1 subsection
             generate_job_file(section, sample_book_metadata, sample_outline_sections)
 
@@ -259,8 +261,8 @@ class TestJobFileGeneration:
 
             context = job["context"]
             assert context["book_title"] == sample_book_metadata.title
-            assert "Chapter 1" in context["hierarchy"]
-            assert "Section A" in context["hierarchy"]
+            assert context["chapter"] == "Chapter 1A"
+            assert context["section"] == "Section A"
             assert context["subsection_id"] == "1A1"
 
 
@@ -305,7 +307,8 @@ class TestIntegration:
         input_file = temp_dir / "test_outline.txt"
         input_file.write_text(sample_text_outline)
 
-        with patch('langchain.lc_outline_converter.ROOT', temp_dir):
+        with patch('src.langchain.lc_outline_converter.ROOT', temp_dir), \
+             patch('src.langchain.job_generation.ROOT', temp_dir):
             # Load and parse outline
             sections, metadata = load_outline_file(input_file)
 
