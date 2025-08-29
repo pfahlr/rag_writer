@@ -1,18 +1,29 @@
 #!/usr/bin/env python3
 """
-LangChain batch processor for multiple lc-ask calls
+LangChain batch processor for multiple RAG queries
 
-Reads a JSON array of objects with 'task', 'instruction', and 'section' fields,
-calls lc-ask for each item, and writes results to a timestamped JSON file.
+Refactored to use centralized core modules for better maintainability and performance.
+
+Features:
+- Direct RAG processing (no subprocess calls)
+- Parallel processing support
+- Centralized configuration management
+- Standardized error handling
+- Source citation extraction and deduplication
 """
 
 import os
 import sys
 import json
 import time
+import re
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+from langchain_core.prompts import ChatPromptTemplate
+
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -20,48 +31,223 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeEl
 from rich.text import Text
 from rich.prompt import Confirm
 
-# --- ROOT relative to repo ---
-root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
-ROOT = Path(root_dir)
+# Import our new core modules
+from core.retriever import RetrieverFactory, RetrieverConfig
+from core.llm import LLMFactory, LLMConfig
+from config.settings import get_config
+from utils.error_handler import handle_and_exit, validate_collection
 
 console = Console()
 
-def run_lc_ask(task: str, instruction: str, key: str = "default", content_type: str = "pure_research", topk: int = None):
-    """Run lc-ask with given parameters and return parsed JSON result."""
-    cmd = [
-        sys.executable, str(ROOT / "src/langchain/lc_ask.py"),
-        "ask",  # Specify the ask command
-    ]
+# Get centralized configuration
+config = get_config()
 
-    # Only add --task if it has a value
-    if task and task.strip():
-        cmd.extend(["--task", task])
+# Keep ROOT for backward compatibility with tests
+ROOT = config.paths.root_dir
 
-    # Add key, content type, and instruction
-    cmd.extend(["--key", key, "--content-type", content_type])
+# Constants
+DOI_RE = re.compile(r'\b10\.\d{4,9}/[-._;()/:a-z0-9]*[a-z0-9]\b', re.I)
+USER_PROMPT = (
+    "Question:\n{question}\n\n"
+    "Use the context below to answer. Include page-cited quotes for key claims.\n\n"
+    "Context:\n{context}"
+)
 
-    # Add top-k if specified
-    if topk:
-        cmd.extend(["--k", str(topk)])
-
-    # Add instruction as the final argument
-    cmd.append(instruction)
+def load_content_types():
+    """Load content types from YAML files using centralized config."""
+    content_types_dir = config.paths.root_dir / "src/tool/prompts/content_types"
+    content_types = {}
 
     try:
-        result = subprocess.run(
-            cmd,
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            check=True
+        import yaml
+
+        # Load all YAML files from the content_types directory
+        if content_types_dir.exists():
+            for yaml_file in content_types_dir.glob("*.yaml"):
+                try:
+                    with open(yaml_file, 'r', encoding='utf-8') as f:
+                        data = yaml.safe_load(f) or {}
+                        # Use filename without extension as the content type key
+                        content_type_key = yaml_file.stem
+                        content_types[content_type_key] = data
+                except Exception as e:
+                    console.print(f"[yellow]Warning: Could not load content type from {yaml_file}: {e}[/yellow]")
+        else:
+            console.print(f"[yellow]Warning: Content types directory not found: {content_types_dir}[/yellow]")
+
+        return content_types
+    except Exception as e:
+        console.print(f"[red]Error loading content types: {e}[/red]")
+        return {}
+
+
+def get_system_prompt(content_type: str) -> str:
+    """Get system prompt for a content type."""
+    content_types = load_content_types()
+
+    if content_type not in content_types:
+        available_types = list(content_types.keys())
+        raise ValueError(f"Unknown content type '{content_type}'. Available types: {', '.join(available_types)}")
+
+    system_prompt_parts = content_types[content_type].get("system_prompt", [])
+    if not system_prompt_parts:
+        raise ValueError(f"No system prompt defined for content type '{content_type}'")
+
+    return "".join(system_prompt_parts)
+
+
+def _norm(s: str) -> str:
+    """Normalize string for comparison."""
+    return re.sub(r'\W+', ' ', (s or '')).strip().lower()
+
+
+def _extract_cited(docs, answer: str):
+    """Return (cited_docs, uncited_docs) based on title/DOI matches in the answer text."""
+    if not answer or not docs:
+        return [], docs
+
+    ans = answer.lower()
+    ans_norm = _norm(answer)
+    cited, uncited = [], []
+
+    for d in docs:
+        title = d.metadata.get("title") or Path(d.metadata.get("source", " ")).stem
+        title_norm = _norm(title)
+        doi = (d.metadata.get("doi") or "").lower()
+
+        hit = False
+        # 1) Exact/normalized title presence
+        if title and (title.lower() in ans or title_norm and title_norm in ans_norm):
+            hit = True
+        # 2) DOI presence
+        if not hit and doi:
+            if doi in ans or any(m.group(0).lower() == doi for m in DOI_RE.finditer(ans)):
+                hit = True
+
+        if hit:
+            cited.append(d)
+        else:
+            uncited.append(d)
+
+    return cited, uncited
+
+
+def _fmt_doc_for_context(d):
+    """Format document for context inclusion."""
+    title = d.metadata.get("title") or Path(d.metadata.get("source", " ")).stem
+    page = d.metadata.get("page")
+    header = f"[{title}, p.{page}]" if page else f"[{title}]"
+    return f"{header}\n{d.page_content}"
+
+
+def _format_context(docs):
+    """Format documents into context string."""
+    return "\n\n---\n\n".join(_fmt_doc_for_context(d) for d in docs)
+
+
+def run_rag_query(task: str, instruction: str, key: str = "default", content_type: str = "pure_research", topk: int = None):
+    """Run RAG query directly using core modules (no subprocess calls)."""
+    try:
+        # Validate collection exists
+        validate_collection(key, config.paths.storage_dir)
+
+        # Initialize retriever
+        factory = RetrieverFactory(config.paths.root_dir)
+        retriever_config = RetrieverConfig(
+            key=key,
+            k=topk or config.retriever.default_k,
+            embedding_model=config.embedding.model_name,
+            openai_model=config.llm.openai_model,
+            rerank_model=config.retriever.rerank_model,
+            vector_weight=config.retriever.vector_weight,
+            bm25_weight=config.retriever.bm25_weight,
+            use_reranking=config.retriever.use_reranking
         )
-        return json.loads(result.stdout)
-    except subprocess.CalledProcessError as e:
-        # Return error info instead of printing
-        return {"error": str(e), "generated_content": "", "sources": []}
-    except json.JSONDecodeError as e:
-        # Return error info instead of printing
-        return {"error": f"JSON decode error: {e}", "generated_content": "", "sources": []}
+        retriever = factory.create_hybrid_retriever(retriever_config)
+
+        # Initialize LLM
+        llm_config = LLMConfig(
+            model=config.llm.openai_model,
+            temperature=config.llm.temperature,
+            max_tokens=config.llm.max_tokens,
+            openai_api_key=config.openai_api_key,
+            ollama_model=config.llm.ollama_model
+        )
+        llm_factory = LLMFactory(llm_config)
+        backend, llm = llm_factory.create_llm()
+
+        # Retrieve documents
+        docs = []
+        if hasattr(retriever, "get_relevant_documents"):
+            docs = retriever.get_relevant_documents(instruction)
+        elif hasattr(retriever, "invoke"):
+            docs = retriever.invoke(instruction)
+        elif hasattr(retriever, "retrieve"):
+            docs = retriever.retrieve(instruction)
+        else:
+            docs = retriever(instruction)
+
+        context_text = _format_context(docs) if docs else ""
+
+        # Build final question
+        final_question = f"{task} {instruction}".strip() if task and task.strip() else instruction
+
+        # Get system prompt
+        system_prompt = get_system_prompt(content_type)
+
+        # Create prompt and generate response
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            ("human", USER_PROMPT),
+        ])
+
+        messages = prompt.format_messages(question=final_question, context=context_text)
+
+        # Generate content
+        if backend in ("lc_openai", "ollama"):
+            resp = llm.invoke(messages)
+            generated_content = resp.content
+        elif backend == "raw_openai":
+            msgs = [{"role": "system" if m.type == "system" else "user", "content": m.content}
+                    for m in messages]
+            content = llm.chat.completions.create(
+                model=config.llm.openai_model,
+                messages=msgs,
+                temperature=config.llm.temperature,
+            ).choices[0].message.content
+            generated_content = content
+        else:
+            raise ValueError(f"Unsupported backend: {backend}")
+
+        # Extract cited sources
+        cited_docs, _ = _extract_cited(docs, generated_content)
+
+        # Deduplicate sources by article
+        sources = []
+        seen_articles = set()
+        for d in cited_docs:
+            title = d.metadata.get("title") or Path(d.metadata.get("source", " ")).stem
+            source_path = d.metadata.get("source", "")
+
+            article_id = title if title else source_path
+            if article_id and article_id not in seen_articles:
+                seen_articles.add(article_id)
+                sources.append({
+                    "title": title,
+                    "source": source_path
+                })
+
+        return {
+            "generated_content": generated_content,
+            "sources": sources
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "generated_content": "",
+            "sources": []
+        }
 
 def load_jsonl_file(file_path: str) -> List[Dict[str, Any]]:
     """Load data from a JSONL file (one JSON object per line)."""
@@ -82,22 +268,143 @@ def load_jsonl_file(file_path: str) -> List[Dict[str, Any]]:
 
     return data
 
+
+def process_items_sequential(valid_items: List[Dict[str, Any]], args, console: Console):
+    """Process items sequentially with progress tracking."""
+    results = []
+    errors = []
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeElapsedColumn(),
+        console=console,
+        transient=False
+    ) as progress:
+        task = progress.add_task("Processing items...", total=len(valid_items))
+
+        for item in valid_items:
+            section = item.get('section', 'unknown')
+            progress.update(task, description=f"Processing section: {section}")
+
+            task_text = item.get('task', '')
+            instruction = item.get('instruction', '')
+
+            try:
+                # Run RAG query directly
+                result = run_rag_query(task_text, instruction, args.key, args.content_type, args.k)
+
+                # Add metadata to result
+                result['section'] = section
+                result['task'] = task_text
+                result['instruction'] = instruction
+                result['status'] = 'success'
+
+                results.append(result)
+
+            except Exception as e:
+                error_result = {
+                    'section': section,
+                    'task': task_text,
+                    'instruction': instruction,
+                    'status': 'error',
+                    'error': str(e),
+                    'generated_content': '',
+                    'sources': []
+                }
+                results.append(error_result)
+                errors.append(f"Section '{section}': {e}")
+
+            progress.update(task, advance=1)
+
+    return results, errors
+
+
+def process_items_parallel(valid_items: List[Dict[str, Any]], args, console: Console):
+    """Process items in parallel with progress tracking."""
+    results = []
+    errors = []
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeElapsedColumn(),
+        console=console,
+        transient=False
+    ) as progress:
+        task = progress.add_task("Processing items...", total=len(valid_items))
+
+        # Process items in parallel
+        with ThreadPoolExecutor(max_workers=args.parallel) as executor:
+            # Submit all tasks
+            future_to_item = {
+                executor.submit(run_rag_query,
+                              item.get('task', ''),
+                              item.get('instruction', ''),
+                              args.key,
+                              args.content_type,
+                              args.k): item
+                for item in valid_items
+            }
+
+            # Process completed tasks
+            for future in as_completed(future_to_item):
+                item = future_to_item[future]
+                section = item.get('section', 'unknown')
+                progress.update(task, description=f"Processing section: {section}")
+
+                try:
+                    result = future.result()
+
+                    # Add metadata to result
+                    result['section'] = section
+                    result['task'] = item.get('task', '')
+                    result['instruction'] = item.get('instruction', '')
+                    result['status'] = 'success'
+
+                    results.append(result)
+
+                except Exception as e:
+                    error_result = {
+                        'section': section,
+                        'task': item.get('task', ''),
+                        'instruction': item.get('instruction', ''),
+                        'status': 'error',
+                        'error': str(e),
+                        'generated_content': '',
+                        'sources': []
+                    }
+                    results.append(error_result)
+                    errors.append(f"Section '{section}': {e}")
+
+                progress.update(task, advance=1)
+
+    return results, errors
+
 def main():
+    """Main batch processing function with improved configuration and parallel processing."""
     # Parse command line arguments
     import argparse
-    ap = argparse.ArgumentParser(description="Process multiple queries and save results to timestamped files")
+    ap = argparse.ArgumentParser(description="Process multiple RAG queries and save results to timestamped files")
     ap.add_argument("--jobs", help="JSON or JSONL file containing job definitions")
-    ap.add_argument("--key", default="default", help="Collection key for lc_ask")
-    ap.add_argument("--content-type", default="pure_research", help="Content type for lc_ask")
-    ap.add_argument("--k", type=int, help="Retriever top-k for lc_ask")
+    ap.add_argument("--key", default=config.rag_key, help="Collection key for RAG queries")
+    ap.add_argument("--content-type", default="pure_research", help="Content type for queries")
+    ap.add_argument("--k", type=int, default=config.retriever.default_k, help="Retriever top-k")
+    ap.add_argument("--parallel", type=int, default=1, help="Number of parallel workers (1 = sequential)")
+    ap.add_argument("--output-dir", help="Custom output directory")
 
     # For backward compatibility, also accept positional arguments
     if len(sys.argv) > 1 and not sys.argv[1].startswith('--'):
         # Legacy mode: positional arguments
         args = ap.parse_args([])
         input_file = sys.argv[1]
-        args.key = sys.argv[2] if len(sys.argv) > 2 else "default"
+        args.key = sys.argv[2] if len(sys.argv) > 2 else config.rag_key
         args.content_type = sys.argv[3] if len(sys.argv) > 3 else "pure_research"
+        args.parallel = 1  # Sequential for legacy mode
     else:
         # New mode: named arguments
         args = ap.parse_args()
@@ -139,8 +446,8 @@ def main():
 
     console.print(f"[dim]Using collection key: {args.key}[/dim]")
     console.print(f"[dim]Using content type: {args.content_type}[/dim]")
-    if hasattr(args, 'k') and args.k:
-        console.print(f"[dim]Using retriever top-k: {args.k}[/dim]")
+    console.print(f"[dim]Using retriever top-k: {args.k}[/dim]")
+    console.print(f"[dim]Using parallel workers: {args.parallel}[/dim]")
     console.print()
 
     # Validate data
@@ -164,54 +471,16 @@ def main():
     console.print(f"[green]Found {len(valid_items)} valid items to process[/green]")
     console.print()
 
-    # Process items with progress bar
+    # Process items (sequential or parallel)
     results = []
     errors = []
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[bold blue]{task.description}"),
-        BarColumn(),
-        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-        TimeElapsedColumn(),
-        console=console,
-        transient=False
-    ) as progress:
-        task = progress.add_task("Processing items...", total=len(valid_items))
-
-        for item in valid_items:
-            section = item.get('section', 'unknown')
-            progress.update(task, description=f"Processing section: {section}")
-
-            task_text = item.get('task', '')
-            instruction = item.get('instruction', '')
-
-            try:
-                # Run lc-ask
-                result = run_lc_ask(task_text, instruction, args.key, args.content_type, getattr(args, 'k', None))
-
-                # Add metadata to result
-                result['section'] = section
-                result['task'] = task_text
-                result['instruction'] = instruction
-                result['status'] = 'success'
-
-                results.append(result)
-
-            except Exception as e:
-                error_result = {
-                    'section': section,
-                    'task': task_text,
-                    'instruction': instruction,
-                    'status': 'error',
-                    'error': str(e),
-                    'generated_content': '',
-                    'sources': []
-                }
-                results.append(error_result)
-                errors.append(f"Section '{section}': {e}")
-
-            progress.update(task, advance=1)
+    if args.parallel == 1:
+        # Sequential processing
+        results, errors = process_items_sequential(valid_items, args, console)
+    else:
+        # Parallel processing
+        results, errors = process_items_parallel(valid_items, args, console)
 
     # Display results summary
     console.print()
@@ -240,8 +509,13 @@ def main():
     console.print()
     console.print("[dim]Saving results...[/dim]")
 
-    output_dir = ROOT / "output/batch"
-    output_dir.mkdir(exist_ok=True)
+    # Use custom output directory if specified, otherwise use default
+    if hasattr(args, 'output_dir') and args.output_dir:
+        output_dir = Path(args.output_dir)
+    else:
+        output_dir = config.paths.output_dir / "batch"
+
+    output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = int(time.time())
     output_file = output_dir / f"batch_results_{timestamp}.json"
 
@@ -256,7 +530,8 @@ def main():
             f"[green]✓ Batch processing complete![/green]\n"
             f"[dim]Results saved to: {output_file}[/dim]\n"
             f"[dim]File size: {file_size:,} bytes[/dim]\n"
-            f"[dim]Timestamp: {timestamp}[/dim]",
+            f"[dim]Timestamp: {timestamp}[/dim]\n"
+            f"[dim]Processing mode: {'Parallel' if args.parallel > 1 else 'Sequential'}[/dim]",
             title="[bold green]Success[/bold green]",
             border_style="green"
         ))

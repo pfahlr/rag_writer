@@ -2,14 +2,14 @@
 """
 LangChain ask CLI (hybrid FAISS + BM25, optional Flashrank reranker)
 
-- ROOT resolved relative to repo (two levels up from this file)
+Refactored to use centralized core modules for better maintainability.
+
+Features:
 - Loads FAISS index for a collection key (default="default")
-- Hybrid retrieval: FAISS + BM25
-- Optional reranker: Flashrank if installed
-- LLM selection:
-    1) langchain_openai.ChatOpenAI  (pip install langchain-openai)
-    2) langchain_community.chat_models.ChatOllama (if Ollama running)
-    3) raw openai client (pip install openai)
+- Hybrid retrieval: FAISS + BM25 with optional reranking
+- LLM selection with automatic backend detection
+- Content type system for different writing styles
+- Source citation extraction and deduplication
 """
 
 import os
@@ -19,12 +19,6 @@ import json
 import re
 import yaml
 
-from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.retrievers import BM25Retriever
-from langchain.retrievers import EnsembleRetriever
-from langchain.retrievers import ContextualCompressionRetriever
-from langchain.retrievers.document_compressors import DocumentCompressorPipeline
 from langchain_core.prompts import ChatPromptTemplate
 
 from rich.console import Console
@@ -32,42 +26,79 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
 
-console = Console()
+# Import our new core modules
+import sys
+from pathlib import Path
 
-# --- Optional reranker: Flashrank ---
-_have_flashrank = False
-_flashrank_cls = None
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Disable LangChain debug mode to prevent compatibility issues
 try:
-  from langchain_community.document_transformers import FlashrankRerank
-  _flashrank_cls = FlashrankRerank
-  _have_flashrank = True
-except Exception:
+    import langchain
+    # Try to disable debug mode if the attribute exists
+    if hasattr(langchain, 'debug'):
+        langchain.debug = False
+    if hasattr(langchain, 'verbose'):
+        langchain.verbose = False
+    if hasattr(langchain, 'llm_cache'):
+        langchain.llm_cache = None
+except ImportError:
+    # LangChain not available, skip
+    pass
+except Exception as e:
+    # Any other error during LangChain configuration, skip silently
     pass
 
-# --- ROOT relative to repo ---
-root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
-ROOT = Path(root_dir)
+from core.retriever import RetrieverFactory, RetrieverConfig
+from core.llm import LLMFactory, LLMConfig
+from config.settings import get_config
+from utils.error_handler import handle_and_exit, validate_collection
+from utils.template_engine import render_string_template
 
-DEFAULT_KEY = "default"
-EMBED_MODEL = "BAAI/bge-small-en"  # CPU-friendly
-LLM_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+console = Console()
+
+# Get centralized configuration
+config = get_config()
 
 def load_content_types():
-    """Load content types from YAML file."""
-    content_types_path = ROOT / "src/tool/prompts/content_types.yaml"
+    """Load content types from individual YAML files in content_types/ subdirectory."""
+    content_types_dir = config.paths.root_dir / "src/tool/prompts/content_types"
+    content_types = {}
+
     try:
-        with open(content_types_path, 'r', encoding='utf-8') as f:
-            data = yaml.safe_load(f) or {}
-        return data
-    except FileNotFoundError:
-        print(f"Warning: Content types file not found: {content_types_path}")
-        return {}
-    except yaml.YAMLError as e:
-        print(f"Error parsing content types YAML: {e}")
+        if not content_types_dir.exists():
+            console.print(f"[yellow]Warning: Content types directory not found: {content_types_dir}[/yellow]")
+            return {}
+
+        # Load each YAML file in the content_types directory
+        for yaml_file in content_types_dir.glob("*.yaml"):
+            if yaml_file.name == "default.yaml":
+                continue  # Skip default.yaml as it's not a content type
+
+            try:
+                with open(yaml_file, 'r', encoding='utf-8') as f:
+                    content_type_data = yaml.safe_load(f) or {}
+
+                # Use filename (without .yaml extension) as the content type key
+                content_type_name = yaml_file.stem
+                content_types[content_type_name] = content_type_data
+
+            except yaml.YAMLError as e:
+                console.print(f"[red]Error parsing {yaml_file.name}: {e}[/red]")
+                continue
+            except Exception as e:
+                console.print(f"[red]Error loading {yaml_file.name}: {e}[/red]")
+                continue
+
+        return content_types
+
+    except Exception as e:
+        console.print(f"[red]Error loading content types: {e}[/red]")
         return {}
 
-def get_system_prompt(content_type: str) -> str:
-    """Get system prompt for a content type."""
+def get_system_prompt(content_type: str, context: dict = None) -> str:
+    """Get system prompt for a content type with optional token replacement."""
     content_types = load_content_types()
 
     if content_type not in content_types:
@@ -78,7 +109,13 @@ def get_system_prompt(content_type: str) -> str:
     if not system_prompt_parts:
         raise ValueError(f"No system prompt defined for content type '{content_type}'")
 
-    return "".join(system_prompt_parts)
+    # Join the parts and apply token replacement if context is provided
+    system_prompt = "".join(system_prompt_parts)
+
+    if context:
+        system_prompt = render_string_template(system_prompt, context)
+
+    return system_prompt
 
 def list_content_types():
     """List all available content types with Rich formatting."""
@@ -92,12 +129,17 @@ def list_content_types():
     table = Table(title="Available Content Types")
     table.add_column("Content Type", style="cyan", no_wrap=True)
     table.add_column("Description", style="magenta")
-    table.add_column("System Prompt Parts", style="green", justify="center")
+    table.add_column("System Prompt Length", style="green", justify="center")
 
     for name, config in sorted(content_types.items()):
         description = config.get("description", "No description available")
-        system_prompt_parts = len(config.get("system_prompt", []))
-        table.add_row(name, description, str(system_prompt_parts))
+        # Count total characters in system prompt parts
+        system_prompt_parts = config.get("system_prompt", [])
+        if isinstance(system_prompt_parts, list):
+            prompt_length = sum(len(str(part)) for part in system_prompt_parts)
+        else:
+            prompt_length = len(str(system_prompt_parts))
+        table.add_row(name, description, f"{prompt_length} chars")
 
     # Display the table in a panel
     panel = Panel(
@@ -109,7 +151,7 @@ def list_content_types():
 
     console.print(panel)
     console.print(f"\n[dim]Use with: --content-type [cyan]<type>[/cyan][/dim]")
-    console.print(f"[dim]Example: --content-type [cyan]pure_research[/cyan][/dim]")
+    console.print(f"[dim]Example: --content-type [cyan]technical_manual_writer[/cyan][/dim]")
 
 USER_PROMPT = (
     "Question:\n{question}\n\n"
@@ -163,35 +205,26 @@ def _fmt_cited(d):
 
 
 def make_retriever(key: str, k: int = 30):
-  idx_dir = ROOT / f"storage/faiss_{key}"
-  if not idx_dir.exists():
-    raise SystemExit(
-      f"FAISS index not found for key '{key}': {idx_dir}\n"
-      f"Build it first with: make lc-index {key}"
-    )
-  
-  embeddings = HuggingFaceEmbeddings(model_name=EMBED_MODEL)
-  vs = FAISS.load_local(str(idx_dir), embeddings, allow_dangerous_deserialization=True)
-  vector = vs.as_retriever(search_kwargs={"k": k})
-  
-  # BM25 over same docs
-  all_docs = list(vs.docstore._dict.values())
-  bm25 = BM25Retriever.from_documents(all_docs); bm25.k = k
-  
-  base = EnsembleRetriever(retrievers=[vector, bm25], weights=[0.6, 0.4])
-  
-  # Optional reranker with Flashrank
-  if _have_flashrank:
+    """Create a retriever using the centralized factory."""
     try:
-      rerank = _flashrank_cls(top_n=k)
-      compressor = DocumentCompressorPipeline(transformers=[rerank])
-      return ContextualCompressionRetriever(
-        base_compressor=compressor,
-        base_retriever=base
-      )
-    except Exception:
-      return base
-  return base
+        # Validate collection exists
+        validate_collection(key, config.paths.storage_dir)
+
+        # Use centralized retriever factory
+        factory = RetrieverFactory(config.paths.root_dir)
+        retriever_config = RetrieverConfig(
+            key=key,
+            k=k,
+            embedding_model=config.embedding.model_name,
+            openai_model=config.llm.openai_model,
+            rerank_model=config.retriever.rerank_model,
+            vector_weight=config.retriever.vector_weight,
+            bm25_weight=config.retriever.bm25_weight,
+            use_reranking=config.retriever.use_reranking
+        )
+        return factory.create_hybrid_retriever(retriever_config)
+    except Exception as e:
+        handle_and_exit(e, f"creating retriever for collection '{key}'")
 
 def _fmt_doc_for_context(d):
   title = d.metadata.get("title") or Path(d.metadata.get("source", " ")).stem
@@ -203,36 +236,19 @@ def _format_context(docs):
   return "\n\n---\n\n".join(_fmt_doc_for_context(d) for d in docs)
 
 def _select_backend():
-  # 1) Try langchain-openai
-  try:
-    from langchain_openai import ChatOpenAI
-    if os.getenv("OPENAI_API_KEY"):
-      return ("lc_openai", ChatOpenAI(model=LLM_MODEL, temperature=0))
-  except Exception:
-    pass
-  
-  # 2) Try Ollama
-  try:
-    from langchain_community.chat_models import ChatOllama
-    ollama_model = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
-    return ("ollama", ChatOllama(model=ollama_model, temperature=0))
-  except Exception:
-    pass
-  
-  # 3) Raw OpenAI
-  try:
-    import openai
-    if os.getenv("OPENAI_API_KEY"):
-      return ("raw_openai", openai.OpenAI())
-  except Exception:
-    pass
-  
-  raise SystemExit(
-    "No usable LLM backend. Install one of:\n"
-    "  pip install langchain-openai   (preferred)\n"
-    "  pip install openai             (fallback)\n"
-    "Or run Ollama locally."
-  )
+    """Select LLM backend using centralized factory."""
+    try:
+        llm_config = LLMConfig(
+            model=config.llm.openai_model,
+            temperature=config.llm.temperature,
+            max_tokens=config.llm.max_tokens,
+            openai_api_key=config.openai_api_key,
+            ollama_model=config.llm.ollama_model
+        )
+        factory = LLMFactory(llm_config)
+        return factory.create_llm()
+    except Exception as e:
+        handle_and_exit(e, "selecting LLM backend")
 
 app = typer.Typer(add_completion=False)
 
@@ -245,8 +261,8 @@ def list_types():
 def ask(
   question: str = typer.Argument(..., help="Your question or instruction to retrieve on"),
   conttype: str = typer.Option('pure_research',"--content-type", "-ct", help="The type of writing to perform"),
-  key: str = typer.Option(DEFAULT_KEY, "--key", "-k", help="Collection key"),
-  k: int = typer.Option(15, help="Top-k to retrieve"),
+  key: str = typer.Option(config.rag_key, "--key", "-k", help="Collection key"),
+  k: int = typer.Option(config.retriever.default_k, help="Top-k to retrieve"),
   task: str = typer.Option("", "--task", help="Optional task prefix to prepend to final LLM question (excluded from retriever)"),
   file: str = typer.Option("", "--file", help="File containing prompt question")
   ):
@@ -261,97 +277,107 @@ def ask(
    - Otherwise, the positional 'question' argument is used as the retrieval instruction,
      and optional --task is prepended only to the final LLM question.
   """
-  backend, llm = _select_backend()
-  retriever = make_retriever(key, k=k)
-
-  # Determine retrieval instruction and task prefix
-  if file:
-    with open(file, "r", encoding="utf-8") as f:
-      directive = json.load(f)
-    instruction = (directive.get("instruction") or directive.get("question") or "").strip()
-    file_task = (directive.get("task") or "").strip()
-    final_task = task.strip() or file_task
-  else:
-    instruction = question.strip()
-    final_task = task.strip()
-
-  # Retrieve documents using ONLY the instruction (task is excluded)
-  docs = []
   try:
-    if hasattr(retriever, "get_relevant_documents"):
-      docs = retriever.get_relevant_documents(instruction)
-    elif hasattr(retriever, "invoke"):
-      docs = retriever.invoke(instruction)
-    elif hasattr(retriever, "retrieve"):
-      docs = retriever.retrieve(instruction)
+    backend, llm = _select_backend()
+    retriever = make_retriever(key, k=k)
+
+    # Determine retrieval instruction and task prefix
+    if file:
+      with open(file, "r", encoding="utf-8") as f:
+        directive = json.load(f)
+      instruction = (directive.get("instruction") or directive.get("question") or "").strip()
+      file_task = (directive.get("task") or "").strip()
+      final_task = task.strip() or file_task
     else:
-      # Fallback: try calling retriever as a function
-      docs = retriever(instruction)
+      instruction = question.strip()
+      final_task = task.strip()
+
+    # Retrieve documents using ONLY the instruction (task is excluded)
+    docs = []
+    try:
+      # Try invoke first (newer LangChain method)
+      if hasattr(retriever, "invoke"):
+        docs = retriever.invoke(instruction)
+      elif hasattr(retriever, "get_relevant_documents"):
+        docs = retriever.get_relevant_documents(instruction)
+      elif hasattr(retriever, "retrieve"):
+        docs = retriever.retrieve(instruction)
+      else:
+        # Fallback: try calling retriever as a function
+        docs = retriever(instruction)
+    except Exception as e:
+      handle_and_exit(e, "retrieving documents")
+
+    context_text = _format_context(docs) if docs else ""
+
+    # Build the final question for the LLM by prepending the task (if any)
+    final_question = f"{final_task} {instruction}".strip() if final_task else instruction
+
+    # Get system prompt from YAML configuration
+    try:
+      system_prompt = get_system_prompt(conttype)
+    except ValueError as e:
+      handle_and_exit(e, f"loading content type '{conttype}'")
+
+    prompt = ChatPromptTemplate.from_messages([
+      ("system", system_prompt),
+      ("human", USER_PROMPT),
+    ])
+
+    messages = prompt.format_messages(question=final_question, context=context_text)
+
+    # Invoke the selected LLM backend
+    try:
+      if backend in ("lc_openai", "ollama"):
+        resp = llm.invoke(messages)
+        generated_content = resp.content
+      elif backend == "raw_openai":
+        # Convert LangChain messages into OpenAI API schema
+        msgs = [{"role": "system" if m.type == "system" else "user", "content": m.content}
+                for m in messages]
+        content = llm.chat.completions.create(
+          model=config.llm.openai_model,
+          messages=msgs,
+          temperature=config.llm.temperature,
+        ).choices[0].message.content
+        generated_content = content
+      else:
+        raise ValueError(f"Unsupported backend: {backend}")
+    except Exception as e:
+      handle_and_exit(e, "generating content with LLM")
+
+    # Filter sources to only include those referenced in the generated content
+    cited_docs, _ = _extract_cited(docs, generated_content)
+
+    # Collect only the cited sources, deduplicated by article (not by page)
+    sources = []
+    seen_articles = set()
+
+    for d in cited_docs:
+      title = d.metadata.get("title") or Path(d.metadata.get("source", " ")).stem
+      source_path = d.metadata.get("source", "")
+
+      # Use title or source path as the unique identifier for the article
+      article_id = title if title else source_path
+
+      # Only add if we haven't seen this article before
+      if article_id and article_id not in seen_articles:
+        seen_articles.add(article_id)
+        source_info = {
+          "title": title,
+          "source": source_path
+        }
+        sources.append(source_info)
+
+    # Output as JSON
+    output = {
+      "generated_content": generated_content,
+      "sources": sources
+    }
+    print(json.dumps(output, indent=2))
+
   except Exception as e:
-    raise SystemExit(f"Retriever failed: {e}")
-
-  context_text = _format_context(docs) if docs else ""
-
-  # Build the final question for the LLM by prepending the task (if any)
-  final_question = f"{final_task} {instruction}".strip() if final_task else instruction
-
-  # Get system prompt from YAML configuration
-  try:
-    system_prompt = get_system_prompt(conttype)
-  except ValueError as e:
-    raise SystemExit(f"Error: {e}")
-
-  prompt = ChatPromptTemplate.from_messages([
-    ("system", system_prompt),
-    ("human", USER_PROMPT),
-  ])
-
-  messages = prompt.format_messages(question=final_question, context=context_text)
-
-  # Invoke the selected LLM backend
-  if backend in ("lc_openai", "ollama"):
-    resp = llm.invoke(messages)
-    generated_content = resp.content
-  elif backend == "raw_openai":
-    # Convert LangChain messages into OpenAI API schema
-    msgs = [{"role": "system" if m.type == "system" else "user", "content": m.content}
-            for m in messages]
-    content = llm.chat.completions.create(
-      model=LLM_MODEL,
-      messages=msgs,
-      temperature=0,
-    ).choices[0].message.content
-    generated_content = content
-
-  # Filter sources to only include those referenced in the generated content
-  cited_docs, _ = _extract_cited(docs, generated_content)
-
-  # Collect only the cited sources, deduplicated by article (not by page)
-  sources = []
-  seen_articles = set()
-
-  for d in cited_docs:
-    title = d.metadata.get("title") or Path(d.metadata.get("source", " ")).stem
-    source_path = d.metadata.get("source", "")
-
-    # Use title or source path as the unique identifier for the article
-    article_id = title if title else source_path
-
-    # Only add if we haven't seen this article before
-    if article_id and article_id not in seen_articles:
-      seen_articles.add(article_id)
-      source_info = {
-        "title": title,
-        "source": source_path
-      }
-      sources.append(source_info)
-
-  # Output as JSON
-  output = {
-    "generated_content": generated_content,
-    "sources": sources
-  }
-  print(json.dumps(output, indent=2))
+    handle_and_exit(e, "processing ask request")
 
 if __name__ == "__main__":
     app()

@@ -22,9 +22,18 @@ from rich.table import Table
 from rich.prompt import Prompt
 from rich.text import Text
 
-# --- ROOT relative to repo ---
-root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
-ROOT = Path(root_dir)
+# Import config to get centralized paths
+from src.config.settings import get_config
+
+# Function to get ROOT dynamically to allow for testing
+def get_root():
+    """Get the root directory from config."""
+    config = get_config()
+    return config.paths.root_dir
+
+# Use config-based ROOT for consistency with other modules
+# Note: This will be called at import time, but we can mock get_config for testing
+ROOT = get_root()
 
 console = Console()
 
@@ -310,7 +319,24 @@ Subsection: {subsection} ({subsection_id})
             text=True,
             check=True
         )
-        response = json.loads(result.stdout)
+
+        # Parse the response with better error handling
+        stdout_content = result.stdout.strip()
+        if not stdout_content:
+            console.print(f"[yellow]Warning: Empty response from pipeline stage subprocess[/yellow]")
+            return content  # Return original content on error
+
+        try:
+            response = json.loads(stdout_content)
+        except json.JSONDecodeError:
+            # Try to clean up escaped characters
+            import re
+            cleaned_content = re.sub(r'\\{2,}', r'\\', stdout_content)
+            try:
+                response = json.loads(cleaned_content)
+            except json.JSONDecodeError:
+                console.print(f"[yellow]Warning: Could not parse pipeline stage response as JSON: {stdout_content[:200]}...[/yellow]")
+                return content  # Return original content on error
 
         # Handle different output formats
         output_format = stage_config.get('output_format', 'markdown')
@@ -675,7 +701,24 @@ Content variations to merge:
             text=True,
             check=True
         )
-        response = json.loads(result.stdout)
+
+        # Parse the response with better error handling
+        stdout_content = result.stdout.strip()
+        if not stdout_content:
+            console.print(f"[yellow]Warning: Empty response from pipeline stage subprocess[/yellow]")
+            return content  # Return original content on error
+
+        try:
+            response = json.loads(stdout_content)
+        except json.JSONDecodeError:
+            # Try to clean up escaped characters
+            import re
+            cleaned_content = re.sub(r'\\{2,}', r'\\', stdout_content)
+            try:
+                response = json.loads(cleaned_content)
+            except json.JSONDecodeError:
+                console.print(f"[yellow]Warning: Could not parse pipeline stage response as JSON: {stdout_content[:200]}...[/yellow]")
+                return content  # Return original content on error
         return response.get('generated_content', 'Failed to generate merged content.')
     except subprocess.CalledProcessError as e:
         return f"Error during merging: {e}"

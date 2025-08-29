@@ -1,0 +1,64 @@
+description: "Folklore adaptation and anthology editor"
+system_prompt:
+  - "You are studying folklore across various cultures and historical periods to create new stories relevant for the present.\n"
+  - "Using the provided context, which will contain original versions of various folklore, fables, and fairy-tales. You change the characters, setting, and details of the stories, but maintain the core concepts and storylines.\n"
+  - "You add elements that make sense in terms of the world of the present time in place of the components of the stories that were rooted in their origin time period and location.\n"
+  - "You add literary devices popular in modern storytelling such as suspense, humor, and flamboyant characters to make the variations appeal to a modern audience.\n"
+job_generation_prompt: |
+  You are a folklore adaptation content strategist. Generate {{num_prompts}} creative adaptation prompts for the section:
+
+  **Folklore Context:**
+  - Title: {{book_title}}
+  - Target Audience: {{target_audience}}
+  - Chapter: {{chapter_title}}
+  - Section: {{section_title_hierarchy}}
+  - Subsection: {{subsection_title}} ({{subsection_id}})
+
+  **Section to Adapt:** {{section_title}}
+
+  **Requirements:**
+  1. Generate exactly {{num_prompts}} different adaptation prompts that explore different creative approaches
+  2. Each prompt should focus on modernizing traditional folklore while preserving core elements
+  3. Include variety: contemporary settings, diverse characters, modern themes, and cultural updates
+  4. Consider the hierarchical context (chapter > section > subsection)
+  5. Ensure prompts maintain the magic and wisdom of original folklore
+  6. Make prompts engaging with contemporary relevance and fresh perspectives
+
+  **Output Format:**
+  Return a JSON array of exactly {{num_prompts}} job objects, each with:
+  - "task": Brief description of the adapter's role and creative focus
+  - "instruction": Specific adaptation instruction for this aspect of the section
+  - "context": Object with book_title, chapter, section, subsection, subsection_id, target_audience
+
+  Example format:
+  [
+    {
+      "task": "You are a folklore adapter...",
+      "instruction": "Create a modern adaptation...",
+      "context": {
+        "book_title": "{{book_title}}",
+        "chapter": "{{chapter_title}}",
+        "section": "{{section_title_hierarchy}}",
+        "subsection": "{{subsection_title}}",
+        "subsection_id": "{{subsection_id}}",
+        "target_audience": "{{target_audience}}"
+      }
+    }
+  ]
+job_generation_rag_context: |
+  **Additional Folklore Context from RAG:**
+  Use the following relevant folklore and cultural information from the knowledge base to enhance the adaptation prompts:
+
+  {{rag_context}}
+
+  Please incorporate this cultural and historical contextual information naturally into the generated prompts where relevant, focusing on authentic cultural representation and storytelling traditions.
+
+rag_context_query: |
+  Find relevant information about: {{section_title}}
+
+  Context: This is for creating folklore adaptations for a book titled "{{book_title}}"
+  for {{target_audience}}.
+
+  Please provide any relevant folklore, cultural traditions, historical context, or storytelling
+  elements that would be helpful for creating modern adaptations of traditional stories
+  about this topic. Focus on authentic cultural representation and storytelling traditions.

@@ -24,6 +24,9 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.prompt import Prompt, Confirm, IntPrompt
 from rich.text import Text
+project_base = os.getcwd()
+print(project_base)
+exit(0)
 
 # --- ROOT relative to repo ---
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
@@ -235,8 +238,33 @@ def generate_outline_with_langchain(book_details: BookDetails) -> Dict[str, Any]
             check=True
         )
 
-        # Parse the JSON response
-        response = json.loads(result.stdout)
+        # Parse the JSON response with better error handling
+        stdout_content = result.stdout.strip()
+        if not stdout_content:
+            console.print("[yellow]⚠ Empty response from subprocess, using fallback structure[/yellow]")
+            return create_fallback_outline(book_details)
+
+        try:
+            response = json.loads(stdout_content)
+        except json.JSONDecodeError:
+            # Try to clean up escaped characters
+            import re
+            cleaned_content = re.sub(r'\\{2,}', r'\\', stdout_content)
+            try:
+                response = json.loads(cleaned_content)
+            except json.JSONDecodeError:
+                # Try to extract JSON from the text
+                json_match = re.search(r'\{.*\}', stdout_content, re.DOTALL)
+                if json_match:
+                    try:
+                        response = json.loads(json_match.group(0))
+                    except json.JSONDecodeError:
+                        console.print(f"[yellow]⚠ Could not parse JSON response, trying to extract from text[/yellow]")
+                        response = {"generated_content": stdout_content}
+                else:
+                    console.print(f"[yellow]⚠ No JSON found in response, using raw content[/yellow]")
+                    response = {"generated_content": stdout_content}
+
         outline_data = response.get('generated_content', '')
 
         # Try to extract JSON from the response

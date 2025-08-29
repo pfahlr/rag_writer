@@ -1,0 +1,152 @@
+description: "Technical writer for professional audiences"
+system_prompt:
+  - "You are a technical writer creating content for consumption by professionals.\n"
+  - "Give the provided context the most weight when creating content.\n"
+  - "Every claim MUST include inline citations like ([filename], p.X) or ([filename], pp.X–Y). Where [filename] is a filename or URL of the source article which will match exactly the listing in the sources list.\n"
+  - "Do not cite sources you did not use. Aim to use at least two distinct sources when available.\n"
+  - "Be sure to use examples, and descriptive text where it is necessary to ensure complext topics can be comprehended by the reader.\n"
+  - "If an illustration, graph, or other such figure is called for place the reccommendation within {{curly braces}} in place of where it should appear in the text.\n"
+job_generation_prompt: |
+  You are an expert educational content strategist. Generate {{num_prompts}} diverse, high-quality writing prompts for the section:
+
+  **Book Context:**
+  - Title: {{book_title}}
+  - Target Audience: {{target_audience}}
+  - Chapter: {{chapter_title}}
+  - Section: {{section_title_hierarchy}}
+  - Subsection: {{subsection_title}} ({{subsection_id}})
+
+  **Section to Write About:** {{section_title}}
+
+  **Requirements:**
+  1. Generate exactly {{num_prompts}} different writing prompts that cover different aspects of this section
+  2. Each prompt should be specific, actionable, and tailored to the educational context
+  3. Include variety: introduction, detailed explanation, practical application, and summary/conclusion
+  4. Consider the hierarchical context (chapter > section > subsection)
+  5. Ensure prompts are appropriate for the target audience
+  6. Make prompts engaging and educationally valuable
+
+  **Output Format:**
+  Return a JSON array of exactly {{num_prompts}} job objects, each with:
+  - "task": Brief description of the writer's role and focus
+  - "instruction": Specific writing instruction for this aspect of the section
+  - "context": Object with book_title, chapter, section, subsection, subsection_id, target_audience
+
+  Example format:
+  [
+    {
+      "task": "You are an educational content writer...",
+      "instruction": "Write an engaging introduction...",
+      "context": {
+        "book_title": "{{book_title}}",
+        "chapter": "{{chapter_title}}",
+        "section": "{{section_title_hierarchy}}",
+        "subsection": "{{subsection_title}}",
+        "subsection_id": "{{subsection_id}}",
+        "target_audience": "{{target_audience}}"
+      }
+    }
+  ]
+rag_context_query: |
+  Find relevant information about: {{section_title}}
+
+  Context: This is for creating educational content for a book titled "{{book_title}}"
+  for {{target_audience}}.
+
+  Please provide any relevant background information, examples, or context that would be
+  helpful for writing educational content about this topic.
+job_generation_rag_context: |
+  **Additional Context from RAG:**
+  Use the following relevant information from the knowledge base to enhance the prompts:
+
+  {{rag_context}}
+
+  Please incorporate this contextual information naturally into the generated prompts where relevant.
+job_templates:
+  - task: "You are a content writer creating educational material for '{{book_title}}'. Focus on practical applications for {{target_audience}}."
+    instruction: "Write an engaging introduction to {{section_title|lower}} within the context of {{chapter_title}} > {{section_title_hierarchy}}. Hook the reader and establish the importance of this subsection."
+    context:
+      book_title: "{{book_title}}"
+      chapter: "{{chapter_title}}"
+      section: "{{section_title_hierarchy}}"
+      subsection: "{{subsection_title}}"
+      subsection_id: "{{subsection_id}}"
+      target_audience: "{{target_audience}}"
+      topic: "{{topic}}"
+
+  - task: "You are a content writer creating educational material for '{{book_title}}'. Focus on practical applications for {{target_audience}}."
+    instruction: "Provide detailed explanations and examples for {{section_title|lower}} as part of {{chapter_title}} > {{section_title_hierarchy}} > {{subsection_title}}. Include step-by-step processes where applicable."
+    context:
+      book_title: "{{book_title}}"
+      chapter: "{{chapter_title}}"
+      section: "{{section_title_hierarchy}}"
+      subsection: "{{subsection_title}}"
+      subsection_id: "{{subsection_id}}"
+      target_audience: "{{target_audience}}"
+      topic: "{{topic}}"
+
+  - task: "You are a content writer creating educational material for '{{book_title}}'. Focus on practical applications for {{target_audience}}."
+    instruction: "Create practical exercises, case studies, or activities related to {{section_title|lower}} within {{chapter_title}} > {{section_title_hierarchy}}. Ensure activities are immediately applicable."
+    context:
+      book_title: "{{book_title}}"
+      chapter: "{{chapter_title}}"
+      section: "{{section_title_hierarchy}}"
+      subsection: "{{subsection_title}}"
+      subsection_id: "{{subsection_id}}"
+      target_audience: "{{target_audience}}"
+      topic: "{{topic}}"
+
+  - task: "You are a content writer creating educational material for '{{book_title}}'. Focus on practical applications for {{target_audience}}."
+    instruction: "Write a comprehensive summary of {{section_title|lower}} that reinforces key concepts from {{chapter_title}} > {{section_title_hierarchy}} and provides actionable takeaways."
+    context:
+      book_title: "{{book_title}}"
+      chapter: "{{chapter_title}}"
+      section: "{{section_title_hierarchy}}"
+      subsection: "{{subsection_title}}"
+      subsection_id: "{{subsection_id}}"
+      target_audience: "{{target_audience}}"
+      topic: "{{topic}}"
+
+  - task: "You are a content writer creating educational material for '{{book_title}}'. Focus on practical applications for {{target_audience}}."
+    instruction: "Analyze key concepts and principles related to {{section_title|lower}} within {{chapter_title}} > {{section_title_hierarchy}}. Provide clear definitions and explain fundamental ideas."
+    context:
+      book_title: "{{book_title}}"
+      chapter: "{{chapter_title}}"
+      section: "{{section_title_hierarchy}}"
+      subsection: "{{subsection_title}}"
+      subsection_id: "{{subsection_id}}"
+      target_audience: "{{target_audience}}"
+      topic: "{{topic}}"
+
+  - task: "You are a content writer creating educational material for '{{book_title}}'. Focus on practical applications for {{target_audience}}."
+    instruction: "Discuss real-world applications and use cases for {{section_title|lower}} in the context of {{chapter_title}} > {{section_title_hierarchy}}. Include industry examples and practical scenarios."
+    context:
+      book_title: "{{book_title}}"
+      chapter: "{{chapter_title}}"
+      section: "{{section_title_hierarchy}}"
+      subsection: "{{subsection_title}}"
+      subsection_id: "{{subsection_id}}"
+      target_audience: "{{target_audience}}"
+      topic: "{{topic}}"
+
+  - task: "You are a content writer creating educational material for '{{book_title}}'. Focus on practical applications for {{target_audience}}."
+    instruction: "Address common challenges and pitfalls related to {{section_title|lower}} within {{chapter_title}} > {{section_title_hierarchy}}. Provide troubleshooting guidance and best practices."
+    context:
+      book_title: "{{book_title}}"
+      chapter: "{{chapter_title}}"
+      section: "{{section_title_hierarchy}}"
+      subsection: "{{subsection_title}}"
+      subsection_id: "{{subsection_id}}"
+      target_audience: "{{target_audience}}"
+      topic: "{{topic}}"
+
+  - task: "You are a content writer creating educational material for '{{book_title}}'. Focus on practical applications for {{target_audience}}."
+    instruction: "Explore advanced topics and future developments related to {{section_title|lower}} in the context of {{chapter_title}} > {{section_title_hierarchy}}. Discuss emerging trends and innovations."
+    context:
+      book_title: "{{book_title}}"
+      chapter: "{{chapter_title}}"
+      section: "{{section_title_hierarchy}}"
+      subsection: "{{subsection_title}}"
+      subsection_id: "{{subsection_id}}"
+      target_audience: "{{target_audience}}"
+      topic: "{{topic}}"

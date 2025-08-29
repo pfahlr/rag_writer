@@ -10,6 +10,7 @@ This suite provides a complete workflow for content creation and processing usin
 
 - [Architecture](#architecture)
 - [Quick Start](#quick-start)
+- [Makefile Usage](#makefile-usage)
 - [Scripts Overview](#scripts-overview)
 - [Configuration](#configuration)
 - [Usage Examples](#usage-examples)
@@ -54,6 +55,7 @@ cp env.json.template env.json
 
 ### Basic Usage
 
+#### Option 1: Direct Script Execution
 ```bash
 # 1. Build knowledge index (optional, for RAG)
 python src/langchain/lc_build_index.py
@@ -63,6 +65,319 @@ python src/langchain/lc_batch.py
 
 # 3. Merge and refine content
 python src/langchain/lc_merge_runner.py
+```
+
+#### Option 2: Makefile (Recommended)
+```bash
+# Complete setup and workflow
+make init          # Set up environment
+make ingest        # Parse PDFs into documents
+make index         # Build FAISS index
+make ask "What is machine learning?"  # Ask questions
+
+# Complete book generation workflow
+make book-from-outline OUTLINE="examples/sample_outline_text.txt" TITLE="My Book"
+```
+
+#### Option 3: Interactive Examples
+```bash
+# See all available example files
+make examples
+
+# Quick RAG query with custom parameters
+make quick-ask "What is machine learning?" KEY="science" CONTENT_TYPE="technical_manual_writer"
+
+# Batch processing with parallel execution
+make batch-workflow FILE="examples/sample_jobs_1A1.jsonl" PARALLEL=4
+```
+
+## 📋 Makefile Usage
+
+The enhanced Makefile provides a comprehensive command center for the entire LangChain RAG Writer pipeline. It includes all command-line options from the scripts, workflow automation, and quality tools.
+
+### Getting Help
+
+```bash
+make help          # Show comprehensive help with all targets
+make examples      # List all available example files
+```
+
+### Core Workflow Targets
+
+#### Setup and Data Processing
+```bash
+make init          # Initialize environment and install dependencies
+make ingest        # Parse PDFs into documents (LlamaIndex)
+make index         # Build FAISS index for retrieval
+make ask "question" # Ask questions using RAG (LlamaIndex)
+```
+
+#### LangChain Content Generation
+```bash
+make lc-index [KEY=key_name]                    # Build FAISS index
+make lc-ask INSTR="instruction" [TASK="task"]   # RAG query with custom parameters
+make lc-batch FILE="jobs.jsonl" [PARALLEL=4]    # Batch processing
+make lc-merge-runner [SUB=1A1]                  # Content merging
+make lc-outline-converter OUTLINE="file.txt"    # Convert outlines to book structure
+make lc-book-runner BOOK="book.json"            # Complete book generation
+```
+
+#### Quality and Development
+```bash
+make test                 # Run test suite
+make test-coverage        # Run tests with coverage reporting
+make format              # Format code with black
+make lint                # Lint code with flake8
+make quality             # Run full quality check
+make show-config         # Display current configuration
+make check-setup         # Validate project setup
+```
+
+### Advanced Makefile Features
+
+#### Complete Workflows
+```bash
+# Generate book from outline (complete pipeline)
+make book-from-outline OUTLINE="examples/sample_outline_text.txt" TITLE="My Book"
+
+# Quick RAG query with all options
+make quick-ask "What is machine learning?" KEY="science" CONTENT_TYPE="technical_manual_writer" K=20
+
+# Batch processing workflow
+make batch-workflow FILE="jobs.jsonl" KEY="biology" PARALLEL=4
+```
+
+#### LangChain Script Options via Makefile
+
+**`make lc-ask`** - Complete RAG query options:
+- `INSTR`: Instruction for retrieval (what to search for)
+- `TASK`: Task prefix for LLM (how to answer)
+- `FILE`: JSON file containing query parameters
+- `KEY`: Collection key (default: default)
+- `CONTENT_TYPE`: Writing style (default: pure_research)
+- `K`: Number of documents to retrieve (default: 30)
+
+**`make lc-batch`** - Batch processing with full options:
+- `FILE`: JSON or JSONL file containing job definitions
+- `KEY`: Collection key (default: default)
+- `CONTENT_TYPE`: Writing style (default: pure_research)
+- `K`: Retriever top-k (default: 30)
+- `PARALLEL`: Number of parallel workers (default: 1)
+- `OUTPUT_DIR`: Custom output directory
+
+**`make lc-merge-runner`** - Intelligent content merging:
+- `SUB`: Subsection ID (e.g., 1A1)
+- `JOBS`: Path to JSONL jobs file
+- `KEY`: Collection key for lc_ask
+- `K`: Retriever top-k for lc_ask
+- `BATCH_ONLY`: Force use of batch results only
+- `CHAPTER/SECTION/SUBSECTION`: Hierarchical context titles
+
+**`make lc-outline-converter`** - Outline conversion:
+- `OUTLINE`: Input outline file (JSON, Markdown, or Text)
+- `OUTPUT`: Output book structure JSON file
+- `TITLE/TOPIC/AUDIENCE`: Override metadata
+- `WORDCOUNT`: Override word count target
+- `NUM_PROMPTS`: Number of prompts to generate per section
+- `CONTENT_TYPE`: Content type for job generation
+
+**`make lc-book-runner`** - Complete book orchestration:
+- `BOOK`: JSON file defining book structure
+- `OUTPUT`: Output markdown file path
+- `FORCE`: Force regeneration of all content
+- `SKIP_MERGE`: Skip merge processing, only run batch
+- `USE_RAG`: Use RAG for additional context
+- `RAG_KEY`: Collection key for RAG retrieval
+- `NUM_PROMPTS`: Number of prompts to generate per section
+
+#### Example Usage Patterns
+
+```bash
+# Simple RAG query
+make lc-ask "Explain neural networks"
+
+# Advanced RAG query with all options
+make lc-ask INSTR="Explain neural networks" TASK="Write for beginners" KEY="science" CONTENT_TYPE="technical_manual_writer" K=20
+
+# Batch processing with parallel execution
+make lc-batch FILE="examples/sample_jobs_1A1.jsonl" KEY="biology" PARALLEL=4
+
+# Convert outline with custom metadata
+make lc-outline-converter OUTLINE="examples/sample_outline_text.txt" TITLE="My Book" TOPIC="AI" AUDIENCE="developers"
+
+# Complete book generation
+make lc-book-runner BOOK="examples/book_structure_example.json" OUTPUT="my_book.md"
+
+# Force regeneration of all content
+make lc-book-runner BOOK="book.json" FORCE=1
+
+# Skip merge step (batch only)
+make lc-book-runner BOOK="book.json" SKIP_MERGE=1
+```
+
+### Makefile Benefits
+
+- **Complete Option Coverage**: All command-line options available as variables
+- **Smart Defaults**: Sensible defaults for all parameters
+- **Workflow Automation**: Multi-step processes in single commands
+- **Error Prevention**: Parameter validation and help messages
+- **Quality Tools**: Integrated testing, formatting, and linting
+- **Example Discovery**: Easy access to sample files and usage patterns
+
+## 🖥️ CLI Usage
+
+The project provides multiple CLI interfaces for different use cases:
+
+### Direct Script Execution
+
+#### lc_ask.py - Core RAG Interface
+```bash
+# Basic query
+python src/langchain/lc_ask.py ask "What is machine learning?"
+
+# Advanced query with options
+python src/langchain/lc_ask.py ask "Explain neural networks" --content-type technical_manual_writer --key science --k 20
+
+# Query from JSON file
+python src/langchain/lc_ask.py ask --file query.json --key biology
+```
+
+#### lc_batch.py - Batch Processing
+```bash
+# Process jobs from JSONL file
+python src/langchain/lc_batch.py --jobs data_jobs/example.jsonl --key science
+
+# Parallel processing
+python src/langchain/lc_batch.py --jobs jobs.jsonl --parallel 4 --k 30
+
+# Custom output directory
+python src/langchain/lc_batch.py --jobs jobs.jsonl --output-dir ./custom_output
+```
+
+#### lc_merge_runner.py - Content Merging
+```bash
+# Interactive mode
+python src/langchain/lc_merge_runner.py
+
+# Process specific subsection
+python src/langchain/lc_merge_runner.py --sub 1A1 --key science
+
+# Custom job file
+python src/langchain/lc_merge_runner.py --jobs data_jobs/1A1.jsonl --chapter "Chapter 1"
+```
+
+#### lc_book_runner.py - Book Orchestration
+```bash
+# Process complete book
+python src/langchain/lc_book_runner.py --book examples/book_structure_example.json
+
+# Custom output with force regeneration
+python src/langchain/lc_book_runner.py --book book.json --output my_book.md --force
+
+# Skip merge step
+python src/langchain/lc_book_runner.py --book book.json --skip-merge
+```
+
+#### lc_outline_converter.py - Outline Conversion
+```bash
+# Convert text outline
+python src/langchain/lc_outline_converter.py --outline examples/sample_outline_text.txt
+
+# Convert with custom metadata
+python src/langchain/lc_outline_converter.py --outline outline.md --title "My Book" --topic "AI" --audience "developers"
+
+# Convert markdown outline
+python src/langchain/lc_outline_converter.py --outline examples/sample_outline_markdown.md --output book.json
+```
+
+### CLI Commands (src/cli/commands.py)
+
+The CLI commands module provides a streamlined interface using Typer:
+
+```bash
+# Basic RAG query
+python src/cli/commands.py ask "What is machine learning?"
+
+# Advanced query with options
+python src/cli/commands.py ask "Explain neural networks" --key science --k 20 --task "Write for beginners"
+
+# Query from JSON file
+python src/cli/commands.py ask --file query.json --key biology
+```
+
+**CLI Command Options:**
+- `--question, -q`: Your question or instruction (required)
+- `--key, -k`: Collection key (default: from config)
+- `--k`: Top-k results for retrieval (default: 15)
+- `--task, -t`: Optional task prefix (excluded from retrieval)
+- `--file, -f`: JSON file containing prompt parameters
+
+### Interactive Shell (src/cli/shell.py)
+
+The interactive shell provides an advanced REPL interface with presets and multi-step workflows:
+
+```bash
+# Start interactive shell
+python src/cli/shell.py
+
+# Start with specific collection
+RAG_KEY=science python src/cli/shell.py
+```
+
+**Shell Commands:**
+- `ask <question>`: General RAG answer with citations
+- `compare <topic>`: Contrast positions/methods/results across sources
+- `summarize <topic>`: High-level summary with quotes
+- `outline <topic>`: Book/essay outline with evidence bullets
+- `presets`: List dynamic presets from playbooks.yaml
+- `preset <name> [topic]`: Run guided multi-step preset
+- `sources`: Show sources from last answer
+- `help`: Show available commands
+- `quit`: Exit shell
+
+**Example Shell Session:**
+```bash
+$ python src/cli/shell.py
+RAG Tool Shell
+ROOT: /path/to/project
+KEY: default
+Index: /path/to/storage/faiss_default
+
+rag> ask What is machine learning?
+[AI generates response with citations]
+
+rag> sources
+- Machine Learning Basics (p.15) :: ml_basics.pdf
+- Neural Networks Explained (p.42) :: nn_guide.pdf
+
+rag> quit
+```
+
+### Comparison of Interfaces
+
+| Interface | Best For | Features |
+|-----------|----------|----------|
+| **Makefile** | Complete workflows, automation | All options as variables, error handling, examples |
+| **Direct Scripts** | Direct control, scripting | Full command-line options, programmatic use |
+| **CLI Commands** | Simple queries, automation | Streamlined interface, JSON file support |
+| **Interactive Shell** | Exploration, complex queries | Presets, multi-step workflows, source inspection |
+
+### Configuration for CLI
+
+All CLI interfaces use the same configuration system:
+
+1. **Environment Variables**: `OPENAI_API_KEY`, `RAG_KEY`
+2. **Configuration Files**: `env.json`, YAML config files
+3. **Command-line Options**: Override defaults per command
+
+**Example Configuration:**
+```json
+{
+  "openai_api_key": "your-key-here",
+  "default_model": "gpt-4",
+  "rag_key": "science",
+  "embedding_model": "text-embedding-ada-002"
+}
 ```
 
 ## 📜 Scripts Overview
@@ -331,17 +646,103 @@ See `examples/sample_jobs_1A1.jsonl`, `examples/sample_jobs_1B1.jsonl`, and `exa
 
 ## ⚙️ Configuration
 
+### Environment Configuration
+
+Create `env.json` with your API keys and settings:
+
+```json
+{
+  "openai_api_key": "your-key-here",
+  "anthropic_api_key": "your-key-here",
+  "default_model": "gpt-4",
+  "embedding_model": "text-embedding-ada-002"
+}
+```
+
 ### YAML Configuration Files
 
-#### merge_types.yaml
+The system uses several YAML configuration files located in `src/tool/prompts/` to define content types, merge pipelines, and interactive presets.
 
-Defines different merge pipeline configurations:
+#### Content Types Configuration
+
+**File**: `src/tool/prompts/content_types.yaml` (main index)
+**Individual Files**: `src/tool/prompts/content_types/*.yaml`
+
+Content types define different writing styles and system prompts for content generation. Each content type is stored in its own YAML file.
+
+**Available Content Types:**
+- `pure_research` - Academic research with citations
+- `technical_manual_writer` - Technical documentation
+- `science_journalism_article_writer` - Science journalism
+- `folklore_adaptation_and_anthology_editor` - Creative writing adaptations
+
+**Example Content Type Structure** (`pure_research.yaml`):
+```yaml
+description: "Pure research assistant focused on citations and evidence"
+system_prompt:
+  - "You are a careful research assistant.\n"
+  - "Use ONLY the provided context\n."
+  - "Every claim MUST include inline citations like ([filename], p.X) or ([filename], pp.X–Y)."
+  - "If the context is insufficient or conflicting, state what is missing and stop."
+  - "Current date: {{current_date}} (for temporal context if needed)\n"
+job_generation_prompt: |
+  You are a research-focused content strategist. Generate {{num_prompts}} research-oriented writing prompts...
+job_generation_rag_context: |
+  **Additional Research Context from RAG:**
+  Use the following relevant research information from the knowledge base...
+```
+
+**Template Variables Available:**
+- `{{book_title}}` - Full book title
+- `{{chapter_title}}` - Chapter title
+- `{{section_title_hierarchy}}` - Hierarchical section path
+- `{{subsection_title}}` - Subsection title
+- `{{subsection_id}}` - Hierarchical ID (e.g., "1A1")
+- `{{target_audience}}` - Target audience
+- `{{topic}}` - Book topic
+- `{{num_prompts}}` - Number of prompts to generate
+- `{{rag_context}}` - Additional RAG context
+- `{{current_date}}` - Current date
+
+**RAG Context Query Templates:**
+Each content type now includes a `rag_context_query` template for retrieving relevant context:
 
 ```yaml
+rag_context_query: |
+  Find relevant information about: {{section_title}}
+
+  Context: This is for creating educational content for a book titled "{{book_title}}"
+  for {{target_audience}}.
+
+  Please provide any relevant background information, examples, or context that would be
+  helpful for writing educational content about this topic.
+```
+
+**Template Fallback System:**
+The template engine now supports a robust fallback system:
+1. **First**: Try to load template from the specific content type file (e.g., `pure_research.yaml`)
+2. **Fallback**: If not found, try to load from `default.yaml`
+3. **Error**: If still not found, raise an informative error message
+
+This ensures that new content types can inherit templates from the default configuration while still allowing for customization when needed.
+
+#### Merge Types Configuration
+
+**File**: `src/tool/prompts/merge_types.yaml`
+
+Defines different merge pipeline configurations for content consolidation and editing.
+
+**Available Merge Types:**
+- `generic_editor` - Basic single-stage merging
+- `advanced_pipeline` - Multi-stage critique → merge → style → images
+- `educator_handbook` - Specialized for educational content
+
+**Example Merge Type Structure**:
+```yaml
 generic_editor:
-  description: "Basic editor merge"
   system_prompt:
     - "You are a senior editor for a publisher..."
+    - "It is your job to merge these together so that the final resulting text..."
 
 advanced_pipeline:
   description: "Multi-stage pipeline with critique, merge, and style harmonization"
@@ -364,32 +765,121 @@ advanced_pipeline:
       output_format: "markdown"
 ```
 
-#### content_types.yaml
+**Stage Configuration Options:**
+- `system_prompt` - Array of prompt strings
+- `output_format` - "json" or "markdown"
+- `scoring_instruction` - For critique stages
+- `parameters` - Pipeline-level settings (top_n_variations, similarity_threshold)
 
-Defines content type configurations for lc_ask.py:
+#### Playbooks Configuration
 
+**File**: `src/tool/prompts/playbooks.yaml`
+
+Defines interactive presets for complex multi-step workflows used in the CLI shell.
+
+**Example Playbook Structure**:
 ```yaml
-pure_research:
-  system_prompt: "You are a research assistant..."
-  temperature: 0.7
-
-creative_writing:
-  system_prompt: "You are a creative writer..."
-  temperature: 0.9
+literature_review:
+  label: Literature Review
+  description: Structured synthesis with methods appraisal and evidence-backed themes
+  inputs: []  # preset-level interactive inputs
+  system_prompt: |
+    You are a meticulous literature-review assistant...
+  stitch_final: true  # Combine step outputs
+  final_prompt: |
+    Combine the step outputs into a cohesive literature review...
+  steps:
+    - name: scope
+      prompt: |
+        Clarify the research question(s) and implicit inclusion/exclusion criteria...
+    - name: themes
+      prompt: |
+        Extract major themes/claims with evidence...
+    - name: methods
+      prompt: |
+        Critically appraise methods for each study...
+    - name: synthesis
+      prompt: |
+        Summarize agreements and disagreements...
 ```
 
-### Environment Configuration
+**Playbook Features:**
+- **Interactive Inputs**: User prompts for dynamic content
+- **Multi-step Workflows**: Sequential processing stages
+- **Template Variables**: Jinja2 templating support
+- **Flexible Output**: JSON arrays or final synthesis
 
-Create `env.json` with your API keys and settings:
-
-```json
-{
-  "openai_api_key": "your-key-here",
-  "anthropic_api_key": "your-key-here",
-  "default_model": "gpt-4",
-  "embedding_model": "text-embedding-ada-002"
-}
+**Input Types:**
+```yaml
+inputs:
+  - name: audience
+    prompt: Primary audience?
+    default: general
+    choices: [general, policy, practitioners]
+  - name: styles
+    prompt: List 3 styles (comma-separated)
+    default: modern retelling, mythic high-fantasy
+    multi: true  # Allow multiple values
+  - name: target_length
+    prompt: Target length (words)
+    default: 450
+    type: int  # Type validation
 ```
+
+#### Output Templates
+
+**File**: `src/tool/prompts/templates.md`
+
+Provides structural templates for different output formats:
+
+**Literature Review Template:**
+```
+- **Research Question**: ...
+- **Scope/Inclusion**: ...
+- **Themes**
+  - Theme A — evidence (pages)
+  - Theme B — evidence (pages)
+- **Methods Appraisal**
+  - Source — strengths/limitations
+- **Synthesis**
+  - Agreements / Disagreements
+  - Gaps & Future Work
+```
+
+**Science Journalism Template:**
+```
+- **Headline**: ...
+- **Dek**: ...
+- **What's New**
+- **Why It Matters**
+- **Evidence (plain-language)**
+- **Caveats**
+- **Quote(s)** (with page cites)
+- **How Solid Is The Evidence?** (1–5)
+```
+
+### Customizing Configuration
+
+#### Adding New Content Types
+
+1. Create new YAML file in `src/tool/prompts/content_types/`
+2. Define system prompt and job generation templates
+3. Use template variables for dynamic content
+4. Test with `make lc-batch CONTENT_TYPE=your_type`
+
+#### Adding New Merge Types
+
+1. Add new entry to `src/tool/prompts/merge_types.yaml`
+2. Define stages with system prompts and output formats
+3. Configure parameters for advanced pipelines
+4. Test with `python src/langchain/lc_merge_runner.py`
+
+#### Creating Custom Playbooks
+
+1. Add new entry to `src/tool/prompts/playbooks.yaml`
+2. Define interactive inputs and step workflows
+3. Use Jinja2 templating for dynamic content
+4. Test with `python src/cli/shell.py` → `preset your_preset`
 
 ## 📝 Usage Examples
 

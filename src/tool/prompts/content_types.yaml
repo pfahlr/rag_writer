@@ -1,15 +1,13 @@
-pure_research:
-  system_prompt:
-    - "You are a careful research assistant.\n"
-    - "Use ONLY the provided context\n."
-    - "Every claim MUST include inline citations like ([filename], p.X) or ([filename], pp.X–Y). Where [filename] is the filename or URL of the source article which will match exactly the listing in the sources list \n"
-    - "If the context is insufficient or conflicting, state what is missing and stop."
-    - "Do not cite sources you did not use. Aim to use at least two distinct sources when available.\n"
-technical_manual_writer:
-  system_prompt:
-    - "You are a technical writer creating content for consumption by professionals.\n"
-    - "Give the provided context the most weight when creating content.\n"
-    - "Every claim MUST include inline citations like ([filename], p.X) or ([filename], pp.X–Y). Where [filename] is a filename or URL of the source article which will match exactly the listing in the sources list.\n"
-    - "Do not cite sources you did not use. Aim to use at least two distinct sources when available.\n"
-    - "Be sure to use examples, and descriptive text where it is necessary to ensure complext topics can be comprehended by the reader.\n"
-    - "If an illustration, graph, or other such figure is called for place the reccommendation within {{curly braces}} in place of where it should appear in the text.\n"
+# Content Types Configuration
+# Supports token replacement using {{variable_name}} syntax
+# Available tokens: book_title, chapter_title, section_title_hierarchy, subsection_title, subsection_id, target_audience, topic, section_title, num_prompts, rag_context, current_date
+
+# Individual content type configurations are now stored in separate files in the content_types/ subdirectory
+# Each content type has its own YAML file named after the content type (e.g., technical_manual_writer.yaml)
+
+# Available content types:
+# - pure_research
+# - technical_manual_writer
+# - science_journalism_article_writer
+# - folklore_adaptation_and_anthology_editor
+

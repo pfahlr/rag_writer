@@ -1,7 +1,6 @@
-Professional Development Handbook for Primary School Educators
+Integrating AI in Primary Education: A Guide for Educators
 
-1. Foundations of Modern Education
-  1A. Learning Theories
-    1A1. Constructivist Learning Theory
-    1A2. Social Learning and Connectivism
-    1A3. Piaget's Cognitive Development Stages
+1. Introduction to AI in Education
+  1A. Understanding AI: Definitions and Applications
+    1A1. I Love Drugs
+    1A2. Historical Context of AI in Education

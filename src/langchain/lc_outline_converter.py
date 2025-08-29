@@ -26,7 +26,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.prompt import Prompt, Confirm, IntPrompt
 
-from .job_generation import generate_job_file
+from langchain.job_generation import generate_job_file
 
 # --- ROOT relative to repo ---
 root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
@@ -53,6 +53,7 @@ class BookMetadata:
     author_expertise: str = "Intermediate"
     word_count_target: int = 50000
     description: str = ""
+    content_type: str = "technical_manual_writer"
 
 def parse_markdown_outline(content: str) -> Tuple[List[OutlineSection], BookMetadata]:
     """Parse markdown outline format with proper hierarchical structure."""
@@ -354,6 +355,21 @@ def parse_json_outline(content: str) -> Tuple[List[OutlineSection], BookMetadata
     """Parse JSON outline format (from lc_outline_generator.py)."""
     try:
         data = json.loads(content)
+    except json.JSONDecodeError:
+        # Try to clean up escaped characters that might be in the response
+        cleaned_content = re.sub(r'\\{2,}', r'\\', content)
+        try:
+            data = json.loads(cleaned_content)
+        except json.JSONDecodeError:
+            # Try to extract JSON from the text
+            json_match = re.search(r'\{.*\}', content, re.DOTALL)
+            if json_match:
+                try:
+                    data = json.loads(json_match.group(0))
+                except json.JSONDecodeError:
+                    raise ValueError(f"Could not parse JSON outline: {content[:200]}...")
+            else:
+                raise ValueError(f"No JSON found in outline content: {content[:200]}...")
 
         # Extract metadata
         metadata = BookMetadata(
@@ -452,7 +468,13 @@ def detect_outline_format(content: str) -> str:
             json.loads(content)
             return 'json'
         except json.JSONDecodeError:
-            pass
+            # Try to clean up escaped characters
+            cleaned_content = re.sub(r'\\{2,}', r'\\', content)
+            try:
+                json.loads(cleaned_content)
+                return 'json'
+            except json.JSONDecodeError:
+                pass
 
     # Check for markdown headers
     if re.search(r'^#{1,5}\s+', content, re.MULTILINE):
@@ -494,7 +516,9 @@ def generate_book_structure(sections: List[OutlineSection], metadata: BookMetada
             continue
 
         # Determine topic for batch/merge parameters
-        topic_key = metadata.topic.lower().replace(' ', '_') if metadata.topic else 'general'
+        from src.config.settings import get_config
+        config = get_config()
+        topic_key = metadata.topic.lower().replace(' ', '_') if metadata.topic else config.rag_key
 
         section_entry = {
             "subsection_id": section.id,
@@ -531,6 +555,7 @@ def generate_book_structure(sections: List[OutlineSection], metadata: BookMetada
             "description": metadata.description,
             "topic": metadata.topic,
             "author_expertise": metadata.author_expertise,
+            "content_type": metadata.content_type,
             "source": "outline_converter"
         },
         "sections": book_sections
@@ -599,6 +624,8 @@ def main():
     ap.add_argument("--topic", help="Override book topic")
     ap.add_argument("--audience", help="Override target audience")
     ap.add_argument("--wordcount", type=int, help="Override word count target")
+    ap.add_argument("--num-prompts", type=int, help="Number of prompts to generate per section")
+    ap.add_argument("--content-type", default="technical_manual_writer", help="Content type for job generation (default: technical_manual_writer)")
     args = ap.parse_args()
 
     # Display header
@@ -611,6 +638,7 @@ def main():
 
     # Load and parse outline
     outline_file = Path(args.outline)
+
     if not outline_file.exists():
         console.print(f"[red]Outline file not found: {outline_file}[/red]")
         sys.exit(1)
@@ -631,6 +659,16 @@ def main():
         metadata.target_audience = args.audience
     if args.wordcount:
         metadata.word_count_target = args.wordcount
+    if args.content_type:
+        metadata.content_type = args.content_type
+
+    # Validate and set num_prompts
+    from config.settings import get_config
+    config = get_config()
+    num_prompts = args.num_prompts or config.job_generation.default_prompts_per_section
+    if num_prompts < config.job_generation.min_prompts_per_section or num_prompts > config.job_generation.max_prompts_per_section:
+        console.print(f"[red]Error: --num-prompts must be between {config.job_generation.min_prompts_per_section} and {config.job_generation.max_prompts_per_section}[/red]")
+        sys.exit(1)
 
     # Generate book structure
     book_structure = generate_book_structure(sections, metadata)
@@ -640,7 +678,7 @@ def main():
     generated_jobs = 0
     for section in sections:
         if section.level >= 1:  # Generate jobs for chapters, sections and subsections
-            generate_job_file(section, metadata, sections, use_llm=True, use_rag=False, rag_key=None)
+            generate_job_file(section, metadata, sections, use_llm=True, use_rag=False, rag_key=None, num_prompts=num_prompts, content_type=metadata.content_type)
             generated_jobs += 1
 
     # Save book structure

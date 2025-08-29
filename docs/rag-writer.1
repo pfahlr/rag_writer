@@ -1,0 +1,721 @@
+.TH RAG-WRITER 1 "August 2025" "LangChain RAG Writer" "User Commands"
+.SH NAME
+rag-writer \- Advanced LangChain Content Processing Suite
+.SH SYNOPSIS
+.B rag-writer
+[\fIcommand\fR] [\fIoptions\fR] [\fIarguments\fR]
+.SH DESCRIPTION
+The LangChain RAG Writer is a sophisticated suite of scripts for AI-powered content generation, processing, and merging with multi-stage editorial pipelines. It provides a complete workflow for content creation and processing using LangChain and large language models.
+.SH INTERFACES
+The RAG Writer provides multiple interfaces for different use cases:
+.SS 1. Makefile Interface (Recommended)
+Comprehensive command center with workflow automation:
+.sp
+.nf
+make help                    # Show all targets
+make examples               # List example files
+make lc-ask "question"      # RAG query
+make lc-batch FILE=jobs.jsonl  # Batch processing
+make book-from-outline OUTLINE=file.txt  # Complete workflow
+.fi
+.SS 2. Direct Script Execution
+Full control with all command-line options:
+.sp
+.nf
+python src/langchain/lc_ask.py ask "question"
+python src/langchain/lc_batch.py --jobs file.jsonl
+python src/langchain/lc_merge_runner.py --sub 1A1
+.fi
+.SS 3. CLI Commands
+Streamlined interface using Typer:
+.sp
+.nf
+python src/cli/commands.py ask "question"
+python src/cli/shell.py                    # Interactive shell
+.fi
+.SH COMMANDS
+.SS Core LangChain Scripts
+.TP
+.B lc-ask
+Direct interface to language models for single queries with RAG support
+.TP
+.B lc-batch
+Process multiple content generation jobs in parallel
+.TP
+.B lc-build-index
+Create vector indexes for retrieval-augmented generation
+.TP
+.B lc-merge-runner
+Intelligent content merging with multi-stage editorial pipelines
+.TP
+.B lc-book-runner
+High-level orchestration for entire books and chapters
+.TP
+.B lc-outline-generator
+Interactive outline generation using indexed knowledge
+.TP
+.B lc-outline-converter
+Convert outlines to book structure and job files
+.SS Utility Scripts
+.TP
+.B content-viewer
+Interactive viewer for batch-generated content
+.TP
+.B cleanup-sources
+Clean and preprocess source documents
+.SS CLI Commands
+.TP
+.B python src/cli/commands.py ask
+Streamlined RAG query interface
+.TP
+.B python src/cli/shell.py
+Interactive shell with presets and multi-step workflows
+.SH CLI COMMANDS INTERFACE
+.SS SYNOPSIS
+.B python src/cli/commands.py ask
+[\fB\-\-question\fR|\fB\-q\fR \fIQUESTION\fR]
+[\fB\-\-key\fR|\fB\-k\fR \fIKEY\fR]
+[\fB\-\-k\fR \fINUM\fR]
+[\fB\-\-task\fR|\fB\-t\fR \fITASK\fR]
+[\fB\-\-file\fR|\fB\-f\fR \fIFILE\fR]
+.SS DESCRIPTION
+Streamlined CLI interface using Typer for simple RAG queries. Supports separation of retrieval query and final LLM task.
+.SS OPTIONS
+.TP
+.B \-\-question, \-q \fIQUESTION\fR
+Your question or instruction (required)
+.TP
+.B \-\-key, \-k \fIKEY\fR
+Collection key (default: from config)
+.TP
+.B \-\-k \fINUM\fR
+Top-k results for retrieval (default: 15)
+.TP
+.B \-\-task, \-t \fITASK\fR
+Optional task prefix (excluded from retrieval)
+.TP
+.B \-\-file, \-f \fIFILE\fR
+JSON file containing prompt parameters
+.SS EXAMPLES
+.TP
+Basic query:
+.B python src/cli/commands.py ask "What is machine learning?"
+.TP
+Advanced query with task separation:
+.B python src/cli/commands.py ask "Explain neural networks" --task "Write for beginners" --key science --k 20
+.TP
+Query from JSON file:
+.B python src/cli/commands.py ask --file query.json --key biology
+
+.SH INTERACTIVE SHELL
+.SS SYNOPSIS
+.B python src/cli/shell.py
+[\fIKEY\fR]
+.SS DESCRIPTION
+Advanced interactive shell with presets, multi-step workflows, and source inspection.
+.SS COMMANDS
+.TP
+.B ask <question>
+General RAG answer with citations
+.TP
+.B compare <topic>
+Contrast positions/methods/results across sources
+.TP
+.B summarize <topic>
+High-level summary with quotes
+.TP
+.B outline <topic>
+Book/essay outline with evidence bullets
+.TP
+.B presets
+List dynamic presets from playbooks.yaml
+.TP
+.B preset <name> [topic]
+Run guided multi-step preset
+.TP
+.B sources
+Show sources from last answer
+.TP
+.B help
+Show available commands
+.TP
+.B quit
+Exit shell
+.SS EXAMPLES
+.TP
+Start shell:
+.B python src/cli/shell.py
+.TP
+Start with specific collection:
+.B RAG_KEY=science python src/cli/shell.py
+
+.SH LC-ASK COMMAND
+.SS SYNOPSIS
+.B python src/langchain/lc_ask.py ask
+[\fB\-\-content-type\fR \fITYPE\fR]
+[\fB\-\-task\fR \fITASK\fR]
+[\fB\-\-json\fR \fIFILE\fR]
+[\fB\-\-key\fR \fIKEY\fR]
+[\fB\-\-k\fR \fINUM\fR]
+[\fB\-\-output\fR \fIFILE\fR]
+[\fIinstruction\fR]
+.SS OPTIONS
+.TP
+.B \-\-content-type \fITYPE\fR
+Content type from content_types.yaml (default: pure_research)
+.TP
+.B \-\-task \fITASK\fR
+The task/prompt for the LLM
+.TP
+.B \-\-json \fIFILE\fR
+JSON file with job specification
+.TP
+.B \-\-key \fIKEY\fR
+Collection key for RAG (default: default)
+.TP
+.B \-\-k \fINUM\fR
+Top-k results for retrieval (default: 30)
+.TP
+.B \-\-output \fIFILE\fR
+Output file path
+.SS EXAMPLES
+.TP
+Ask a simple question:
+.B python src/langchain/lc_ask.py ask "What is machine learning?"
+.TP
+Advanced query with custom parameters:
+.B python src/langchain/lc_ask.py ask --content-type technical_manual_writer --key science --k 20 "Explain neural networks"
+.SH LC-BATCH COMMAND
+.SS SYNOPSIS
+.B python src/langchain/lc_batch.py
+[\fB\-\-jobs\fR \fIFILE\fR]
+[\fB\-\-output\fR \fIDIR\fR]
+[\fB\-\-parallel\fR \fINUM\fR]
+[\fB\-\-key\fR \fIKEY\fR]
+[\fB\-\-k\fR \fINUM\fR]
+[\fB\-\-content-type\fR \fITYPE\fR]
+.SS OPTIONS
+.TP
+.B \-\-jobs \fIFILE\fR
+JSONL file with jobs (required)
+.TP
+.B \-\-output \fIDIR\fR
+Output directory
+.TP
+.B \-\-parallel \fINUM\fR
+Number of parallel processes (default: 1)
+.TP
+.B \-\-key \fIKEY\fR
+Collection key for RAG (default: default)
+.TP
+.B \-\-k \fINUM\fR
+Top-k results for retrieval (default: 30)
+.TP
+.B \-\-content-type \fITYPE\fR
+Content type (default: pure_research)
+.SS EXAMPLES
+.TP
+Process jobs with parallel execution:
+.B python src/langchain/lc_batch.py --jobs data_jobs/example.jsonl --parallel 4
+.SH LC-MERGE-RUNNER COMMAND
+.SS SYNOPSIS
+.B python src/langchain/lc_merge_runner.py
+[\fB\-\-sub\fR \fIID\fR]
+[\fB\-\-jobs\fR \fIFILE\fR]
+[\fB\-\-key\fR \fIKEY\fR]
+[\fB\-\-k\fR \fINUM\fR]
+[\fB\-\-batch-only\fR]
+[\fB\-\-chapter\fR \fITITLE\fR]
+[\fB\-\-section\fR \fITITLE\fR]
+[\fB\-\-subsection\fR \fITITLE\fR]
+.SS OPTIONS
+.TP
+.B \-\-sub \fIID\fR
+Subsection ID for job file (e.g., 1A1)
+.TP
+.B \-\-jobs \fIFILE\fR
+Custom job file path
+.TP
+.B \-\-key \fIKEY\fR
+Collection key for RAG
+.TP
+.B \-\-k \fINUM\fR
+Top-k results for retrieval
+.TP
+.B \-\-batch-only
+Force use of batch results only
+.TP
+.B \-\-chapter \fITITLE\fR
+Chapter title for context
+.TP
+.B \-\-section \fITITLE\fR
+Section title for context
+.TP
+.B \-\-subsection \fITITLE\fR
+Subsection title for context
+.SS EXAMPLES
+.TP
+Merge content for specific subsection:
+.B python src/langchain/lc_merge_runner.py --sub 1A1
+.TP
+Interactive mode:
+.B python src/langchain/lc_merge_runner.py
+.SH LC-BOOK-RUNNER COMMAND
+.SS SYNOPSIS
+.B python src/langchain/lc_book_runner.py
+\fB\-\-book\fR \fIFILE\fR
+[\fB\-\-output\fR \fIFILE\fR]
+[\fB\-\-force\fR]
+[\fB\-\-skip-merge\fR]
+[\fB\-\-use-rag\fR]
+[\fB\-\-rag-key\fR \fIKEY\fR]
+[\fB\-\-num-prompts\fR \fINUM\fR]
+.SS OPTIONS
+.TP
+.B \-\-book \fIFILE\fR
+JSON file defining book structure (required)
+.TP
+.B \-\-output \fIFILE\fR
+Output markdown file path
+.TP
+.B \-\-force
+Force regeneration of all content
+.TP
+.B \-\-skip-merge
+Skip merge processing, only run batch
+.TP
+.B \-\-use-rag
+Use RAG for additional context when generating job prompts
+.TP
+.B \-\-rag-key \fIKEY\fR
+Collection key for RAG retrieval
+.TP
+.B \-\-num-prompts \fINUM\fR
+Number of prompts to generate per section (default: 4)
+.SS EXAMPLES
+.TP
+Generate complete book:
+.B python src/langchain/lc_book_runner.py --book examples/book_structure_example.json
+.TP
+Force regeneration with custom output:
+.B python src/langchain/lc_book_runner.py --book book.json --output my_book.md --force
+.SH LC-OUTLINE-CONVERTER COMMAND
+.SS SYNOPSIS
+.B python src/langchain/lc_outline_converter.py
+\fB\-\-outline\fR \fIFILE\fR
+[\fB\-\-output\fR \fIFILE\fR]
+[\fB\-\-title\fR \fITITLE\fR]
+[\fB\-\-topic\fR \fITOPIC\fR]
+[\fB\-\-audience\fR \fIAUDIENCE\fR]
+[\fB\-\-wordcount\fR \fINUM\fR]
+[\fB\-\-num-prompts\fR \fINUM\fR]
+[\fB\-\-content-type\fR \fITYPE\fR]
+.SS OPTIONS
+.TP
+.B \-\-outline \fIFILE\fR
+Input outline file (JSON, Markdown, or Text) (required)
+.TP
+.B \-\-output \fIFILE\fR
+Output book structure JSON file
+.TP
+.B \-\-title \fITITLE\fR
+Override book title
+.TP
+.B \-\-topic \fITOPIC\fR
+Override book topic
+.TP
+.B \-\-audience \fIAUDIENCE\fR
+Override target audience
+.TP
+.B \-\-wordcount \fINUM\fR
+Override word count target
+.TP
+.B \-\-num-prompts \fINUM\fR
+Number of prompts to generate per section
+.TP
+.B \-\-content-type \fITYPE\fR
+Content type for job generation
+.SS EXAMPLES
+.TP
+Convert markdown outline:
+.B python src/langchain/lc_outline_converter.py --outline examples/sample_outline_markdown.md
+.TP
+Convert with custom metadata:
+.B python src/langchain/lc_outline_converter.py --outline outline.txt --title "My Book" --topic "AI" --audience "developers"
+.SH MAKEFILE TARGETS
+.SS Core Workflow
+.TP
+.B make init
+Initialize environment and install dependencies
+.TP
+.B make ingest
+Parse PDFs into documents (LlamaIndex)
+.TP
+.B make index
+Build FAISS index for retrieval
+.TP
+.B make ask "question"
+Ask questions using RAG (LlamaIndex)
+.SS LangChain Targets
+.TP
+.B make lc-index [KEY=key_name]
+Build FAISS index
+.TP
+.B make lc-ask INSTR="instruction" [TASK="task"]
+RAG query with custom parameters
+.TP
+.B make lc-batch FILE="jobs.jsonl" [PARALLEL=4]
+Batch processing
+.TP
+.B make lc-merge-runner [SUB=1A1]
+Content merging
+.TP
+.B make lc-outline-converter OUTLINE="file.txt"
+Convert outlines to book structure
+.TP
+.B make lc-book-runner BOOK="book.json"
+Complete book generation
+.SS Quality and Development
+.TP
+.B make test
+Run test suite
+.TP
+.B make test-coverage
+Run tests with coverage reporting
+.TP
+.B make format
+Format code with black
+.TP
+.B make lint
+Lint code with flake8
+.TP
+.B make quality
+Run full quality check
+.TP
+.B make show-config
+Display current configuration
+.TP
+.B make check-setup
+Validate project setup
+.SS Workflow Automation
+.TP
+.B make book-from-outline OUTLINE="file.txt" TITLE="Book Title"
+Complete workflow from outline to finished book
+.TP
+.B make quick-ask "question" KEY="key" CONTENT_TYPE="type"
+Quick RAG query with custom parameters
+.TP
+.B make batch-workflow FILE="jobs.jsonl" PARALLEL=4
+Batch processing workflow
+.TP
+.B make examples
+Show available example files
+.SH CONFIGURATION
+.SS Environment Configuration
+Create \fBenv.json\fR with your API keys and settings:
+.sp
+.nf
+{
+  "openai_api_key": "your-key-here",
+  "anthropic_api_key": "your-key-here",
+  "default_model": "gpt-4",
+  "embedding_model": "text-embedding-ada-002"
+}
+.fi
+.SS Content Types Configuration
+Located in \fBsrc/tool/prompts/content_types/\fR
+.sp
+Each content type defines writing styles and system prompts. Available types:
+.TP
+.B pure_research
+Academic research with citations and evidence-based writing
+.TP
+.B technical_manual_writer
+Technical documentation and procedural writing
+.TP
+.B science_journalism_article_writer
+Science journalism with plain-language explanations
+.TP
+.B folklore_adaptation_and_anthology_editor
+Creative writing adaptations and storytelling
+.SS Template Variables
+Available in content type templates:
+.TP
+.B {{book_title}}
+Full book title for context
+.TP
+.B {{chapter_title}}
+Current chapter title
+.TP
+.B {{section_title_hierarchy}}
+Hierarchical section path (e.g., "Chapter 1 > Section A")
+.TP
+.B {{subsection_title}}
+Subsection title
+.TP
+.B {{subsection_id}}
+Hierarchical ID (e.g., "1A1")
+.TP
+.B {{target_audience}}
+Target audience for the content
+.TP
+.B {{topic}}
+Book topic or subject matter
+.TP
+.B {{num_prompts}}
+Number of prompts to generate
+.TP
+.B {{rag_context}}
+Additional RAG context from knowledge base
+.TP
+.B {{current_date}}
+Current date for temporal context
+.SS Merge Types Configuration
+Located in \fBsrc/tool/prompts/merge_types.yaml\fR
+.sp
+Defines content merging and editing pipelines:
+.TP
+.B generic_editor
+Basic single-stage content consolidation
+.TP
+.B advanced_pipeline
+Multi-stage: critique → merge → style → images
+.TP
+.B educator_handbook
+Specialized for educational content and PD materials
+.SS Pipeline Stages
+Each merge type can define multiple stages:
+.TP
+.B critique
+AI-powered content evaluation and scoring
+.TP
+.B merge
+Content consolidation and deduplication
+.TP
+.B style
+Tone harmonization and language refinement
+.TP
+.B images
+Visual content suggestions (optional)
+.SS Playbooks Configuration
+Located in \fBsrc/tool/prompts/playbooks.yaml\fR
+.sp
+Defines interactive presets for complex workflows:
+.TP
+.B literature_review
+Structured academic literature synthesis
+.TP
+.B science_journalism
+800-1200 word news articles with evidence
+.TP
+.B folk_anthology
+Creative story adaptations in multiple styles
+.SS Interactive Inputs
+Playbooks support dynamic user inputs:
+.sp
+.nf
+inputs:
+  - name: audience
+    prompt: Primary audience?
+    default: general
+    choices: [general, policy, practitioners]
+  - name: styles
+    prompt: List 3 styles (comma-separated)
+    default: modern retelling, mythic high-fantasy
+    multi: true
+  - name: target_length
+    prompt: Target length (words)
+    default: 450
+    type: int
+.fi
+.SS Output Templates
+Located in \fBsrc/tool/prompts/templates.md\fR
+.sp
+Provides structural templates for different content types:
+.TP
+.B Literature Review
+Research question, themes, methods appraisal, synthesis
+.TP
+.B Science Journalism
+Headline, dek, evidence, caveats, quotes with citations
+.TP
+.B SSML Scripts
+Narration scripts with image prompts for audio content
+.SS Customizing Configuration
+.SS Adding New Content Types
+1. Create new YAML file in \fBsrc/tool/prompts/content_types/\fR
+2. Define system prompt and job generation templates
+3. Use template variables for dynamic content
+4. Test with: \fBmake lc-batch CONTENT_TYPE=your_type\fR
+.SS Adding New Merge Types
+1. Add new entry to \fBsrc/tool/prompts/merge_types.yaml\fR
+2. Define stages with system prompts and output formats
+3. Configure parameters for advanced pipelines
+4. Test with: \fBpython src/langchain/lc_merge_runner.py\fR
+.SS Creating Custom Playbooks
+1. Add new entry to \fBsrc/tool/prompts/playbooks.yaml\fR
+2. Define interactive inputs and step workflows
+3. Use Jinja2 templating for dynamic content
+4. Test with: \fBpython src/cli/shell.py\fR → \fBpreset your_preset\fR
+.SS Template Variables Reference
+.sp
+.nf
+# Content Types (job generation)
+{{book_title}}              # Full book title
+{{chapter_title}}           # Chapter title
+{{section_title_hierarchy}} # Hierarchical path
+{{subsection_title}}        # Subsection title
+{{subsection_id}}           # ID like "1A1"
+{{target_audience}}         # Target audience
+{{topic}}                   # Book topic
+{{num_prompts}}             # Number to generate
+{{rag_context}}             # Additional context
+{{current_date}}            # Current date
+
+# Playbooks (interactive)
+{{audience}}                # User-selected audience
+{{styles}}                  # User-selected styles
+{{target_length}}           # User-selected length
+{{style_overrides}}         # Per-step overrides
+.fi
+.SS YAML Configuration Files
+.TP
+.B merge_types.yaml
+Defines different merge pipeline configurations
+.TP
+.B content_types.yaml
+Defines content type configurations for lc_ask.py
+.SH FILE FORMATS
+.SS Book Structure JSON
+.sp
+.nf
+{
+  "title": "Book Title",
+  "metadata": {
+    "author": "Author Name",
+    "target_audience": "Target audience",
+    "word_count_target": 100000
+  },
+  "sections": [
+    {
+      "subsection_id": "1A1",
+      "title": "Section Title",
+      "job_file": "data_jobs/1A1.jsonl",
+      "batch_params": {"key": "collection_name", "k": 5},
+      "merge_params": {"key": "collection_name", "k": 3},
+      "dependencies": ["parent_section_id"]
+    }
+  ]
+}
+.fi
+.SS Job File Format (JSONL)
+.sp
+.nf
+{
+  "task": "system prompt with book context",
+  "instruction": "specific instruction with hierarchical positioning",
+  "context": {
+    "book_title": "Book Title",
+    "chapter": "Chapter X",
+    "section": "Section Y",
+    "subsection": "Subsection Z",
+    "subsection_id": "XYZ",
+    "target_audience": "target audience"
+  }
+}
+.fi
+.SH EXAMPLES
+.SS Complete Book Generation Workflow
+.sp
+.nf
+# 1. Convert outline to book structure
+make lc-outline-converter OUTLINE="examples/sample_outline_text.txt"
+
+# 2. Generate complete book
+make lc-book-runner BOOK="outlines/converted_structures/converted_book_structure.json"
+.fi
+.SS Advanced RAG Query
+.sp
+.nf
+make lc-ask INSTR="Explain neural networks" \\
+         TASK="Write for beginners" \\
+         KEY="science" \\
+         CONTENT_TYPE="technical_manual_writer" \\
+         K=20
+.fi
+.SS Batch Processing
+.sp
+.nf
+make lc-batch FILE="examples/sample_jobs_1A1.jsonl" \\
+             KEY="biology" \\
+             PARALLEL=4
+.fi
+.SH TROUBLESHOOTING
+.SS Common Issues
+.TP
+No batch results found
+Run batch processing first: \fBmake lc-batch FILE="jobs.jsonl"\fR
+.TP
+Job file not found
+Check file path and permissions: \fBls -la data_jobs/\fR
+.TP
+YAML configuration errors
+Validate syntax: \fBpython -c "import yaml; yaml.safe_load(open('merge_types.yaml'))"\fR
+.TP
+API key issues
+Check environment configuration: \fBcat env.json\fR
+.SH INTERFACE COMPARISON
+.SS Makefile Interface
+Best for complete workflows and automation:
+- All options available as variables
+- Smart defaults and error handling
+- Workflow automation (multi-step processes)
+- Quality tools integration
+- Example file discovery
+.sp
+.nf
+make lc-ask "question" KEY=science K=20
+make book-from-outline OUTLINE=file.txt TITLE="Book"
+.fi
+.SS Direct Script Execution
+Best for direct control and scripting:
+- Full command-line options
+- Programmatic use in scripts
+- Maximum flexibility
+- Direct access to all features
+.sp
+.nf
+python src/langchain/lc_batch.py --jobs file.jsonl --parallel 4
+python src/langchain/lc_merge_runner.py --sub 1A1 --key science
+.fi
+.SS CLI Commands Interface
+Best for simple queries and automation:
+- Streamlined interface
+- JSON file support
+- Task/retrieval separation
+- Easy to use in scripts
+.sp
+.nf
+python src/cli/commands.py ask "question" --key science --k 20
+python src/cli/commands.py ask --file query.json
+.fi
+.SS Interactive Shell
+Best for exploration and complex queries:
+- Presets and multi-step workflows
+- Source inspection
+- Interactive prompt completion
+- Advanced query types (compare, summarize, outline)
+.sp
+.nf
+python src/cli/shell.py
+rag> ask "What is machine learning?"
+rag> sources
+.fi
+.SH SEE ALSO
+.BR make (1),
+.BR python (1),
+.BR typer (1)
+.SH AUTHOR
+LangChain RAG Writer Team
+.SH LICENSE
+MIT License
