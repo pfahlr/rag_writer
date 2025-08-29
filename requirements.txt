@@ -9,6 +9,8 @@ rich
 textual
 textual-dev
 cryptography
+typer
+argparse 
 
 # LangChain stack
 langchain
