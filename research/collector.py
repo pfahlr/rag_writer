@@ -331,7 +331,10 @@ class ResearchCollector:
                 with open(self.manifest_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     for item in data:
-                        article = ArticleMetadata(**item)
+                        # Remove computed fields that shouldn't be passed to constructor
+                        item_copy = item.copy()
+                        item_copy.pop('authors_str', None)
+                        article = ArticleMetadata(**item_copy)
                         self.articles.append(article)
                 console.print(f"[green]Loaded {len(self.articles)} articles from manifest[/green]")
             except Exception as e:

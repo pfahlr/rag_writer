@@ -1,0 +1,6 @@
+in/*
+out/*
+!in/README.md
+!out/README.md
+*.html
+*/*.html
