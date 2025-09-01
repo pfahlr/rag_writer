@@ -251,6 +251,7 @@ class ArticleFormApp(App):
                     with Horizontal():
                         yield Button("Open Page", variant="primary", id="open_page_button", classes="button open-page-button")
                         yield Button("Complete Fields", variant="primary", id="complete_fields_button", classes="button complete-fields-button")
+                        yield Button("Delete", variant="error", id="delete_button", classes="button delete-button")
             #with Vertical(classes="form-bottom-container"):
             #    with Horizontal(classes="status-text-container"):
             #        pass
@@ -283,6 +284,8 @@ class ArticleFormApp(App):
             webbrowser.open(self.article.scholar_url)
         elif event.button.id == "complete_fields_button":
             self.action_complete_fields()
+        elif event.button.id == "delete_button":
+            self.action_delete()
 
     def action_complete_fields(self):
         _fllog("Completing fields button pressed")
@@ -312,6 +315,25 @@ class ArticleFormApp(App):
         self.collector.save_manifest()
         self.notify("Fields completed", severity="success")
         _fllog("Fields completion done")
+
+    def action_delete(self):
+        _fllog("Delete button pressed")
+
+        # Remove the article
+        del self.collector.articles[self.article_index]
+        self.collector.save_manifest()
+
+        # Adjust index if necessary
+        if self.article_index >= len(self.collector.articles):
+            self.article_index = max(0, len(self.collector.articles) - 1)
+
+        if self.collector.articles:
+            self.notify("Article deleted", severity="warning")
+            self.exit(True)  # Redisplay form with next/previous article
+        else:
+            self.notify("Article deleted. No more articles.", severity="warning")
+            self.exit(False)  # Exit form
+        _fllog("Article deleted")
 
     def action_download(self):
         """Download PDF action."""
