@@ -303,6 +303,9 @@ class ArticleFormApp(App):
         pdf_input = self.query_one("#pdf_input", Input)
         pdf_input.value = self.article.pdf_url or ''
         pdf_input.refresh()
+        pdf_source_url_input = self.query_one("#pdf_source_url", Input)
+        pdf_source_url_input.value = self.article.pdf_source_url or ''
+        pdf_source_url_input.refresh()
         scholar_url_input = self.query_one("#scholar_url", Input)
         scholar_url_input.value = self.article.scholar_url
         scholar_url_input.refresh()
@@ -345,8 +348,15 @@ class ArticleFormApp(App):
             stored_filepath = save_pdf(self.article.pdf_url, filename, metadata, '/srv/IOMEGA_EXTERNAL/rag_writer/research/out', tmp_path='/srv/IOMEGA_EXTERNAL/rag_writer/research/tmp')
             if stored_filepath is not None:
               self.article.pdf_url = "file://"+stored_filepath
+              # Update form inputs
+              pdf_input = self.query_one("#pdf_input", Input)
+              pdf_input.value = self.article.pdf_url
+              pdf_input.refresh()
+              pdf_source_url_input = self.query_one("#pdf_source_url", Input)
+              pdf_source_url_input.value = self.article.pdf_source_url or ''
+              pdf_source_url_input.refresh()
             else:
-              _fllog("opening url"+str(self.article.pdf_url)) 
+              _fllog("opening url"+str(self.article.pdf_url))
               webbrowser.open(self.article.pdf_url)
 
     def action_save(self):
