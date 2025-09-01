@@ -66,6 +66,23 @@ try:
 except ImportError:
     HAS_BEAUTIFULSOUP = False
 
+headers={
+  'sec-ch-ua':'"Not;A=Brand";v="99", "Google Chrome";v="139", "Chromium";v="139"',
+  'Content-Type': "application/json; charset=utf-8",
+  'Accept-Language': "en-US,en;q=0.9",
+  'Accept-Ranges': "bytes",
+  'sec-ch-ua-platform': "Linux",
+  'sec-fetch-dest': "empty",
+  'Priority': "u=4, i",
+  'Dnt': "1",
+  'sec-ch-ua-mobile': '?0',
+  'Accept': "*/*",
+  'Accept-Encoding': "gzip, deflate, br, zstd",
+  'sec-fetch-mode': "cors",
+  'sec-fetch-site': "same-origin",
+  'User-Agent': "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+}
+
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -273,16 +290,22 @@ class ArticleFormApp(App):
         # Update form inputs with new values
         authors_input = self.query_one("#authors_input", Input)
         authors_input.value = ', '.join(self.article.authors) if self.article.authors else ''
+        authors_input.refresh()
         date_input = self.query_one("#date_input", Input)
         date_input.value = self.article.date or ''
+        date_input.refresh()
         pub_input = self.query_one("#publication_input", Input)
         pub_input.value = self.article.publication or ''
+        pub_input.refresh()
         doi_input = self.query_one("#doi_input", Input)
         doi_input.value = self.article.doi or ''
+        doi_input.refresh()
         pdf_input = self.query_one("#pdf_input", Input)
         pdf_input.value = self.article.pdf_url or ''
+        pdf_input.refresh()
         scholar_url_input = self.query_one("#scholar_url", Input)
         scholar_url_input.value = self.article.scholar_url
+        scholar_url_input.refresh()
         self.notify("Fields completed", severity="success")
         _fllog("Fields completion done")
 
@@ -340,6 +363,7 @@ class ArticleFormApp(App):
         self.article.publication = pub_input.value
         self.article.doi = doi_input.value
         self.article.pdf_url = pdf_input.value
+        self.article.pdf_source_url = pdf_input.value
 
         self.collector.save_manifest()
         self.notify("Changes saved!", severity="success")
@@ -408,10 +432,6 @@ class ResearchCollector:
         """Fetch HTML content from Google Scholar URL."""
         console.print(f"[dim]Fetching HTML from: {url}[/dim]")
 
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-
         try:
             response = requests.get(url, headers=headers, timeout=30)
             response.raise_for_status()
@@ -465,9 +485,11 @@ class ResearchCollector:
                     # Check if title link is a PDF or construct PDF URL for arxiv
                     if 'arxiv.org' in article.scholar_url and '/abs/' in article.scholar_url:
                         article.pdf_url = article.scholar_url.replace('/abs/', '/pdf/')
+                        article.pdf_source_url = article.pdf_url
                         _fllog(f"Constructed PDF URL from arxiv abs: {article.pdf_url}")
                     elif 'pdf' in article.scholar_url.lower():
                         article.pdf_url = article.scholar_url
+                        article.pdf_source_url = article.pdf_url
                         _fllog(f"Found PDF URL in title link: {article.pdf_url}")
 
 
@@ -543,6 +565,7 @@ class ResearchCollector:
                         href = link.get('href', '')
                         if href and not href.startswith('javascript:'):
                             article.pdf_url = urljoin('https://scholar.google.com', href) if not href.startswith('http') else href
+                            article.pdf_source_url = article.pdf_url
                             _fllog(f"Found PDF URL in gs_or_ggsm: {article.pdf_url}")
                             break
 
@@ -582,9 +605,6 @@ class ResearchCollector:
             return
 
         try:
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
             _fllog(f"Fetching HTML from: {article.scholar_url}")
             response = requests.get(article.scholar_url, headers=headers, timeout=30)
             response.raise_for_status()
@@ -600,27 +620,25 @@ class ResearchCollector:
                     article.title = title_elem.get_text(strip=True)
                     _fllog(f"Extracted title: {article.title}")
 
-            # Extract authors if not set
-            if not article.authors:
-                # Look for author information (Google Scholar specific)
-                author_divs = soup.find_all('div', class_=re.compile(r'gs_a|author'))
-                for div in author_divs:
-                    authors_text = div.get_text(strip=True)
-                    if authors_text:
-                        article.authors = [a.strip() for a in authors_text.split(',') if a.strip()]
-                        _fllog(f"Extracted authors: {article.authors}")
-                        break
+            # Extract authors (update even if already set) - DISABLED
+            # Look for author information (Google Scholar specific)
+            # author_divs = soup.find_all('div', class_=re.compile(r'gs_a|author'))
+            # for div in author_divs:
+            #     authors_text = div.get_text(strip=True)
+            #     if authors_text:
+            #         article.authors = [a.strip() for a in authors_text.split(',') if a.strip()]
+            #         _fllog(f"Extracted authors: {article.authors}")
+            #         break
 
-            # Extract date if not set
-            if not article.date:
-                # Look for date patterns
-                date_patterns = soup.find_all(text=re.compile(r'\b(19|20)\d{2}\b'))
-                for text in date_patterns:
-                    year_match = re.search(r'\b(19|20)\d{2}\b', text)
-                    if year_match:
-                        article.date = year_match.group(0)
-                        _fllog(f"Extracted date: {article.date}")
-                        break
+            # Extract date (update even if already set)
+            # Look for date patterns
+            date_patterns = soup.find_all(text=re.compile(r'\b(19|20)\d{2}\b'))
+            for text in date_patterns:
+                year_match = re.search(r'\b(19|20)\d{2}\b', text)
+                if year_match:
+                    article.date = year_match.group(0)
+                    _fllog(f"Extracted date: {article.date}")
+                    break
 
             # Extract DOI if not set
             if not article.doi:
@@ -633,16 +651,15 @@ class ResearchCollector:
                         _fllog(f"Extracted DOI: {article.doi}")
                         break
 
-            # Extract publication if not set
-            if not article.publication:
-                # Look for publication info
-                pub_divs = soup.find_all('div', class_=re.compile(r'gs_pub|publication'))
-                for div in pub_divs:
-                    pub_text = div.get_text(strip=True)
-                    if pub_text:
-                        article.publication = pub_text
-                        _fllog(f"Extracted publication: {article.publication}")
-                        break
+            # Extract publication (update even if already set) - DISABLED
+            # Look for publication info
+            # pub_divs = soup.find_all('div', class_=re.compile(r'gs_pub|publication'))
+            # for div in pub_divs:
+            #     pub_text = div.get_text(strip=True)
+            #     if pub_text:
+            #         article.publication = pub_text
+            #         _fllog(f"Extracted publication: {article.publication}")
+            #         break
 
             _fllog("Fields completion finished")
 
@@ -659,12 +676,8 @@ class ResearchCollector:
         try:
             console.print(f"[dim]Downloading PDF from: {article.pdf_url}[/dim]")
 
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-            }
-
-            #response = requests.get(article.pdf_url, headers=headers, timeout=30)
-            #response.raise_for_status()
+            response = requests.get(article.pdf_url, headers=headers, timeout=30)
+            response.raise_for_status()
 
             # Generate filename
             filename = article.slugify_title()
