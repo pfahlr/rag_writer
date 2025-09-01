@@ -10,20 +10,19 @@ textual
 textual-dev
 cryptography
 typer
-argparse 
 
 # LangChain stack
-langchain
-langchain-community
+langchain>=0.2.8
+langchain-community>=0.2.7
 langchain-text-splitters
 
 # Vector stores
 lancedb>=0.6,<=0.13
-faiss-cpu
+faiss-cpu>=1.8.0
 
 # Retrieval helpers
-rank-bm25
-sentence-transformers
+rank_bm25>=0.2.2
+sentence-transformers>=2.6.0
 
 # PDF & utils
 pypdf>=4.0,<5.0
