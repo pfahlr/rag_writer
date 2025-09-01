@@ -482,6 +482,13 @@ class ResearchCollector:
                     _fllog(f"Extracted title: {article.title}")
                     _fllog(f"Scholar URL: {article.scholar_url}")
 
+                    # Try to extract DOI from scholar_url if not already found
+                    if not article.doi:
+                        doi_match = re.search(r'10\.\d+/.+?(?=/|$|\?)', article.scholar_url)
+                        if doi_match:
+                            article.doi = doi_match.group(0)
+                            _fllog(f"Extracted DOI from scholar_url: {article.doi}")
+
                     # Check if title link is a PDF or construct PDF URL for arxiv
                     if 'arxiv.org' in article.scholar_url and '/abs/' in article.scholar_url:
                         article.pdf_url = article.scholar_url.replace('/abs/', '/pdf/')
@@ -531,8 +538,17 @@ class ResearchCollector:
                 doi_match = re.search(r'(?:doi\.org/|doi:)(.+)', href)
                 if doi_match:
                     article.doi = unquote(doi_match.group(1).strip())
-                    _fllog(f"Extracted DOI: {article.doi}")
+                    _fllog(f"Extracted DOI from link: {article.doi}")
                     break
+
+            # If not found in links, try to find DOI in text content of this article div
+            if not article.doi:
+                doi_pattern = re.compile(r'10\.\d+/.+?(?=\s|$|[^\w/.-])')
+                div_text = div.get_text()
+                doi_match = doi_pattern.search(div_text)
+                if doi_match:
+                    article.doi = doi_match.group(0).strip()
+                    _fllog(f"Extracted DOI from text: {article.doi}")
 
             # Look for PDF links in multiple locations
             pdf_links = div.find_all('a', href=re.compile(r'\.pdf'))
@@ -642,14 +658,30 @@ class ResearchCollector:
 
             # Extract DOI if not set
             if not article.doi:
-                doi_links = soup.find_all('a', href=re.compile(r'doi\.org|doi:'))
-                for link in doi_links:
-                    href = link.get('href', '')
-                    doi_match = re.search(r'(?:doi\.org/|doi:)(.+)', href)
-                    if doi_match:
-                        article.doi = unquote(doi_match.group(1).strip())
-                        _fllog(f"Extracted DOI: {article.doi}")
-                        break
+                # First check if DOI is in the scholar_url itself
+                doi_match = re.search(r'(?:doi\.org/|doi:)(.+?)(?=&|$)', article.scholar_url)
+                if doi_match:
+                    article.doi = unquote(doi_match.group(1).strip())
+                    _fllog(f"Extracted DOI from scholar_url: {article.doi}")
+                else:
+                    # Try links with doi in href
+                    doi_links = soup.find_all('a', href=re.compile(r'doi\.org|doi:'))
+                    for link in doi_links:
+                        href = link.get('href', '')
+                        doi_match = re.search(r'(?:doi\.org/|doi:)(.+)', href)
+                        if doi_match:
+                            article.doi = unquote(doi_match.group(1).strip())
+                            _fllog(f"Extracted DOI from link: {article.doi}")
+                            break
+
+                    # If not found in links, try to find DOI in text content
+                    if not article.doi:
+                        doi_pattern = re.compile(r'10\.\d+/.+?(?=\s|$|[^\w/.-])')
+                        text_content = soup.get_text()
+                        doi_match = doi_pattern.search(text_content)
+                        if doi_match:
+                            article.doi = doi_match.group(0).strip()
+                            _fllog(f"Extracted DOI from text: {article.doi}")
 
             # Extract publication (update even if already set) - DISABLED
             # Look for publication info
