@@ -4,3 +4,4 @@ out/*
 !out/README.md
 *.html
 */*.html
+tmp/*
