@@ -31,7 +31,7 @@ def save_pdf(url, filename, metadata, save_path, tmp_path="/tmp"):
   except Exception as e:
     _fllog("error: "+str(e))
     return None
-  _fllog(temporary_pdf)
+  _fllog(str(temporary_pdf))
   _fllog('Opening with pdfwriter')
   writer = PdfWriter(clone_from=temporary_pdf)
   
