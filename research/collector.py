@@ -16,6 +16,12 @@ Usage:
 
 import os
 import sys
+
+
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__)) 
+
+
+
 import json
 import re
 import time
@@ -26,6 +32,10 @@ from urllib.parse import urlparse, parse_qs, urljoin, quote
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pdfwriter import save_pdf
+from textual.app import App, ComposeResult
+from rich.pretty import pprint
+from filelogger import _fllog
+
 
 
 import typer
@@ -70,6 +80,7 @@ class ArticleMetadata:
     publication: str = ""
     doi: str = ""
     pdf_url: str = ""
+    pdf_source_url: str = ""
     scholar_url: str = ""
     pdf_filename: str = ""
     downloaded: bool = False
@@ -151,7 +162,7 @@ class ArticleFormApp(App):
                     date_input = Input(
                         placeholder="2023",
                         id="date_input",
-                        classes="form-field"
+                        classes="form-field form-field-date"
                     )
                     date_input.value = self.article.date or ''
                     yield date_input
@@ -160,7 +171,7 @@ class ArticleFormApp(App):
                     doi_input = Input(
                         placeholder="10.1000/example",
                         id="doi_input",
-                        classes="form-field"
+                        classes="form-field form-field-doi"
                     )
                     doi_input.value = self.article.doi or ''
                     yield doi_input
@@ -171,7 +182,7 @@ class ArticleFormApp(App):
                     authors_input = Input(
                         placeholder="Author1, Author2, Author3",
                         id="authors_input",
-                        classes="form-field"
+                        classes="form-field form-field-author"
                     )
                     authors_input.value = ', '.join(self.article.authors) if self.article.authors else ''
                     yield authors_input
@@ -180,51 +191,68 @@ class ArticleFormApp(App):
                     pub_input = Input(
                         placeholder="Journal Name",
                         id="publication_input",
-                        classes="form-field"
+                        classes="form-field form-field-publication"
                     )
                     pub_input.value = self.article.publication or ''
                     yield pub_input
 
             # PDF URL row
-            with Horizontal():
+            with Horizontal(classes="pdf-url-container"):
                 with Vertical():
                     yield Label("PDF URL", classes="field-label")
                     pdf_input = Input(
                         placeholder="https://example.com/paper.pdf",
                         id="pdf_input",
-                        classes="form-field"
-                        
+                        classes="form-field form-field-file"
                     )
                     pdf_input.value = self.article.pdf_url or ''
                     yield pdf_input
-                    if not self.article.downloaded and self.article.pdf_url:
-                        yield Button("Download", variant="primary", id="download_button", classes="button")
+                if not self.article.downloaded and self.article.pdf_url:
+                    yield Button("Download", variant="primary", id="download_button", classes="button download-button")
 
-            with Horizontal():
+            with Horizontal(classes="pdf-source-url-container"):
                 with Vertical():
-                        yield Button("Open Page", variant="primary", id="open_page_button", classes="button")
-                    
-            # PDF Status
-            if self.article.downloaded:
-                pdf_text = f"PDF Downloaded: {self.article.pdf_filename}"
-            elif self.article.pdf_url:
-                pdf_text = "PDF Available"
-            else:
-                pdf_text = "No PDF found"
-            yield Label(pdf_text, classes="status-text")
+                    yield Label("PDF SOURCE URL", classes="field-label")
+                    pdf_source_url = Input(
+                        placeholder="https://example.com/paper.pdf",
+                        id="pdf_source_url",
+                        classes="form-field form-field-file-source"
+                    )
+                    pdf_source_url.value = self.article.pdf_source_url or ''
+                    yield pdf_source_url
+
+            with Horizontal(classes="web-url-container"):
+                with Vertical():
+                    yield Label("Scholar (web) URL", classes="field-label")
+                    scholar_url = Input(
+                        placeholder="ARTICLE WEB URL",
+                        id="scholar_url",
+                        classes="form-field form-field-url"
+                    )
+                    scholar_url.value = self.article.scholar_url
+                    yield scholar_url
+                    with Horizontal():
+                        yield Button("Open Page", variant="primary", id="open_page_button", classes="button open-page-button")
+                        yield Button("Complete Fields", variant="primary", id="complete_fields_button", classes="button complete-fields-button")
+            #with Vertical(classes="form-bottom-container"):
+            #    with Horizontal(classes="status-text-container"):
+            #        pass
 
             # Action buttons
             with Horizontal():
-                yield Button("Previous", variant="default", id="prev_button")
-                yield Button("Save", variant="primary", id="save_button")
-                yield Button("Next", variant="default", id="next_button")
-                yield Button("Quit", variant="error", id="quit_button")
+                yield Button("Previous", variant="default", id="prev_button", classes="button prev-button")
+                yield Button("Save", variant="primary", id="save_button", classes="button save-button")
+                yield Button("Next", variant="default", id="next_button", classes="button next-button")
+                yield Button("Quit", variant="error", id="quit_button", classes="button quit-button")
 
         yield Footer()
 
     def on_button_pressed(self, event):
         """Handle button presses."""
+        _fllog("button pressed")
+        _fllog(event.button.id)
         if event.button.id == "download_button":
+            print('download button pressed')
             self.action_download()
         elif event.button.id == "save_button":
             self.action_save()
@@ -236,41 +264,51 @@ class ArticleFormApp(App):
             self.action_quit()
         elif event.button.id == "open_page_button":
             webbrowser.open(self.article.scholar_url)
-            #cmd = f"falkon {self.article.scholar_url}"
-            #cmd_parts = shlex.split(cmd)
-            #subprocess.run(cmd_parts)
+        elif event.button.id == "complete_fields_button":
+            self.action_complete_fields()
+
+    def action_complete_fields(self):
+        pass 
 
     def action_download(self):
         """Download PDF action."""
+        _fllog('download action: BUTTON')
         if not self.article.downloaded and self.article.pdf_url:
-
             authors_input = self.query_one("#authors_input", Input)
             date_input = self.query_one("#date_input", Input)
             pub_input = self.query_one("#publication_input", Input)
             doi_input = self.query_one("#doi_input", Input)
             pdf_input = self.query_one("#pdf_input", Input)
 
-            metadata = {
-             'title':self.article.title,
+            meta_metadata = {
+             #'title':self.article.title,
              'date':self.article.date,
              'publication':self.article.publication,
              'authors':self.article.authors,
              'doi':self.article.doi,
              'web_url':self.article.scholar_url,
-             'pdf_source_url':self.article.pdf_url,
-             'authors_v2': authors_input,
-             'date_v2': date_input,
-             'pub_v2': pub_input,
-             'doi_v2':doi_input,
-             'pdf_link_v2':pdf_input,
-             'metadata_created_by':'RAG content generation suite developed by Rick Pfahl 2025'         
+             'pdf_source_url':self.article.pdf_source_url,
             }
-
+            metadata = {
+                '/CreationDate':self.article.date,
+                '/Publication':self.article.publication,
+                '/Author':self.article.authors,
+                '/DOI':self.article.doi,
+                '/WebUrl': self.article.scholar_url,
+                '/Metadata': json.dumps(meta_metadata),
+            }
             self.notify("Downloading PDF...", severity="information")
             filename = self.article.slugify_title()
-            save_pdf(self.article.pdf_url, filename, metadata, './out/', tmp_path="/tmp")
-
-
+            _fllog(filename)
+            _fllog(self.article.pdf_url)
+            _fllog(filename)
+            _fllog(ROOT_DIR)
+            stored_filepath = save_pdf(self.article.pdf_url, filename, metadata, '/srv/IOMEGA_EXTERNAL/rag_writer/research/out', tmp_path='/srv/IOMEGA_EXTERNAL/rag_writer/research/tmp')
+            if stored_filepath is not None:
+              self.article.pdf_url = "file://"+stored_filepath
+            else:
+              _fllog("opening url"+str(self.article.pdf_url)) 
+              webbrowser.open(self.article.pdf_url)
 
     def action_save(self):
         """Save changes action."""
@@ -291,7 +329,7 @@ class ArticleFormApp(App):
         self.notify("Changes saved!", severity="success")
 
     def action_next(self):
-        """Next article action."""
+
         if self.article_index < len(self.collector.articles) - 1:
             self.collector.current_index += 1
             self.exit(True)  # Signal to redisplay form
@@ -400,8 +438,10 @@ class ResearchCollector:
                 if title_link:
                     article.title = title_link.get_text(strip=True)
                     article.scholar_url = title_link.get('href', '')
+
                     if article.scholar_url and not article.scholar_url.startswith('http'):
                         article.scholar_url = urljoin('https://scholar.google.com', article.scholar_url)
+
 
             # Extract authors, publication, and date from gs_a div
             authors_div = div.find('div', class_=re.compile(r'gs_a'))
@@ -424,14 +464,14 @@ class ResearchCollector:
                     if len(pub_parts) >= 1:
                         # split_item[0] goes in publication
                         article.publication = pub_parts[0].strip()
-
+                        
                     if len(pub_parts) >= 2:
                         # split_item[1] goes in date if date is empty
                         date_part = pub_parts[1].strip()
                         year_match = re.search(r'\b(19|20)\d{2}\b', date_part)
                         if year_match and not article.date:  # Only set if date is empty
                             article.date = year_match.group(0)
-
+                            
             # Extract DOI from various sources
             doi_links = div.find_all('a', href=re.compile(r'doi\.org|doi:'))
             for link in doi_links:
@@ -447,6 +487,8 @@ class ResearchCollector:
                 href = link.get('href', '')
                 if href and not href.startswith('javascript:'):
                     article.pdf_url = urljoin('https://scholar.google.com', href) if not href.startswith('http') else href
+                    self.article.pdf_url = article.pdf_url
+                    self.article.source_pdf_url = article.pdf_url
                     break
 
             # Also check for PDF links in the article's data attributes or other elements
@@ -456,6 +498,8 @@ class ResearchCollector:
                     href = link.get('href', '')
                     if '.pdf' in href.lower() and not href.startswith('javascript:'):
                         article.pdf_url = urljoin('https://scholar.google.com', href) if not href.startswith('http') else href
+                        self.article.pdf_url = article.pdf_url
+                        self.article.pdf_source_url = article.pdf_url
                         break
 
             # Only add if we have at least a title or DOI
@@ -477,6 +521,7 @@ class ResearchCollector:
         return articles
 
     def download_pdf(self, article: ArticleMetadata) -> bool:
+        print('download_pdf function')
         """Download PDF for an article."""
         if not article.pdf_url:
             console.print("[yellow]No PDF URL available[/yellow]")
@@ -519,7 +564,7 @@ class ResearchCollector:
 
             self.notify("Downloading PDF...", severity="information")
             filename = self.article.slugify_title()
-            save_pdf(self.article.pdf_url, filename, metadata, './out/', tmp_path="/tmp")
+            save_pdf(self.article.pdf_url, filename, metadata, './out', tmp_path="/tmp")
 
 
             # Save PDF
@@ -797,6 +842,7 @@ def main(
     else:
         # Run interactive session
         collector.run_interactive_session()
+
 
 if __name__ == "__main__":
     typer.run(main)
