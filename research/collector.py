@@ -28,7 +28,7 @@ import time
 import requests
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from urllib.parse import urlparse, parse_qs, urljoin, quote
+from urllib.parse import urlparse, parse_qs, urljoin, quote, unquote
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from pdfwriter import save_pdf
@@ -268,7 +268,23 @@ class ArticleFormApp(App):
             self.action_complete_fields()
 
     def action_complete_fields(self):
-        pass 
+        _fllog("Completing fields button pressed")
+        self.collector.complete_article_fields(self.article)
+        # Update form inputs with new values
+        authors_input = self.query_one("#authors_input", Input)
+        authors_input.value = ', '.join(self.article.authors) if self.article.authors else ''
+        date_input = self.query_one("#date_input", Input)
+        date_input.value = self.article.date or ''
+        pub_input = self.query_one("#publication_input", Input)
+        pub_input.value = self.article.publication or ''
+        doi_input = self.query_one("#doi_input", Input)
+        doi_input.value = self.article.doi or ''
+        pdf_input = self.query_one("#pdf_input", Input)
+        pdf_input.value = self.article.pdf_url or ''
+        scholar_url_input = self.query_one("#scholar_url", Input)
+        scholar_url_input.value = self.article.scholar_url
+        self.notify("Fields completed", severity="success")
+        _fllog("Fields completion done")
 
     def action_download(self):
         """Download PDF action."""
@@ -424,9 +440,10 @@ class ResearchCollector:
         console.print(f"[dim]Soup title: {soup.title}[/dim]")
 
         articles = []
+        seen_titles = set()
 
         # Find all article entries (Google Scholar uses various class patterns)
-        article_divs = soup.find_all('div', class_=re.compile(r'gs_r|gs_ri|gs_scl'))
+        article_divs = soup.find_all('div', class_=re.compile(r'gs_r|gs_ri|gs_scl|gs_or'))
 
         for div in article_divs:
             article = ArticleMetadata()
@@ -442,6 +459,17 @@ class ResearchCollector:
                     if article.scholar_url and not article.scholar_url.startswith('http'):
                         article.scholar_url = urljoin('https://scholar.google.com', article.scholar_url)
 
+                    _fllog(f"Extracted title: {article.title}")
+                    _fllog(f"Scholar URL: {article.scholar_url}")
+
+                    # Check if title link is a PDF or construct PDF URL for arxiv
+                    if 'arxiv.org' in article.scholar_url and '/abs/' in article.scholar_url:
+                        article.pdf_url = article.scholar_url.replace('/abs/', '/pdf/')
+                        _fllog(f"Constructed PDF URL from arxiv abs: {article.pdf_url}")
+                    elif 'pdf' in article.scholar_url.lower():
+                        article.pdf_url = article.scholar_url
+                        _fllog(f"Found PDF URL in title link: {article.pdf_url}")
+
 
             # Extract authors, publication, and date from gs_a div
             authors_div = div.find('div', class_=re.compile(r'gs_a'))
@@ -455,6 +483,7 @@ class ResearchCollector:
                     # item[0] remains in authors field
                     authors_part = parts[0].strip()
                     article.authors = [a.strip() for a in authors_part.split(',') if a.strip()]
+                    _fllog(f"Extracted authors: {article.authors}")
 
                 if len(parts) >= 2:
                     # item[1] split on ','
@@ -471,6 +500,7 @@ class ResearchCollector:
                         year_match = re.search(r'\b(19|20)\d{2}\b', date_part)
                         if year_match and not article.date:  # Only set if date is empty
                             article.date = year_match.group(0)
+                            _fllog(f"Extracted date: {article.date}")
                             
             # Extract DOI from various sources
             doi_links = div.find_all('a', href=re.compile(r'doi\.org|doi:'))
@@ -478,7 +508,8 @@ class ResearchCollector:
                 href = link.get('href', '')
                 doi_match = re.search(r'(?:doi\.org/|doi:)(.+)', href)
                 if doi_match:
-                    article.doi = doi_match.group(1).strip()
+                    article.doi = unquote(doi_match.group(1).strip())
+                    _fllog(f"Extracted DOI: {article.doi}")
                     break
 
             # Look for PDF links in multiple locations
@@ -487,8 +518,8 @@ class ResearchCollector:
                 href = link.get('href', '')
                 if href and not href.startswith('javascript:'):
                     article.pdf_url = urljoin('https://scholar.google.com', href) if not href.startswith('http') else href
-                    self.article.pdf_url = article.pdf_url
-                    self.article.source_pdf_url = article.pdf_url
+                    article.source_pdf_url = article.pdf_url
+                    _fllog(f"Found PDF URL in div regex: {article.pdf_url}")
                     break
 
             # Also check for PDF links in the article's data attributes or other elements
@@ -498,14 +529,36 @@ class ResearchCollector:
                     href = link.get('href', '')
                     if '.pdf' in href.lower() and not href.startswith('javascript:'):
                         article.pdf_url = urljoin('https://scholar.google.com', href) if not href.startswith('http') else href
-                        self.article.pdf_url = article.pdf_url
-                        self.article.pdf_source_url = article.pdf_url
+                        article.pdf_source_url = article.pdf_url
+                        _fllog(f"Found PDF URL in all_links: {article.pdf_url}")
                         break
+
+            # Look for PDF links in gs_or_ggsm divs (child elements)
+            if not article.pdf_url:
+                next_div = div.find('div', class_=re.compile(r'gs_or_ggsm|gs_or|gs_.*'))
+                if next_div:
+                    _fllog(f"Found gs_or_ggsm div for article: {article.title}")
+                    pdf_links = next_div.find_all('a', href=True)
+                    for link in pdf_links:
+                        href = link.get('href', '')
+                        if href and not href.startswith('javascript:'):
+                            article.pdf_url = urljoin('https://scholar.google.com', href) if not href.startswith('http') else href
+                            _fllog(f"Found PDF URL in gs_or_ggsm: {article.pdf_url}")
+                            break
 
             # Only add if we have at least a title or DOI
             if article.title or article.doi:
-                articles.append(article)
-                console.print(f"[dim]Added article: {article.title[:50]}...[/dim]")
+                # Avoid duplicates
+                if article.title and article.title not in seen_titles:
+                    seen_titles.add(article.title)
+                    articles.append(article)
+                    console.print(f"[dim]Added article: {article.title[:50]}...[/dim]")
+                elif not article.title and article.doi:
+                    # For articles without title, use DOI to check uniqueness
+                    if article.doi not in seen_titles:
+                        seen_titles.add(article.doi)
+                        articles.append(article)
+                        console.print(f"[dim]Added article (DOI): {article.doi}...[/dim]")
 
         console.print(f"[green]Parsed {len(articles)} articles from HTML[/green]")
 
@@ -519,6 +572,82 @@ class ResearchCollector:
             console.print(f"[dim]  PDF: {article.pdf_url}[/dim]")
 
         return articles
+
+    def complete_article_fields(self, article: ArticleMetadata):
+        """Complete missing fields by parsing the article's Google Scholar page."""
+        _fllog(f"Completing fields for article: {article.title}")
+
+        if not article.scholar_url or article.scholar_url.endswith('.pdf'):
+            _fllog("No scholar URL or it's already a PDF")
+            return
+
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            _fllog(f"Fetching HTML from: {article.scholar_url}")
+            response = requests.get(article.scholar_url, headers=headers, timeout=30)
+            response.raise_for_status()
+            html = response.text
+            _fllog(f"Fetched HTML length: {len(html)}")
+
+            soup = BeautifulSoup(html, 'html.parser')
+
+            # Extract title if not set
+            if not article.title:
+                title_elem = soup.find('h1') or soup.find('title')
+                if title_elem:
+                    article.title = title_elem.get_text(strip=True)
+                    _fllog(f"Extracted title: {article.title}")
+
+            # Extract authors if not set
+            if not article.authors:
+                # Look for author information (Google Scholar specific)
+                author_divs = soup.find_all('div', class_=re.compile(r'gs_a|author'))
+                for div in author_divs:
+                    authors_text = div.get_text(strip=True)
+                    if authors_text:
+                        article.authors = [a.strip() for a in authors_text.split(',') if a.strip()]
+                        _fllog(f"Extracted authors: {article.authors}")
+                        break
+
+            # Extract date if not set
+            if not article.date:
+                # Look for date patterns
+                date_patterns = soup.find_all(text=re.compile(r'\b(19|20)\d{2}\b'))
+                for text in date_patterns:
+                    year_match = re.search(r'\b(19|20)\d{2}\b', text)
+                    if year_match:
+                        article.date = year_match.group(0)
+                        _fllog(f"Extracted date: {article.date}")
+                        break
+
+            # Extract DOI if not set
+            if not article.doi:
+                doi_links = soup.find_all('a', href=re.compile(r'doi\.org|doi:'))
+                for link in doi_links:
+                    href = link.get('href', '')
+                    doi_match = re.search(r'(?:doi\.org/|doi:)(.+)', href)
+                    if doi_match:
+                        article.doi = unquote(doi_match.group(1).strip())
+                        _fllog(f"Extracted DOI: {article.doi}")
+                        break
+
+            # Extract publication if not set
+            if not article.publication:
+                # Look for publication info
+                pub_divs = soup.find_all('div', class_=re.compile(r'gs_pub|publication'))
+                for div in pub_divs:
+                    pub_text = div.get_text(strip=True)
+                    if pub_text:
+                        article.publication = pub_text
+                        _fllog(f"Extracted publication: {article.publication}")
+                        break
+
+            _fllog("Fields completion finished")
+
+        except Exception as e:
+            _fllog(f"Error completing fields: {e}")
 
     def download_pdf(self, article: ArticleMetadata) -> bool:
         print('download_pdf function')
