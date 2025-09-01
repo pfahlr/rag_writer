@@ -17,10 +17,7 @@ Usage:
 import os
 import sys
 
-
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__)) 
-
-
 
 import json
 import re
@@ -35,8 +32,6 @@ from pdfwriter import save_pdf
 from textual.app import App, ComposeResult
 from rich.pretty import pprint
 from filelogger import _fllog
-
-
 
 import typer
 from rich.console import Console
@@ -85,6 +80,8 @@ headers={
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+BASE_FILE_PATH = os.getenv('BASE_FILE_PATH', '/srv/IOMEGA_EXTERNAL/rag_writer/')
 
 console = Console()
 
@@ -368,7 +365,7 @@ class ArticleFormApp(App):
             _fllog(self.article.pdf_url)
             _fllog(filename)
             _fllog(ROOT_DIR)
-            stored_filepath = save_pdf(self.article.pdf_url, filename, metadata, '/srv/IOMEGA_EXTERNAL/rag_writer/research/out', tmp_path='/srv/IOMEGA_EXTERNAL/rag_writer/research/tmp')
+            stored_filepath = save_pdf(self.article.pdf_url, filename, metadata, BASE_FILE_PATH+'research/out', tmp_path=BASE_FILE_PATH+'research/tmp')
             if stored_filepath is not None:
               self.article.pdf_url = "file://"+stored_filepath
               # Update form inputs
