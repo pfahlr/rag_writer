@@ -309,6 +309,7 @@ class ArticleFormApp(App):
         scholar_url_input = self.query_one("#scholar_url", Input)
         scholar_url_input.value = self.article.scholar_url
         scholar_url_input.refresh()
+        self.collector.save_manifest()
         self.notify("Fields completed", severity="success")
         _fllog("Fields completion done")
 
@@ -355,6 +356,7 @@ class ArticleFormApp(App):
               pdf_source_url_input = self.query_one("#pdf_source_url", Input)
               pdf_source_url_input.value = self.article.pdf_source_url or ''
               pdf_source_url_input.refresh()
+              self.collector.save_manifest()
             else:
               _fllog("opening url"+str(self.article.pdf_url))
               webbrowser.open(self.article.pdf_url)
