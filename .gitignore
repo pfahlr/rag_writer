@@ -20,4 +20,5 @@ exports/*
 *.json
 *.md
 dictionaries/*
+generated/*
 
