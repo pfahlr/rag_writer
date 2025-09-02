@@ -1,0 +1,36 @@
+{
+  "$id": "https://example.org/schemas/extraction.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Extraction Gold",
+  "type": "object",
+  "required": ["id", "doc_id", "fields"],
+  "properties": {
+    "id": { "type": "string" },
+    "doc_id": { "type": "string" },
+    "span_hint": { "type": "string" },
+    "fields": {
+      "type": "object",
+      "required": ["outcome"],
+      "properties": {
+        "n": { "type": ["integer", "null"], "minimum": 1 },
+        "grade_band": { "type": ["string", "null"] },
+        "country": { "type": ["string", "null"] },
+        "design": { "type": ["string", "null"], "enum": ["RCT","quasi","observational",null] },
+        "outcome": { "type": ["string","array"], "items": { "type": "string" } },
+        "measure": { "type": ["string", "null"] },
+        "effect_size": { "type": ["number", "null"] },
+        "ci_low": { "type": ["number", "null"] },
+        "ci_high": { "type": ["number", "null"] },
+        "duration_weeks": { "type": ["number","null"] }
+      },
+      "additionalProperties": true
+    },
+    "gold_citations": {
+      "type": "array",
+      "items": { "type": "object", "properties": { "doc_id": { "type": "string" }, "page_span": { "type": "string" } }, "required": ["doc_id"] }
+    },
+    "notes": { "type": "string" }
+  },
+  "additionalProperties": false
+}
+

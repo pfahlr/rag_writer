@@ -1,0 +1,28 @@
+{
+  "$id": "https://example.org/schemas/retrieval.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Retrieval Gold",
+  "type": "object",
+  "required": ["id", "query", "gold_citations"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "query": { "type": "string", "minLength": 1 },
+    "notes": { "type": "string" },
+    "gold_citations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["doc_id"],
+        "properties": {
+          "doc_id": { "type": "string", "minLength": 1 },
+          "page_span": { "type": "string", "pattern": "^[0-9]+(-[0-9]+)?$" },
+          "rationale": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "domain": { "type": "string" }
+  },
+  "additionalProperties": false
+}
+
