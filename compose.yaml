@@ -1,6 +1,8 @@
 services:
   rag-writer:
-    build: .
+    build:
+      context: .
+      target: runner
     image: rag-writer:latest
     working_dir: /app
     environment:
@@ -18,4 +20,3 @@ services:
 
 volumes:
   hf-cache:
-

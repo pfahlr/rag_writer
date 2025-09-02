@@ -296,13 +296,13 @@ The CLI commands module provides a streamlined interface using Typer:
 
 ```bash
 # Basic RAG query
-python src/cli/commands.py ask "What is machine learning?"
+python -m src.cli.commands ask "What is machine learning?"
 
 # Advanced query with options
-python src/cli/commands.py ask "Explain neural networks" --key science --k 20 --task "Write for beginners"
+python -m src.cli.commands ask "Explain neural networks" --key science --k 20 --task "Write for beginners"
 
 # Query from JSON file
-python src/cli/commands.py ask --file query.json --key biology
+python -m src.cli.commands ask --file query.json --key biology
 ```
 
 **CLI Command Options:**
@@ -318,10 +318,10 @@ The interactive shell provides an advanced REPL interface with presets and multi
 
 ```bash
 # Start interactive shell
-python src/cli/shell.py
+python -m src.cli.shell
 
 # Start with specific collection
-RAG_KEY=science python src/cli/shell.py
+RAG_KEY=science python -m src.cli.shell
 ```
 
 **Shell Commands:**
@@ -337,7 +337,7 @@ RAG_KEY=science python src/cli/shell.py
 
 **Example Shell Session:**
 ```bash
-$ python src/cli/shell.py
+$ python -m src.cli.shell
 RAG Tool Shell
 ROOT: /path/to/project
 KEY: default
@@ -424,7 +424,7 @@ docker run --rm -it \
 docker run --rm -it \
   -v "$PWD":/app \
   -e OPENAI_API_KEY=sk-... \
-  rag-writer:latest python src/cli/shell.py
+  rag-writer:latest shell
 ```
 
 Tip: To persist model downloads across runs, mount a cache:
@@ -504,6 +504,31 @@ make compose-shell
 make docker-book-runner BOOK=outlines/converted_structures/my_book.json OUTPUT=exports/books/my_book.md
 make compose-book-runner BOOK=outlines/converted_structures/my_book.json OUTPUT=exports/books/my_book.md
 ```
+
+### Image Structure and Faster Rebuilds
+
+The Docker image uses a multi-stage build to speed up development rebuilds:
+
+- base-sys: OS deps (build tools, curl, jq, ca-certificates, libgomp1) + sops binary
+- py-deps: Python dependencies from `requirements.txt`
+- runner: App source + entrypoint
+
+Only the runner layer changes when you edit source files, so rebuilds are much faster.
+
+Common workflows:
+
+```bash
+# Seed base layers (do this after changing system or Python deps)
+make docker-build-base
+
+# Regular dev cycle (code changes only)
+make docker-build             # or: docker compose build
+
+# Compose variant for base layers
+make compose-build-base
+```
+
+To use prebuilt base layers across machines/CI, you can tag and push the base stages to a registry and update `Dockerfile` FROM references if you want to pin them.
 
 ## 📜 Scripts Overview
 
@@ -1004,7 +1029,7 @@ Provides structural templates for different output formats:
 1. Add new entry to `src/tool/prompts/playbooks.yaml`
 2. Define interactive inputs and step workflows
 3. Use Jinja2 templating for dynamic content
-4. Test with `python src/cli/shell.py` → `preset your_preset`
+4. Test with `python -m src.cli.shell` → `preset your_preset`
 
 ## 📝 Usage Examples
 

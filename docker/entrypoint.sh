@@ -20,7 +20,10 @@ fi
 
 case "${1-}" in
   --*|-h|--help|ask|list-types)
-    exec python src/cli/commands.py "$@"
+    exec python -m src.cli.commands "$@"
+    ;;
+  shell)
+    exec python -m src.cli.shell
     ;;
   python|bash|sh)
     exec "$@"
@@ -30,4 +33,3 @@ case "${1-}" in
     exec "$@"
     ;;
 esac
-

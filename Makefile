@@ -27,7 +27,7 @@ EXTRACTION_DATA:= $(DATA_DIR)/extraction/studies.jsonl
 SYNTHESIS_DATA := $(DATA_DIR)/synthesis/questions.jsonl
 MANUALS_DATA   := $(DATA_DIR)/manuals/tasks.jsonl
 
-.PHONY: all init ingest index ask lc-index lc-ask lc-batch content-viewer cleanup-sources lc-merge-runner lc-outline-generator lc-outline-converter lc-book-runner tool-shell clean clean-all help show-config check-setup test test-coverage format lint quality book-from-outline quick-ask batch-workflow examples validate-gold validate-gold-retrieval validate-gold-screening validate-gold-extraction validate-gold-synthesis validate-gold-manuals docker-build docker-ask docker-index docker-shell compose-build compose-ask compose-index compose-shell sops-updatekeys sops-decrypt sops-env-export
+.PHONY: all init ingest index ask lc-index lc-ask lc-batch content-viewer cleanup-sources lc-merge-runner lc-outline-generator lc-outline-converter lc-book-runner tool-shell clean clean-all help show-config check-setup test test-coverage format lint quality book-from-outline quick-ask batch-workflow examples validate-gold validate-gold-retrieval validate-gold-screening validate-gold-extraction validate-gold-synthesis validate-gold-manuals docker-build docker-ask docker-index docker-shell compose-build compose-ask compose-index compose-shell sops-updatekeys sops-decrypt sops-env-export docker-build-base compose-build-base
 
 
 # ===== HELP =====
@@ -416,26 +416,33 @@ validate-gold-manuals:
 
 ## Build Docker image (DOCKER_IMAGE=rag-writer:latest)
 docker-build:
-	docker build -t $(DOCKER_IMAGE) .
+	docker build -t $(DOCKER_IMAGE) --target runner .
+
+## Build base layers (system + python deps) for faster subsequent builds
+docker-build-base:
+	docker build -t rag-writer-base:py311-slim --target base-sys . \
+	  && docker build -t rag-writer-deps:py311-slim --target py-deps .
 
 ## Ask a question via Docker
 ## Usage: make docker-ask "What is ML?" [KEY=science]
 docker-ask:
 	@query="$(filter-out $@,$(MAKECMDGOALS))"; key="$(KEY)"; \
 	if [ -z "$$query" ]; then echo "Usage: make docker-ask \"Your question\" [KEY=key]"; exit 1; fi; \
+	if [ -n "$$key" ]; then rk="-e RAG_KEY=$$key"; else rk="-e RAG_KEY"; fi; \
 	docker run --rm -it \
 	  -v "$$PWD":/app \
 	  -e OPENAI_API_KEY \
-	  -e RAG_KEY="$$key" \
+	  $$rk \
 	  $(DOCKER_IMAGE) ask "$$query"
 
 ## Build FAISS index via Docker (uses PDFs in ./data_raw)
 ## Usage: make docker-index [KEY=science]
 docker-index:
 	@key="$(KEY)"; \
+	if [ -n "$$key" ]; then rk="-e RAG_KEY=$$key"; else rk="-e RAG_KEY"; fi; \
 	docker run --rm -it \
 	  -v "$$PWD":/app \
-	  -e RAG_KEY="$$key" \
+	  $$rk \
 	  $(DOCKER_IMAGE) python src/langchain/lc_build_index.py
 
 ## Interactive shell in the container working directory
@@ -471,6 +478,11 @@ docker-book-runner:
 compose-build:
 	docker compose build
 
+## Build only base layers with compose’s builder
+compose-build-base:
+	docker build -t rag-writer-base:py311-slim --target base-sys . \
+	  && docker build -t rag-writer-deps:py311-slim --target py-deps .
+
 ## Ask a question via docker compose
 ## Usage: make compose-ask "What is ML?" [KEY=science]
 compose-ask:
@@ -478,21 +490,21 @@ compose-ask:
 	if [ -z "$$query" ]; then echo "Usage: make compose-ask \"Your question\" [KEY=key]"; exit 1; fi; \
 	docker compose run --rm \
 	  -e OPENAI_API_KEY \
-	  $(if $(KEY),-e RAG_KEY="$(KEY)",) \
+	  $(if $(KEY),-e RAG_KEY="$(KEY)",-e RAG_KEY) \
 	  rag-writer ask "$$query"
 
 ## Build FAISS index via docker compose (uses PDFs in ./data_raw)
 ## Usage: make compose-index [KEY=science]
 compose-index:
 	docker compose run --rm \
-	  $(if $(KEY),-e RAG_KEY="$(KEY)",) \
+	  $(if $(KEY),-e RAG_KEY="$(KEY)",-e RAG_KEY) \
 	  rag-writer python src/langchain/lc_build_index.py
 
 ## Interactive shell in the compose service container
 compose-shell:
 	docker compose run --rm \
 	  -e OPENAI_API_KEY \
-	  $(if $(KEY),-e RAG_KEY="$(KEY)",) \
+	  $(if $(KEY),-e RAG_KEY="$(KEY)",-e RAG_KEY) \
 	  rag-writer bash
 
 ## Run full book pipeline via docker compose
