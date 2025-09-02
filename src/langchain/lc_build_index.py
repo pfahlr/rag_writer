@@ -7,7 +7,7 @@ from rich.pretty import pprint
 import re
 import os
 
-from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
@@ -62,16 +62,21 @@ def load_pdfs() -> List[Document]:
     docs = []
     for pdf in sorted(Path(PDF_DIR).glob("**/*.pdf")):
         pprint("loading pdf: " + str(pdf))
-        loader = PyPDFLoader(str(pdf))
+        loader = PyMuPDFLoader(str(pdf))
         per_page = loader.load()
         doi = get_doi(per_page)
         if doi:
             pprint("found DOI (this is only a guess, you must verify):" + doi)
         for d in per_page:
             meta = dict(d.metadata)
+            meta_extended = json.loads(meta['subject'])
+            meta['doi'] = meta_extended['doi']
+            meta['isbn'] = meta_extended['isbn']
             meta["title"] = pdf.stem
             meta["source"] = str(pdf)
-            meta['DOI'] = doi
+            if meta['doi'] == "":
+                meta['doi'] = doi
+            
             d.metadata = meta
         docs.extend(per_page)
     return docs
