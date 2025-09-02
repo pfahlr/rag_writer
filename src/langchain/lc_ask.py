@@ -64,7 +64,7 @@ def main():
     if not question:
         raise SystemExit("No question provided")
 
-    chunks_path = Path(f"generated/lc_chunks_{args.key}.jsonl")
+    chunks_path = Path(f"data_processed/lc_chunks_{args.key}.jsonl")
     if not chunks_path.exists():
         raise SystemExit(
             f"[lc_ask] chunks not found: {chunks_path} – run lc_build_index for KEY={args.key}"

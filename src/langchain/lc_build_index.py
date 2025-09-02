@@ -76,7 +76,6 @@ def load_pdfs() -> List[Document]:
             meta["source"] = str(pdf)
             if meta['doi'] == "":
                 meta['doi'] = doi
-            
             d.metadata = meta
         docs.extend(per_page)
     return docs
@@ -106,7 +105,7 @@ def main():
     chunks = list(tqdm(splitter.split_documents(pages), desc="Splitting", unit="chunk"))
 
     # Normalize chunks JSONL and build FAISS indexes for multiple models
-    chunks_out = Path(f"generated/lc_chunks_{KEY}.jsonl")
+    chunks_out = Path(f"data_processed/lc_chunks_{KEY}.jsonl")
     write_chunks_jsonl(chunks, chunks_out)
 
     build_faiss_for_models(
