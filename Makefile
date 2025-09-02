@@ -446,6 +446,27 @@ docker-shell:
 	  -e RAG_KEY \
 	  $(DOCKER_IMAGE) bash
 
+## Run full book pipeline via Docker
+## Usage:
+##   make docker-book-runner BOOK=outlines/converted_structures/my_book.json [OUTPUT=exports/books/my_book.md]
+##   make docker-book-runner BOOK=book.json FORCE=1 SKIP_MERGE=1 USE_RAG=1 RAG_KEY=science NUM_PROMPTS=4
+docker-book-runner:
+	@book="$(BOOK)"; output="$(OUTPUT)"; force="$(FORCE)"; skip_merge="$(SKIP_MERGE)"; \
+	use_rag="$(USE_RAG)"; rag_key="$(RAG_KEY)"; num_prompts="$(NUM_PROMPTS)"; \
+	if [ -z "$$book" ]; then echo "Usage: make docker-book-runner BOOK=\\\"path/to/book_structure.json\\\" [OUTPUT=\\\"output.md\\\"] [FORCE=1] [SKIP_MERGE=1] [USE_RAG=1] [RAG_KEY=key] [NUM_PROMPTS=4]"; exit 1; fi; \
+	cmd="python src/langchain/lc_book_runner.py --book \"$$book\""; \
+	if [ -n "$$output" ]; then cmd="$$cmd --output \"$$output\""; fi; \
+	if [ -n "$$force" ]; then cmd="$$cmd --force"; fi; \
+	if [ -n "$$skip_merge" ]; then cmd="$$cmd --skip-merge"; fi; \
+	if [ -n "$$use_rag" ]; then cmd="$$cmd --use-rag"; fi; \
+	if [ -n "$$rag_key" ]; then cmd="$$cmd --rag-key \"$$rag_key\""; fi; \
+	if [ -n "$$num_prompts" ]; then cmd="$$cmd --num-prompts $$num_prompts"; fi; \
+	docker run --rm -it \
+	  -v "$$PWD":/app \
+	  -e OPENAI_API_KEY \
+	  -e RAG_KEY \
+	  $(DOCKER_IMAGE) sh -lc "$$cmd"
+
 ## Build images via docker compose
 compose-build:
 	docker compose build
@@ -473,3 +494,23 @@ compose-shell:
 	  -e OPENAI_API_KEY \
 	  $(if $(KEY),-e RAG_KEY="$(KEY)",) \
 	  rag-writer bash
+
+## Run full book pipeline via docker compose
+## Usage:
+##   make compose-book-runner BOOK=outlines/converted_structures/my_book.json [OUTPUT=exports/books/my_book.md]
+##   make compose-book-runner BOOK=book.json FORCE=1 SKIP_MERGE=1 USE_RAG=1 RAG_KEY=science NUM_PROMPTS=4
+compose-book-runner:
+	@book="$(BOOK)"; output="$(OUTPUT)"; force="$(FORCE)"; skip_merge="$(SKIP_MERGE)"; \
+	use_rag="$(USE_RAG)"; rag_key="$(RAG_KEY)"; num_prompts="$(NUM_PROMPTS)"; \
+	if [ -z "$$book" ]; then echo "Usage: make compose-book-runner BOOK=\\\"path/to/book_structure.json\\\" [OUTPUT=\\\"output.md\\\"] [FORCE=1] [SKIP_MERGE=1] [USE_RAG=1] [RAG_KEY=key] [NUM_PROMPTS=4]"; exit 1; fi; \
+	cmd="python src/langchain/lc_book_runner.py --book \"$$book\""; \
+	if [ -n "$$output" ]; then cmd="$$cmd --output \"$$output\""; fi; \
+	if [ -n "$$force" ]; then cmd="$$cmd --force"; fi; \
+	if [ -n "$$skip_merge" ]; then cmd="$$cmd --skip-merge"; fi; \
+	if [ -n "$$use_rag" ]; then cmd="$$cmd --use-rag"; fi; \
+	if [ -n "$$rag_key" ]; then cmd="$$cmd --rag-key \"$$rag_key\""; fi; \
+	if [ -n "$$num_prompts" ]; then cmd="$$cmd --num-prompts $$num_prompts"; fi; \
+	docker compose run --rm \
+	  -e OPENAI_API_KEY \
+	  $(if $(RAG_KEY),-e RAG_KEY="$(RAG_KEY)",) \
+	  rag-writer sh -lc "$$cmd"

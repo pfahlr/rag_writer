@@ -479,6 +479,10 @@ make compose-build
 make compose-ask "What is machine learning?" KEY=science
 make compose-index KEY=science
 make compose-shell
+
+# Run full book pipeline
+make docker-book-runner BOOK=outlines/converted_structures/my_book.json OUTPUT=exports/books/my_book.md
+make compose-book-runner BOOK=outlines/converted_structures/my_book.json OUTPUT=exports/books/my_book.md
 ```
 
 ## 📜 Scripts Overview
