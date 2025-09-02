@@ -1,0 +1,16 @@
+{
+  "$id": "https://example.org/schemas/screening.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Screening Gold",
+  "type": "object",
+  "required": ["id", "abstract", "label"],
+  "properties": {
+    "id": { "type": "string" },
+    "abstract": { "type": "string" },
+    "label": { "type": "string", "enum": ["include", "exclude", "uncertain"] },
+    "reasons": { "type": "array", "items": { "type": "string" } },
+    "doc_id": { "type": "string" },
+    "notes": { "type": "string" }
+  },
+  "additionalProperties": false
+}

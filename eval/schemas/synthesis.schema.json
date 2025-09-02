@@ -1,0 +1,23 @@
+{
+  "$id": "https://example.org/schemas/synthesis.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Synthesis Gold",
+  "type": "object",
+  "required": ["id", "question"],
+  "properties": {
+    "id": { "type": "string" },
+    "question": { "type": "string" },
+    "gold_points": { "type": "array", "items": { "type": "string" } },
+    "gold_citations": { "type": "array", "items": { "type": "string" } },
+    "rubric": {
+      "type": "object",
+      "properties": {
+        "faithfulness_notes": { "type": "string" },
+        "coverage_notes": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "domain": { "type": "string" }
+  },
+  "additionalProperties": false
+}

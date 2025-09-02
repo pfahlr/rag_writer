@@ -1,0 +1,1 @@
+{"id":"study1","doc_id":"ai-ed-045","span_hint":"Results section","fields":{"n":120,"grade_band":"3-5","country":"US","design":"RCT","outcome":"reading comprehension","measure":"standardized test","effect_size":0.42,"ci_low":0.10,"ci_high":0.74,"duration_weeks":12},"gold_citations":[{"doc_id":"ai-ed-045","page_span":"10-12"}],"notes":"Check appendix for exact N and duration."}

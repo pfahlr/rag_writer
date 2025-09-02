@@ -1,0 +1,1 @@
+{"task_id":"man1","doc_id":"manual-003","title":"Run preprocessing pipeline","steps":["Open the application","Load dataset as CSV","Click Preprocess"],"hazards":["Input must be UTF-8 encoded"],"prereqs":["Dataset downloaded"],"gold_citations":["manual-003"],"notes":"Test with sample data provided."}

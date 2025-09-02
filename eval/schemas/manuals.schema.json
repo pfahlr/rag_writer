@@ -1,0 +1,18 @@
+{
+  "$id": "https://example.org/schemas/manuals.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Procedural Tasks Gold",
+  "type": "object",
+  "required": ["task_id", "doc_id", "steps"],
+  "properties": {
+    "task_id": { "type": "string" },
+    "doc_id": { "type": "string" },
+    "title": { "type": "string" },
+    "steps": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+    "hazards": { "type": "array", "items": { "type": "string" } },
+    "prereqs": { "type": "array", "items": { "type": "string" } },
+    "gold_citations": { "type": "array", "items": { "type": "string" } },
+    "notes": { "type": "string" }
+  },
+  "additionalProperties": false
+}

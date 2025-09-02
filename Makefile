@@ -8,7 +8,24 @@ PY_CMD := $(shell command -v python3.11 || command -v python3.10 || command -v p
 PY := $(ROOT)/venv/bin/python
 PIP := $(ROOT)/venv/bin/pip
 
-.PHONY: all init ingest index ask lc-index lc-ask lc-batch content-viewer cleanup-sources lc-merge-runner lc-outline-generator lc-outline-converter lc-book-runner tool-shell clean clean-all help show-config check-setup test test-coverage format lint quality book-from-outline quick-ask batch-workflow examples
+# ---- Gold data validation ----
+SCHEMAS_DIR := eval/schemas
+DATA_DIR    := eval/data
+
+RETRIEVAL_SCHEMA := $(SCHEMAS_DIR)/retrieval.schema.json
+SCREENING_SCHEMA := $(SCHEMAS_DIR)/screening.schema.json
+EXTRACTION_SCHEMA:= $(SCHEMAS_DIR)/extraction.schema.json
+SYNTHESIS_SCHEMA := $(SCHEMAS_DIR)/synthesis.schema.json
+MANUALS_SCHEMA   := $(SCHEMAS_DIR)/manuals.schema.json
+
+RETRIEVAL_DATA := $(DATA_DIR)/retrieval/queries.jsonl
+SCREENING_DATA := $(DATA_DIR)/screening/abstracts.jsonl
+EXTRACTION_DATA:= $(DATA_DIR)/extraction/studies.jsonl
+SYNTHESIS_DATA := $(DATA_DIR)/synthesis/questions.jsonl
+MANUALS_DATA   := $(DATA_DIR)/manuals/tasks.jsonl
+
+.PHONY: all init ingest index ask lc-index lc-ask lc-batch content-viewer cleanup-sources lc-merge-runner lc-outline-generator lc-outline-converter lc-book-runner tool-shell clean clean-all help show-config check-setup test test-coverage format lint quality book-from-outline quick-ask batch-workflow examples validate-gold validate-gold-retrieval validate-gold-screening validate-gold-extraction validate-gold-synthesis validate-gold-manuals
+
 
 # ===== HELP =====
 help:
@@ -368,3 +385,27 @@ lc-ask-hybrid:
 
 lc-ask-hybrid-ce:
 	python src/langchain/lc_ask.py --key $(KEY) --mode hybrid --rerank ce --ce-model cross-encoder/ms-marco-MiniLM-L-6-v2 --embed-model BAAI/bge-small-en-v1.5 --k $(K) --json $(JSON)
+
+validate-gold: \
+	validate-gold-retrieval \
+	validate-gold-screening \
+	validate-gold-extraction \
+	validate-gold-synthesis \
+	validate-gold-manuals
+	@echo "All gold files validated."
+
+validate-gold-retrieval:
+	@python tools/validate_jsonl.py $(RETRIEVAL_SCHEMA) $(RETRIEVAL_DATA)
+
+validate-gold-screening:
+	@python tools/validate_jsonl.py $(SCREENING_SCHEMA) $(SCREENING_DATA)
+
+validate-gold-extraction:
+	@python tools/validate_jsonl.py $(EXTRACTION_SCHEMA) $(EXTRACTION_DATA)
+
+validate-gold-synthesis:
+	@python tools/validate_jsonl.py $(SYNTHESIS_SCHEMA) $(SYNTHESIS_DATA)
+
+validate-gold-manuals:
+	@python tools/validate_jsonl.py $(MANUALS_SCHEMA) $(MANUALS_DATA)
+
