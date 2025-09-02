@@ -380,6 +380,107 @@ All CLI interfaces use the same configuration system:
 }
 ```
 
+## 🐳 Docker
+
+Run the full system in a Docker container without needing a local Python setup.
+
+### Build
+
+```bash
+docker build -t rag-writer:latest .
+```
+
+Or with Docker Compose:
+
+```bash
+docker compose build
+```
+
+### Run (ad-hoc)
+
+Examples below assume you’re in the project root. Mounting `./` into `/app` keeps your data and outputs on the host.
+
+```bash
+# Show CLI help (default CMD)
+docker run --rm -it \
+  -v "$PWD":/app \
+  -e OPENAI_API_KEY=sk-... \
+  rag-writer:latest --help
+
+# Build FAISS index from PDFs in ./data_raw (mount this dir with your PDFs)
+docker run --rm -it \
+  -v "$PWD":/app \
+  -e RAG_KEY=science \
+  rag-writer:latest python src/langchain/lc_build_index.py
+
+# Ask a question using the Typer CLI
+docker run --rm -it \
+  -v "$PWD":/app \
+  -e OPENAI_API_KEY=sk-... \
+  -e RAG_KEY=science \
+  rag-writer:latest ask "What is machine learning?"
+
+# Interactive shell (optional)
+docker run --rm -it \
+  -v "$PWD":/app \
+  -e OPENAI_API_KEY=sk-... \
+  rag-writer:latest python src/cli/shell.py
+```
+
+Tip: To persist model downloads across runs, mount a cache:
+
+```bash
+docker run --rm -it \
+  -v "$PWD":/app \
+  -v hf-cache:/root/.cache/huggingface \
+  -e OPENAI_API_KEY=sk-... \
+  rag-writer:latest ask "Explain neural networks"
+```
+
+### Run (Compose)
+
+`compose.yaml` ships with sensible defaults:
+
+```bash
+# With OPENAI_API_KEY exported in your shell
+export OPENAI_API_KEY=sk-...
+
+# Show help
+docker compose run --rm rag-writer --help
+
+# Build index
+docker compose run --rm rag-writer python src/langchain/lc_build_index.py
+
+# Ask
+docker compose run --rm rag-writer ask "What is machine learning?"
+```
+
+### Notes
+
+- Data and outputs are in project subfolders: `data_raw`, `data_processed`, `storage`, `output`, `exports`.
+- Set `RAG_KEY` to switch collections (defaults to `default`).
+- If you prefer the Makefile workflows, run them inside the container shell and call the Python scripts directly (the Makefile’s venv targets are designed for host use).
+- Some first-time runs will download models (HuggingFace). Use the provided cache volume to avoid repeated downloads.
+
+### Makefile Helpers
+
+```bash
+# Build image
+make docker-build [DOCKER_IMAGE=rag-writer:latest]
+
+# Ask via Docker
+make docker-ask "What is machine learning?" KEY=science
+
+# Index via Docker
+make docker-index KEY=science
+
+# Compose variants
+make compose-build
+make compose-ask "What is machine learning?" KEY=science
+make compose-index KEY=science
+make compose-shell
+```
+
 ## 📜 Scripts Overview
 
 ### lc_ask.py - Core LLM Interface
@@ -1185,4 +1286,3 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Uses Rich for beautiful terminal interfaces
 - Inspired by advanced content processing workflows
 - Designed for educational and professional content creation
-
