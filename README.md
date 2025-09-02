@@ -467,6 +467,21 @@ docker compose run --rm rag-writer ask "What is machine learning?"
 - The image includes `sops` and `jq`. If `/app/env.json` exists and is decryptable (via AWS KMS, GCP KMS, or PGP), the entrypoint auto-loads its values into the environment before running your command.
 - Keep your existing PGP recipient for local; add cloud KMS recipients to `.sops.yaml` for production. See `docs/sops_kms_examples.md`.
 
+#### SOPS Makefile Helpers
+
+```bash
+# Rewrap env.json with current recipients from .sops.yaml
+make sops-updatekeys [FILE=env.json]
+
+# Decrypt to stdout (or redirect)
+make sops-decrypt [FILE=env.json] > /tmp/env.json
+
+# Print export lines for env.json (use with eval in your shell)
+make sops-env-export [FILE=env.json] | source /dev/stdin
+```
+
+See also: `docs/ci_sops_rewrap_example.yml` for a GitHub Actions example to automate rewrapping.
+
 ### Makefile Helpers
 
 ```bash
