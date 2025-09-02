@@ -69,12 +69,15 @@ def load_pdfs() -> List[Document]:
             pprint("found DOI (this is only a guess, you must verify):" + doi)
         for d in per_page:
             meta = dict(d.metadata)
-            meta_extended = json.loads(meta['subject'])
-            meta['doi'] = meta_extended['doi']
-            meta['isbn'] = meta_extended['isbn']
+            try:
+                meta_extended = json.loads(meta['subject'])
+                meta['doi'] = meta_extended['doi']
+                meta['isbn'] = meta_extended['isbn']
+            except ValueError as e: 
+                print('pdf from older version, has no extended metadata')
             meta["title"] = pdf.stem
             meta["source"] = str(pdf)
-            if meta['doi'] == "":
+            if 'doi' not in meta or meta['doi'] == "":
                 meta['doi'] = doi
             d.metadata = meta
         docs.extend(per_page)
