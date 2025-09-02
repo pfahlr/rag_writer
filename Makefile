@@ -27,7 +27,7 @@ EXTRACTION_DATA:= $(DATA_DIR)/extraction/studies.jsonl
 SYNTHESIS_DATA := $(DATA_DIR)/synthesis/questions.jsonl
 MANUALS_DATA   := $(DATA_DIR)/manuals/tasks.jsonl
 
-.PHONY: all init ingest index ask lc-index lc-ask lc-batch content-viewer cleanup-sources lc-merge-runner lc-outline-generator lc-outline-converter lc-book-runner tool-shell clean clean-all help show-config check-setup test test-coverage format lint quality book-from-outline quick-ask batch-workflow examples validate-gold validate-gold-retrieval validate-gold-screening validate-gold-extraction validate-gold-synthesis validate-gold-manuals docker-build docker-ask docker-index docker-shell compose-build compose-ask compose-index compose-shell
+.PHONY: all init ingest index ask lc-index lc-ask lc-batch content-viewer cleanup-sources lc-merge-runner lc-outline-generator lc-outline-converter lc-book-runner tool-shell clean clean-all help show-config check-setup test test-coverage format lint quality book-from-outline quick-ask batch-workflow examples validate-gold validate-gold-retrieval validate-gold-screening validate-gold-extraction validate-gold-synthesis validate-gold-manuals docker-build docker-ask docker-index docker-shell compose-build compose-ask compose-index compose-shell sops-updatekeys sops-decrypt sops-env-export
 
 
 # ===== HELP =====
@@ -514,3 +514,30 @@ compose-book-runner:
 	  -e OPENAI_API_KEY \
 	  $(if $(RAG_KEY),-e RAG_KEY="$(RAG_KEY)",) \
 	  rag-writer sh -lc "$$cmd"
+
+# ----- SOPS helpers -----
+
+## Rewrap SOPS file with new recipients from .sops.yaml
+## Usage: make sops-updatekeys [FILE=env.json]
+sops-updatekeys:
+	@file="$(FILE)"; if [ -z "$$file" ]; then file=env.json; fi; \
+	if ! command -v sops >/dev/null 2>&1; then echo "sops not found; install sops first"; exit 1; fi; \
+	if [ ! -f "$$file" ]; then echo "File not found: $$file"; exit 1; fi; \
+	sops updatekeys "$$file"
+
+## Decrypt a SOPS file to stdout (or redirect to a file)
+## Usage: make sops-decrypt [FILE=env.json]
+sops-decrypt:
+	@file="$(FILE)"; if [ -z "$$file" ]; then file=env.json; fi; \
+	if ! command -v sops >/dev/null 2>&1; then echo "sops not found; install sops first"; exit 1; fi; \
+	if [ ! -f "$$file" ]; then echo "File not found: $$file"; exit 1; fi; \
+	sops -d "$$file"
+
+## Print export lines for env.json
+## Usage: make sops-env-export [FILE=env.json]
+sops-env-export:
+	@file="$(FILE)"; if [ -z "$$file" ]; then file=env.json; fi; \
+	if ! command -v sops >/dev/null 2>&1; then echo "sops not found; install sops first"; exit 1; fi; \
+	if ! command -v jq >/dev/null 2>&1; then echo "jq not found; install jq first"; exit 1; fi; \
+	if [ ! -f "$$file" ]; then echo "File not found: $$file"; exit 1; fi; \
+	sops -d --output-type json "$$file" | jq -r 'to_entries[] | "export \(.key)=\(.value|@sh)"'

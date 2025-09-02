@@ -462,6 +462,11 @@ docker compose run --rm rag-writer ask "What is machine learning?"
 - If you prefer the Makefile workflows, run them inside the container shell and call the Python scripts directly (the Makefile’s venv targets are designed for host use).
 - Some first-time runs will download models (HuggingFace). Use the provided cache volume to avoid repeated downloads.
 
+### SOPS in Docker
+
+- The image includes `sops` and `jq`. If `/app/env.json` exists and is decryptable (via AWS KMS, GCP KMS, or PGP), the entrypoint auto-loads its values into the environment before running your command.
+- Keep your existing PGP recipient for local; add cloud KMS recipients to `.sops.yaml` for production. See `docs/sops_kms_examples.md`.
+
 ### Makefile Helpers
 
 ```bash

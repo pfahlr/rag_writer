@@ -6,6 +6,8 @@ RUN apt-get update \
     build-essential \
     git \
     curl \
+    jq \
+    sops \
     libgomp1 \
  && rm -rf /var/lib/apt/lists/*
 
@@ -25,10 +27,13 @@ RUN pip install --upgrade pip setuptools wheel \
 # Copy source (exclude heavy dirs via .dockerignore)
 COPY . .
 
+# Copy entrypoint for sops-aware env loading
+COPY docker/entrypoint.sh docker/entrypoint.sh
+RUN chmod +x docker/entrypoint.sh
+
 # Pre-create common data dirs (also created at runtime if missing)
 RUN mkdir -p data_raw data_processed storage output exports outlines data_jobs
 
 # Default to the Typer CLI; override command for other scripts
-ENTRYPOINT ["python", "src/cli/commands.py"]
+ENTRYPOINT ["/app/docker/entrypoint.sh"]
 CMD ["--help"]
-
