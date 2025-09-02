@@ -58,7 +58,7 @@ def download_to_temporary_storage(url, dest):
   file_path =f"{dest}/{filename}"
   _fllog(file_path)
   # add handler for manually downloaded pdfs.
-  if "file://" in url: 
+  if not url.startswith("http://") and not url.startswith("https://"): 
     _fllog("got local filepath")
     url = url.replace('file://', '')
     _fllog(url) 

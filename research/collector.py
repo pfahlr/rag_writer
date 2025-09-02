@@ -12,6 +12,7 @@ This script processes Google Scholar search results (URL or saved HTML) to:
 Usage:
     python research/collector.py --url "https://scholar.google.com/scholar?q=..."
     python research/collector.py --file "path/to/saved_search.html"
+    python research/collector.py --xml "path/to/markup.xml"
 """
 
 import os
@@ -77,7 +78,7 @@ headers={
   'sec-fetch-site': "same-origin",
   'User-Agent': "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
 }
-
+PROMO_TEXT = os.getenv("PROMO_TEXT", 'RAG Toolkit for Scientific Analysis, Content Creation and Editing by Rick Pfahl<pfahlr@gmail.com>, https://rickpfahl.com, https://github.com/pfahlr/rag-writer')
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -93,6 +94,7 @@ class ArticleMetadata:
     date: str = ""
     publication: str = ""
     doi: str = ""
+    isbn: str = ""
     pdf_url: str = ""
     pdf_source_url: str = ""
     scholar_url: str = ""
@@ -181,14 +183,16 @@ class ArticleFormApp(App):
                     date_input.value = self.article.date or ''
                     yield date_input
 
-                    yield Label("DOI", classes="field-label")
-                    doi_input = Input(
-                        placeholder="10.1000/example",
-                        id="doi_input",
-                        classes="form-field form-field-doi"
+
+
+                    yield Label("ISBN", classes="field-label")
+                    isbn_input = Input(
+                        placeholder="978-0-123456-78-9",
+                        id="isbn_input",
+                        classes="form-field form-field-isbn"
                     )
-                    doi_input.value = self.article.doi or ''
-                    yield doi_input
+                    isbn_input.value = self.article.isbn or ''
+                    yield isbn_input
 
                 # Right column
                 with Vertical(classes="field-container"):
@@ -209,7 +213,15 @@ class ArticleFormApp(App):
                     )
                     pub_input.value = self.article.publication or ''
                     yield pub_input
-
+                with Vertical(classes="field-container"):
+                    yield Label("DOI", classes="field-label")
+                    doi_input = Input(
+                        placeholder="10.1000/example",
+                        id="doi_input",
+                        classes="form-field form-field-doi"
+                    )
+                    doi_input.value = self.article.doi or ''
+                    yield doi_input
             # PDF URL row
             with Horizontal(classes="pdf-url-container"):
                 with Vertical():
@@ -300,6 +312,9 @@ class ArticleFormApp(App):
         doi_input = self.query_one("#doi_input", Input)
         doi_input.value = self.article.doi or ''
         doi_input.refresh()
+        isbn_input = self.query_one("#isbn_input", Input)
+        isbn_input.value = self.article.isbn or ''
+        isbn_input.refresh()
         pdf_input = self.query_one("#pdf_input", Input)
         pdf_input.value = self.article.pdf_url or ''
         pdf_input.refresh()
@@ -344,20 +359,24 @@ class ArticleFormApp(App):
 
             meta_metadata = {
              #'title':self.article.title,
-             'date':self.article.date,
-             'publication':self.article.publication,
-             'authors':self.article.authors,
-             'doi':self.article.doi,
-             'web_url':self.article.scholar_url,
-             'pdf_source_url':self.article.pdf_source_url,
-            }
+              'date':self.article.date,
+              'publication':self.article.publication,
+              'authors':self.article.authors,
+              'doi':self.article.doi,
+              'isbn':self.article.isbn,
+              'web_url':self.article.scholar_url,
+              'pdf_source_url':self.article.pdf_source_url,
+              'processed_by': PROMO_TEXT,
+             }
             metadata = {
                 '/CreationDate':self.article.date,
                 '/Publication':self.article.publication,
                 '/Author':self.article.authors,
                 '/DOI':self.article.doi,
+                '/ISBN':self.article.isbn,
                 '/WebUrl': self.article.scholar_url,
                 '/Metadata': json.dumps(meta_metadata),
+                '/Subject':json.dumps(meta_metadata),
             }
             self.notify("Downloading PDF...", severity="information")
             filename = self.article.slugify_title()
@@ -387,12 +406,14 @@ class ArticleFormApp(App):
         date_input = self.query_one("#date_input", Input)
         pub_input = self.query_one("#publication_input", Input)
         doi_input = self.query_one("#doi_input", Input)
+        isbn_input = self.query_one("#isbn_input", Input)
         pdf_input = self.query_one("#pdf_input", Input)
 
         self.article.authors = [a.strip() for a in authors_input.value.split(',') if a.strip()]
         self.article.date = date_input.value
         self.article.publication = pub_input.value
         self.article.doi = doi_input.value
+        self.article.isbn = isbn_input.value
         self.article.pdf_url = pdf_input.value
         self.article.pdf_source_url = pdf_input.value
 
@@ -639,6 +660,7 @@ class ResearchCollector:
             console.print(f"[dim]  Date: {article.date}[/dim]")
             console.print(f"[dim]  Publication: {article.publication}[/dim]")
             console.print(f"[dim]  DOI: {article.doi}[/dim]")
+            console.print(f"[dim]  ISBN: {article.isbn}[/dim]")
             console.print(f"[dim]  PDF: {article.pdf_url}[/dim]")
 
         return articles
@@ -713,6 +735,16 @@ class ResearchCollector:
                         if doi_match:
                             article.doi = doi_match.group(0).strip()
                             _fllog(f"Extracted DOI from text: {article.doi}")
+
+            # Extract ISBN if not set
+            if not article.isbn:
+                # Try to find ISBN in text content
+                isbn_pattern = re.compile(r'\b(?:ISBN(?:-1[03])?:?\s*)?(?=[0-9X]{10}|(?=(?:[0-9]+[-\s]){3})[-\s0-9X]{13}|97[89][0-9]{10}|(?=(?:[0-9]+[-\s]){4})[-\s0-9]{17})(?:97[89][-\s]?)?[0-9]{1,5}[-\s]?[0-9]+[-\s]?[0-9]+[-\s]?[0-9X]\b')
+                text_content = soup.get_text()
+                isbn_match = isbn_pattern.search(text_content)
+                if isbn_match:
+                    article.isbn = isbn_match.group(0).strip()
+                    _fllog(f"Extracted ISBN from text: {article.isbn}")
 
             # Extract publication (update even if already set) - DISABLED
             # Look for publication info
@@ -835,6 +867,9 @@ class ResearchCollector:
         # DOI
         table.add_row("🔗 DOI", article.doi or "[dim]Not extracted[/dim]")
 
+        # ISBN
+        table.add_row("📚 ISBN", article.isbn or "[dim]Not extracted[/dim]")
+
         # PDF Status
         if article.downloaded:
             pdf_status = f"[green]✓ Downloaded: {article.pdf_filename}[/green]"
@@ -917,7 +952,7 @@ class ResearchCollector:
                     self.save_manifest()
                     return False
 
-                elif cmd in ['title', 'authors', 'date', 'publication', 'doi']:
+                elif cmd in ['title', 'authors', 'date', 'publication', 'doi', 'isbn']:
                     current_value = getattr(article, cmd)
                     if cmd == 'authors' and current_value:
                         current_value = ', '.join(current_value)
@@ -955,9 +990,63 @@ class ResearchCollector:
 
         console.print("[green]Session complete![/green]")
 
+def parse_xml_markup(xml_content: str) -> List[ArticleMetadata]:
+    """Parse proprietary XML markup for articles and books."""
+    if not HAS_BEAUTIFULSOUP:
+        console.print("[red]Error: BeautifulSoup required for XML parsing. Install with: pip install beautifulsoup4[/red]")
+        sys.exit(1)
+
+    soup = BeautifulSoup(xml_content, 'html')  # Use html parser for better handling of malformed XML
+    articles = []
+
+    # Find all article and book tags
+    entries = soup.find_all(['article', 'book'])
+
+    for i, entry in enumerate(entries):
+        article = ArticleMetadata()
+
+        # Helper function to get field value from attr or child tag
+        def get_field(field_name):
+            value = entry.get(field_name, '').strip()
+            if not value:
+                child = entry.find(field_name)
+                if child:
+                    value = child.get_text(strip=True)
+            return value
+
+        # Extract title (use provided title, or publication, or default)
+        article.title = get_field('title') or get_field('publication') or f"Entry {i+1} from XML"
+
+        # Extract fields
+        article.doi = get_field('doi')
+        pdf_value = get_field('pdf')
+        if pdf_value:
+            if pdf_value.startswith(('http://', 'https://')):
+                article.pdf_url = pdf_value
+            elif pdf_value.startswith('file://'):
+                # Already a file:// URL, use as is
+                article.pdf_url = pdf_value
+            else:
+                # Local path, convert to file:// URL
+                article.pdf_url = f"file://{Path(pdf_value).resolve()}"
+        article.date = get_field('date')
+        author_value = get_field('author')
+        if author_value:
+            article.authors = [a.strip() for a in author_value.split(',') if a.strip()]
+        article.publication = get_field('publication')
+        article.scholar_url = get_field('scholar_url')
+        article.isbn = get_field('isbn')
+
+        articles.append(article)
+        console.print(f"[dim]Parsed XML entry: {article.title[:50]}...[/dim]")
+
+    console.print(f"[green]Parsed {len(articles)} entries from XML[/green]")
+    return articles
+
 def main(
     url: str = typer.Option(None, "--url", "-u", help="Google Scholar search URL"),
     file: str = typer.Option(None, "--file", "-f", help="Path to saved HTML file"),
+    xml_file: str = typer.Option(None, "--xml", "-x", help="Path to XML markup file with article/book data"),
     output_dir: str = typer.Option("research/out", "--output", "-o", help="Output directory"),
     show_only: bool = typer.Option(False, "--show-only", help="Show parsed articles without interactive form")
 ):
@@ -967,11 +1056,48 @@ def main(
     collector = ResearchCollector(Path(output_dir))
 
     # If no URL or file provided, just load from manifest and run interactive session
-    if not url and not file:
+    if not url and not file and not xml_file:
         if not collector.articles:
             console.print("[yellow]No articles found in manifest. Provide --url or --file to add new articles.[/yellow]")
             return
         console.print(f"[green]Loaded {len(collector.articles)} articles from manifest[/green]")
+    
+    elif xml_file:
+        # Process XML markup file
+        xml_path = Path(xml_file)
+        if not xml_path.exists():
+            console.print(f"[red]XML file not found: {xml_file}[/red]")
+            sys.exit(1)
+
+        with open(xml_path, 'r', encoding='utf-8') as f:
+            xml_content = f.read()
+
+        # Parse articles from XML
+        new_articles = parse_xml_markup(xml_content)
+
+        if not new_articles:
+            console.print("[yellow]No articles found in the XML file[/yellow]")
+            sys.exit(1)
+
+        console.print(f"[green]Found {len(new_articles)} entries in {xml_path.name}[/green]")
+
+        # Add new articles to existing ones
+        added_count = 0
+        for article in new_articles:
+            # Check if article already exists (by DOI or title)
+            exists = False
+            for existing in collector.articles:
+                if (article.doi and existing.doi == article.doi) or \
+                    (article.title and existing.title == article.title):
+                    exists = True
+                    break
+
+            if not exists:
+                collector.articles.append(article)
+                added_count += 1
+
+        console.print(f"[green]Added {added_count} new entries[/green]")
+
     else:
         # Process new content (URL or file)
         if url:
@@ -1025,6 +1151,8 @@ def main(
                     except Exception as e:
                         console.print(f"[yellow]Warning: Could not rename file: {e}[/yellow]")
 
+    
+
     console.print(f"[green]Total articles: {len(collector.articles)}[/green]")
 
     # Run interactive session or just show parsed data
@@ -1038,6 +1166,7 @@ def main(
                 console.print(f"   📅 Date: {article.date or 'Unknown'}")
                 console.print(f"   🏛️ Publication: {article.publication or 'Unknown'}")
                 console.print(f"   🔗 DOI: {article.doi or 'None'}")
+                console.print(f"   📚 ISBN: {article.isbn or 'None'}")
                 console.print(f"   📄 PDF: {'Available' if article.pdf_url else 'Not found'}")
                 if article.scholar_url:
                     console.print(f"   🔍 Scholar: {article.scholar_url}")
