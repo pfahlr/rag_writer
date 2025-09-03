@@ -29,10 +29,10 @@ from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlparse, parse_qs, urljoin, quote, unquote
 from dataclasses import dataclass, asdict
 from datetime import datetime
-from pdfwriter import save_pdf
+from src.research.pdfwriter import save_pdf
 from textual.app import App, ComposeResult
 from rich.pretty import pprint
-from filelogger import _fllog
+from src.research.filelogger import _fllog
 
 import typer
 from rich.console import Console
@@ -43,6 +43,9 @@ from rich.text import Text
 import subprocess
 import shlex
 from slugify import slugify
+
+# Move core classes to src/research/collector_core
+from src.research.collector_core import ArticleMetadata, ResearchCollector, parse_xml_markup
 
 try:
     from textual.app import App, ComposeResult
@@ -160,8 +163,7 @@ class ArticleFormApp(App):
 
         """Create the form layout."""
         yield Header(show_clock=True)
-
-        with Vertical(classes="form-container"):
+        with Vertical(classes="form-container", id="edit-panel"):
             # Title
             with Vertical(classes="heading-bar"):
                 title_text = self.article.title[:60] + "..." if len(self.article.title) > 60 else self.article.title
@@ -182,8 +184,6 @@ class ArticleFormApp(App):
                     )
                     date_input.value = self.article.date or ''
                     yield date_input
-
-
 
                     yield Label("ISBN", classes="field-label")
                     isbn_input = Input(
@@ -213,6 +213,7 @@ class ArticleFormApp(App):
                     )
                     pub_input.value = self.article.publication or ''
                     yield pub_input
+
                 with Vertical(classes="field-container"):
                     yield Label("DOI", classes="field-label")
                     doi_input = Input(
@@ -222,6 +223,7 @@ class ArticleFormApp(App):
                     )
                     doi_input.value = self.article.doi or ''
                     yield doi_input
+
             # PDF URL row
             with Horizontal(classes="pdf-url-container"):
                 with Vertical():
@@ -261,17 +263,12 @@ class ArticleFormApp(App):
                         yield Button("Open Page", variant="primary", id="open_page_button", classes="button open-page-button")
                         yield Button("Complete Fields", variant="primary", id="complete_fields_button", classes="button complete-fields-button")
                         yield Button("Delete", variant="error", id="delete_button", classes="button delete-button")
-            #with Vertical(classes="form-bottom-container"):
-            #    with Horizontal(classes="status-text-container"):
-            #        pass
 
-            # Action buttons
             with Horizontal():
                 yield Button("Previous", variant="default", id="prev_button", classes="button prev-button")
                 yield Button("Save", variant="primary", id="save_button", classes="button save-button")
                 yield Button("Next", variant="default", id="next_button", classes="button next-button")
                 yield Button("Quit", variant="error", id="quit_button", classes="button quit-button")
-
         yield Footer()
 
     def on_button_pressed(self, event):

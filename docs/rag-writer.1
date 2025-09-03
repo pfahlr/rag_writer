@@ -520,6 +520,35 @@ make reindex KEY=your_key
 make repack-faiss KEY=your_key EMBED_MODEL=BAAI/bge-small-en-v1.5
     Repack existing FAISS index to current LangChain format (no re-embedding)
 .fi
+.SS Metadata Scanning (pre-alpha)
+.sp
+.nf
+make scan-metadata DIR=data_raw WRITE=1 RENAME=yes SKIP_EXISTING=1
+    Scan PDFs for DOI/ISBN, fetch metadata, and write manifest entries
+
+Module entrypoint:
+python -m src.research.metadata_scan scan --dir data_raw --write --rename yes --skip-existing
+
+Options:
+  --dir DIR          Root directory to scan (default: data_raw)
+  --glob PATTERN     Glob pattern for PDFs (default: "**/*.pdf")
+  --write            Write manifest and update PDF metadata (Info + XMP/DC/Prism)
+  --manifest FILE    Manifest path (default: research/out/manifest.json)
+  --rename yes|no    Rename files to slugified title[_YEAR].pdf (default: yes)
+  --skip-existing    Skip files already present in manifest as processed
+.fi
+.SS Collector UI
+.sp
+.nf
+make collector-ui
+    Launch a simple UI with:
+      - Import screen: paste HTML/XML, extract direct PDF links, and save processed markup to research/out/<ts>_processed.{html|xml}
+      - Links screen: view current known PDF links and save to research/out/download_links_<ts>.txt
+      - Edit screen: placeholder to return to manual forms (use research/collector.py)
+
+Module entrypoint:
+python -m src.research.collector_ui
+.fi
 .SS Image Structure and Faster Rebuilds
 The Dockerfile uses multi-stage builds:
 .TP

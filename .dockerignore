@@ -29,7 +29,9 @@ generated
 logs
 exports
 
+# Legacy data (no longer needed)
+dictionaries/
+
 # OS files
 .DS_Store
 Thumbs.db
-

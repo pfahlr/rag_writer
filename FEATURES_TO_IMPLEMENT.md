@@ -72,6 +72,11 @@ Step through a directory of pdfs; and for each file:
 - `--allow-delete`: enable [R] remove.
 - `--rescan`: ignore cached results; re-detect IDs and re-query remote APIs.
 - `--depth N`: recursion depth limit; `--jobs N`: parallel metadata lookups (rate‑limited).
+- `--file` : file containing listing html from google scholar search
+- `--xml`: file containing rough 'xml' markup for manual addition <book || article><author/><title/><isbn/><doi/><publisher/><date/><pdf_link/><scholar_url/></book || article>
+
+- on load: if --file or --xml contains listings or $root/research/out/manifest.json
+contains listings display the edit form just like the original collector.py, with the same functionality. Below the row of prev, save, complete, open url, open pdf, delete, next buttons (edit mode actions), display the 'import/edit mode toggle', 'save to file', 'quit' (program level actions)  If no listings found, display the textarea to paste listings markup to parse listings from. Below the text area and above the program level action buttons, display a 'run import' button  (import mode actions)
 
 ##### Data Sources and Rate Limits
 - Crossref for DOI (JSON API), OpenLibrary for ISBN, fallback Google Books.
@@ -223,7 +228,15 @@ Step through a directory of pdfs; and for each file:
 
 
 ### [ ] 4. Make Tools Available to Models:
-In addition to being able to query RAG for information necessary to perform an analysis, it there are other sources of information that would certainly be beneficial to an LLM capable of performing reasoning tasks for scientific analysis or any other sort of 'cognitive' or 'thinking' sort of task. Of course the LLM can perform simple aritmetic and algebra, but I'm not so sure about complex statistical analyses. For that reason, it might be useful to provide it access to a mathematical package, like R (along with some recipies for performing stuff like z-tests, t-tests, chi-square, anova etc, this would be especially useful in the literature review/meta analysis research type work. Some other data sources we might find useful to expose:
+In addition to being able to query RAG for information necessary to perform an analysis, it there are other sources of information that would certainly be beneficial to an LLM capable of performing reasoning tasks for scientific analysis or any other sort of 'cognitive' or 'thinking' sort of task. Of course the LLM can perform simple aritmetic and algebra, but I'm not so sure about complex statistical analyses. For that reason, it might be useful to provide it access to a mathematical package, like R? (along with some recipies for performing stuff like z-tests, t-tests, chi-square, anova etc, this would be especially useful in the literature review/meta analysis research type work:
+
+  a) R/Julia/Spark/KNIME/Numpy
+  b) Pandas/Polars/Tidytable/dtplyr
+  c) SageMath/Spyder/Maxima/SymPy/OpenAxiom/Octave/Scilab/
+  d) XCos/QUCS/Qucs-S/Pspice/SPICE/
+  e) ELKI/WEKA/AdvancedMiner/Altair RapidMiner/Orange
+
+Some other data sources we might find useful to expose:
   a) GIS Data files
   b) Scraped Data
   c) Maltego Projects
@@ -236,9 +249,25 @@ It seems like the creation of a standardized connector module is in order for th
 
 So we have 3 sorts of tools we should handle 1) external data sources 2) existing data analysis tools, and finally 3) information display/formatting tools such as:
   a) graphing/plotting
+    -mathplotlib
+    -plotly
+    -d3.js
+    -Bokeh
+    -Google Charts
+    -Apache Echarts
+    -Vis.js
+    -Scichart
+  
   b) mapping (GIS etc)
-  c) Advanced Text Formatting tools like TEX/LaTEX
+    -ArcGis
+    -QGis
+    -GrassGIS
+    -Placemark
+    -Plonk
 
+  c) Advanced Text Formatting tools like TEX/LaTEX
+    -TeX
+    
 
 
 

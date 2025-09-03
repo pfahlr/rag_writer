@@ -1,0 +1,79 @@
+.form-container {
+  background:#112233;
+}
+
+.heading-bar {
+  background:#555577;
+  height:4;
+  padding:1;
+}
+
+.field-container {
+}
+
+.topfour {
+  height:10;
+  margin-top:1;
+}
+
+.field-label{
+  width: 100%; 
+  margin: 0 1; 
+}
+
+.form-field {
+  width:100%;
+  margin-bottom:1;
+}
+
+.button {
+  margin:0 1;
+}
+
+#download_button {
+  margin:1 1 0 0
+}
+
+.pdf-url-container{
+  height:6;
+}
+
+.pdf-source-url-container{
+  height:6;
+}
+
+.web-url-container {
+  height:10
+}
+
+.form-bottom-container {
+  height:20
+}
+
+.status-text-container {
+  background: #300 ;
+  width: 50;
+  margin: 0 2 2 0;
+  border: panel black;
+
+  padding:1;
+}
+
+.form-field-date {
+  background: #305 ;
+}
+
+.form-field-author {
+  background: #503 ;
+}
+
+.form-field-file {
+  background: #2F3 ;
+  text-style: bold;
+
+  color:#000;
+}
+
+.form-field-url {
+background: #c0a ;
+}
