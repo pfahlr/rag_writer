@@ -15,6 +15,7 @@ Comprehensive command center with workflow automation:
 make help                    # Show all targets
 make examples               # List example files
 make lc-ask "question"      # RAG query
+make ask QUESTION="question" # Alternative form
 make lc-batch FILE=jobs.jsonl  # Batch processing
 make book-from-outline OUTLINE=file.txt  # Complete workflow
 .fi
@@ -356,6 +357,9 @@ Build FAISS index for retrieval
 .TP
 .B make ask "question"
 Ask questions using RAG (LlamaIndex)
+.TP
+.B make ask QUESTION="question"
+Alternative form using a named variable instead of a positional argument
 .SS LangChain Targets
 .TP
 .B make lc-index [KEY=key_name]
@@ -421,6 +425,8 @@ docker compose build
 make docker-build-base
 # Build final image (runner stage)
 make docker-build
+# Compose variant to build base layers
+make compose-build-base
 .fi
 .SS FAISS Index Paths
 The multi-model index builder writes FAISS directories like:
@@ -501,6 +507,18 @@ make compose-shell
 # Full book pipeline
 make docker-book-runner BOOK=book.json OUTPUT=exports/books/my_book.md
 make compose-book-runner BOOK=book.json OUTPUT=exports/books/my_book.md
+.fi
+.SS Index Maintenance Targets
+.sp
+.nf
+make clean-faiss KEY=your_key
+    Remove FAISS directories for a key
+
+make reindex KEY=your_key
+    Clean and rebuild FAISS index for a key
+
+make repack-faiss KEY=your_key EMBED_MODEL=BAAI/bge-small-en-v1.5
+    Repack existing FAISS index to current LangChain format (no re-embedding)
 .fi
 .SS Image Structure and Faster Rebuilds
 The Dockerfile uses multi-stage builds:

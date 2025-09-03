@@ -110,6 +110,8 @@ make init          # Initialize environment and install dependencies
 make ingest        # Parse PDFs into documents (LlamaIndex)
 make index         # Build FAISS index for retrieval
 make ask "question" # Ask questions using RAG (LlamaIndex)
+# or
+make ask QUESTION="question"
 ```
 
 #### LangChain Content Generation
@@ -541,6 +543,11 @@ make compose-shell
 # Run full book pipeline
 make docker-book-runner BOOK=outlines/converted_structures/my_book.json OUTPUT=exports/books/my_book.md
 make compose-book-runner BOOK=outlines/converted_structures/my_book.json OUTPUT=exports/books/my_book.md
+
+# Index maintenance
+make clean-faiss KEY=your_key         # remove FAISS dirs for key
+make reindex KEY=your_key             # clean + rebuild FAISS for key
+make repack-faiss KEY=your_key EMBED_MODEL=BAAI/bge-small-en-v1.5  # salvage old index
 ```
 
 ### Image Structure and Faster Rebuilds
@@ -631,6 +638,17 @@ Note on FAISS index paths:
 - The Typer CLI (`python -m src.cli.commands`) looks for `storage/faiss_<key>` by default.
 - If you use the multi-model builder and the Typer CLI, copy or symlink your chosen embedding index to the generic path, e.g.:
   - `ln -s storage/faiss_science__BAAI-bge-small-en-v1.5 storage/faiss_science`
+  - `lc_ask.py` will automatically use a `...__<embed_model>_repacked` directory if present.
+
+If you upgraded LangChain and your old FAISS index fails to load, repack it without re-embedding:
+
+```bash
+# Derive paths from KEY and EMBED_MODEL
+make repack-faiss KEY=science EMBED_MODEL=BAAI/bge-small-en-v1.5
+
+# Or specify explicit directories
+make repack-faiss FAISS_DIR=storage/faiss_science__BAAI-bge-small-en-v1.5 OUT=storage/faiss_science__BAAI-bge-small-en-v1.5_repacked
+```
 
 ### lc_merge_runner.py - Advanced Merge System
 
