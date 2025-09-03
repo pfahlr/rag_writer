@@ -41,6 +41,99 @@ Step through a directory of pdfs; and for each file:
   - does scribbr have an API? if so, add integration with this or similar service.    
     {priority: low}
 
+#### Proposed CLI and Flow (v1 – low friction)
+
+- New module: `research/metadata_scan.py`
+- Goal: Walk `data_raw/` (or a provided folder), detect DOI/ISBN for each PDF, fetch full metadata, confirm with user, then write:
+  - PDF Info dictionary (via `pypdf.PdfWriter.add_metadata`)
+  - Sidecar `manifest.json` (aggregated record of all files)
+
+##### Flow
+- For each `*.pdf` (depth configurable):
+  1) Detect identifiers: DOI (regex already in `lc_build_index.py`), ISBN‑10/13 (regex + checksum).
+  2) Query metadata:
+     - DOI → Crossref (primary)
+     - ISBN → OpenLibrary (primary), Google Books (fallback)
+  3) Present summary (filename + proposed metadata) with actions:
+     - [W] Write: Save metadata → PDF Info + `manifest.json`, optionally rename PDF using slugified title + year.
+     - [D] New DOI: prompt; requery; return to confirmation.
+     - [I] New ISBN: prompt; requery; return to confirmation.
+     - [S] Skip: mark as processed=false in manifest (or no entry if `--no-manifest`), continue.
+     - [R] Remove: delete file (guarded by `--allow-delete`), continue.
+  4) On not found/invalid IDs: offer [D]/[I]/[S]/[R] menu.
+
+##### CLI Options (initial)
+- `--dir DIR` (default `data_raw`): root to scan; `--glob "**/*.pdf"` to control pattern.
+- `--write/--dry-run`: actually write files vs. preview.
+- `--manifest PATH` (default `research/out/manifest.json`): location for manifest aggregation.
+- `--rename yes|no` (default yes): rename file to `slugified_title[_YEAR].pdf` on write.
+- `--interactive tui|cli` (default cli): TUI via Textual if available; falls back to prompts.
+- `--skip-existing`: skip files already present in manifest with `processed=true`.
+- `--allow-delete`: enable [R] remove.
+- `--rescan`: ignore cached results; re-detect IDs and re-query remote APIs.
+- `--depth N`: recursion depth limit; `--jobs N`: parallel metadata lookups (rate‑limited).
+
+##### Data Sources and Rate Limits
+- Crossref for DOI (JSON API), OpenLibrary for ISBN, fallback Google Books.
+- Exponential back‑off on HTTP 429/5xx; user‑friendly error messages; offline mode if `--offline`.
+
+##### Manifest Schema (v1)
+```json
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "<stable-id or checksum>",
+      "filename": "<current filename>",
+      "title": "",
+      "authors": [""],
+      "publication": "",
+      "date": "YYYY-MM-DD" ,
+      "year": 2023,
+      "doi": "",
+      "isbn": "",
+      "pdf_url": "",
+      "source_url": "",
+      "processed": true,
+      "retrieved_at": "ISO8601",
+      "notes": "",
+      "tags": []
+    }
+  ]
+}
+```
+
+##### PDF Metadata Writing (v1)
+- Use `pypdf.PdfWriter.add_metadata` to set `/Title`, `/Author` (comma‑separated), `/Subject` (publication), and custom fields in the Info dict (e.g., `/doi`, `/isbn`).
+- XMP/DC/Prism embedding is deferred to v2 (likely via `pikepdf`).
+
+##### Idempotency and Safety
+- Compute file checksum (e.g., SHA‑256) to create a stable `id` for manifest deduplication.
+- Respect `--skip-existing` to avoid re‑prompting processed files.
+- `--dry-run` shows proposed changes (rename path, metadata) without writing.
+- Deletion guarded by `--allow-delete` and confirmation prompt.
+
+##### File Renaming
+- Slugify `title` and append `_YEAR` if available; ensure uniqueness by appending numeric suffix on collision.
+- Optionally move renamed files into `data_raw/` (in‑place by default); emit mapping in manifest.
+
+##### Makefile Integration
+- `make scan-metadata [DIR=data_raw] [WRITE=1] [RENAME=yes] [SKIP_EXISTING=1]`
+- `make repair-metadata FILE=...` (open in single‑file mode for quick edits).
+
+##### Indexing Integration (v1)
+- `lc_build_index.py` reads `manifest.json` (if present) and merges fields (doi, isbn, title, authors, publication, year) into chunk metadata.
+- Downstream: allow “DOI/ISBN token” replacement at formatting time (see separate feature bullet) to render inline citations + works cited from manifest.
+
+##### Extensibility
+- Source adapters: pluggable client interface so we can add Crossref+, OpenAlex, PubMed, ArXiv.
+- Output adapters: JSON manifest today, add CSV/NDJSON if requested.
+
+##### Acceptance Criteria (v1)
+- Runs over a folder, detects IDs, fetches metadata, confirms with user, writes Info + manifest.
+- Re‑running with `--skip-existing` and `--dry-run` behaves predictably.
+- `lc_build_index.py` includes manifest fields in chunk metadata when available.
+
 ### [ ] 2. Multi-Shot / Iterative / Agentic / Self-Ask/ Chain-of Query Interaction with LLMs:
   - Let model ask Vector Database for information it needs
   - command line argument for max_iterations (default 3?)
@@ -145,7 +238,6 @@ So we have 3 sorts of tools we should handle 1) external data sources 2) existin
   a) graphing/plotting
   b) mapping (GIS etc)
   c) Advanced Text Formatting tools like TEX/LaTEX
-
 
 
 
