@@ -5,9 +5,10 @@ ifeq ($(strip $(ROOT)),)
 ROOT := /var/srv/IOMEGA_EXTERNAL/rag
 endif
 PY_CMD := $(shell command -v python3.11 || command -v python3.10 || command -v python3)
-PY := $(ROOT)/venv/bin/python
-PIP := $(ROOT)/venv/bin/pip
-
+#PY := $(ROOT)/venv/bin/python
+PY := python
+#PIP := $(ROOT)/venv/bin/pip
+PIP := pip
 # Docker
 DOCKER_IMAGE ?= rag-writer:latest
 
@@ -77,12 +78,14 @@ ingest:
 # index [key]; default key if omitted
 index:
 	@k="$(filter-out $@,$(MAKECMDGOALS))"; \
+	if [ -z "$$k" ]; then k="$(KEY)"; fi; \
 	if [ -z "$$k" ]; then k=default; fi; \
 	$(PY) $(ROOT)/src/llamaindex/build_index.py "$$k"
 
 ask:
 	@q="$(filter-out $@,$(MAKECMDGOALS))"; \
-	if [ -z "$$q" ]; then echo "Usage: make ask \"Your question\""; exit 1; fi; \
+	if [ -z "$$q" ]; then q="$(QUESTION)"; fi; \
+	if [ -z "$$q" ]; then echo "Usage: make ask \"Your question\"  OR  make ask QUESTION=\"Your question\""; exit 1; fi; \
 	$(PY) $(ROOT)/src/llamaindex/ask.py "$$q"
 
 # ----- LangChain -----
@@ -90,6 +93,7 @@ ask:
 ## Build FAISS index for LangChain retrieval [KEY=key_name]
 lc-index:
 	@k="$(filter-out $@,$(MAKECMDGOALS))"; \
+	if [ -z "$$k" ]; then k="$(KEY)"; fi; \
 	if [ -z "$$k" ]; then k=default; fi; \
 	$(PY) $(ROOT)/src/langchain/lc_build_index.py "$$k"
 
@@ -214,7 +218,8 @@ lc-outline-generator:
 ##   NUM_PROMPTS: Number of prompts to generate per section
 ##   CONTENT_TYPE: Content type for job generation
 lc-outline-converter:
-	@outline="$(filter-out $@,$(MAKECMDGOALS))"; output="$(OUTPUT)"; title="$(TITLE)"; topic="$(TOPIC)"; \
+	@outline="$(filter-out $@,$(MAKECMDGOALS))"; if [ -z "$$outline" ]; then outline="$(OUTLINE)"; fi; \
+	output="$(OUTPUT)"; title="$(TITLE)"; topic="$(TOPIC)"; \
 	audience="$(AUDIENCE)"; wordcount="$(WORDCOUNT)"; num_prompts="$(NUM_PROMPTS)"; content_type="$(CONTENT_TYPE)"; \
 	if [ -z "$$outline" ]; then echo "Usage: make lc-outline-converter OUTLINE=\"path/to/outline\" [OUTPUT=\"output.json\"] [TITLE=\"Book Title\"] [TOPIC=\"topic\"] [AUDIENCE=\"audience\"] [WORDCOUNT=50000] [NUM_PROMPTS=4] [CONTENT_TYPE=\"technical_manual_writer\"]"; exit 1; fi; \
 	cmd="$(PY) $(ROOT)/src/langchain/lc_outline_converter.py --outline \"$$outline\""; \
@@ -241,7 +246,8 @@ lc-outline-converter:
 ##   RAG_KEY: Collection key for RAG retrieval
 ##   NUM_PROMPTS: Number of prompts to generate per section
 lc-book-runner:
-	@book="$(filter-out $@,$(MAKECMDGOALS))"; output="$(OUTPUT)"; force="$(FORCE)"; skip_merge="$(SKIP_MERGE)"; \
+	@book="$(filter-out $@,$(MAKECMDGOALS))"; if [ -z "$$book" ]; then book="$(BOOK)"; fi; \
+	output="$(OUTPUT)"; force="$(FORCE)"; skip_merge="$(SKIP_MERGE)"; \
 	use_rag="$(USE_RAG)"; rag_key="$(RAG_KEY)"; num_prompts="$(NUM_PROMPTS)"; \
 	if [ -z "$$book" ]; then echo "Usage: make lc-book-runner BOOK=\"path/to/book_structure.json\" [OUTPUT=\"output.md\"] [FORCE=1] [SKIP_MERGE=1] [USE_RAG=1] [RAG_KEY=\"collection_key\"] [NUM_PROMPTS=4]"; exit 1; fi; \
 	cmd="$(PY) $(ROOT)/src/langchain/lc_book_runner.py --book \"$$book\""; \
@@ -362,6 +368,41 @@ clean:
 	find $(ROOT)/storage -maxdepth 1 -type d -name 'lancedb_*' -o -name 'faiss_*' | xargs -r rm -rf
 	mkdir -p $(ROOT)/storage/lancedb_default $(ROOT)/storage/faiss_default
 	@echo "✓ Cleaned processed data and indexes."
+
+## Remove FAISS index for a specific KEY (inside container)
+## Usage: make clean-faiss KEY=your_key
+clean-faiss:
+	@key="$(KEY)"; \
+	if [ -z "$$key" ]; then echo "Usage: make clean-faiss KEY=your_key"; exit 1; fi; \
+	rm -rf storage/faiss_"$$key" storage/faiss_"$$key"__*
+	@echo "✓ Removed FAISS index(es) for key: $(KEY)"
+
+## Rebuild FAISS index for a KEY (inside container)
+## Usage: make reindex KEY=your_key
+reindex:
+	@key="$(KEY)"; \
+	if [ -z "$$key" ]; then echo "Usage: make reindex KEY=your_key"; exit 1; fi; \
+	$(MAKE) clean-faiss KEY="$$key"; \
+	python src/langchain/lc_build_index.py "$$key"
+
+## Repack an existing FAISS index to current LangChain format (no re-embedding)
+## Usage:
+##   make repack-faiss KEY=your_key [EMBED_MODEL=BAAI/bge-small-en-v1.5] [OUT=dir] [CHUNKS=path]
+##   make repack-faiss FAISS_DIR=storage/faiss_key__BAAI-bge-small-en-v1.5 [OUT=dir] [CHUNKS=path]
+repack-faiss:
+	@key="$(KEY)"; embed="$(EMBED_MODEL)"; faiss_dir="$(FAISS_DIR)"; out="$(OUT)"; chunks="$(CHUNKS)"; \
+	if [ -n "$$faiss_dir" ]; then \
+	  cmd="python tools/repack_faiss_index.py --faiss-dir \"$$faiss_dir\""; \
+	  if [ -n "$$chunks" ]; then cmd="$$cmd --chunks \"$$chunks\""; fi; \
+	else \
+	  if [ -z "$$key" ]; then echo "Usage: make repack-faiss KEY=your_key [EMBED_MODEL=...] [OUT=dir] [CHUNKS=path]"; exit 1; fi; \
+	  cmd="python tools/repack_faiss_index.py --key \"$$key\""; \
+	  if [ -n "$$embed" ]; then cmd="$$cmd --embed-model \"$$embed\""; fi; \
+	  if [ -n "$$chunks" ]; then cmd="$$cmd --chunks \"$$chunks\""; fi; \
+	fi; \
+	if [ -n "$$out" ]; then cmd="$$cmd --out-dir \"$$out\""; fi; \
+	echo "Running: $$cmd"; \
+	eval $$cmd
 
 ## Deep clean including generated content
 clean-all: clean

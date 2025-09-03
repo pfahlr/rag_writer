@@ -11,11 +11,11 @@ from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
-# Prefer new-community import; avoid deprecated langchain.embeddings
+# Prefer langchain-huggingface (new home), fallback to community
 try:
-    from langchain_community.embeddings import HuggingFaceEmbeddings
-except ImportError:  # fallback if environment provides the new split package
     from langchain_huggingface import HuggingFaceEmbeddings  # type: ignore
+except ImportError:
+    from langchain_community.embeddings import HuggingFaceEmbeddings
 
 
 # ---------------------------------------------------------------------------
@@ -69,6 +69,7 @@ def load_pdfs() -> List[Document]:
         loader = PyMuPDFLoader(str(pdf))
         per_page = loader.load()
         doi = get_doi(per_page)
+        notified_missing_metadata = False
         if doi:
             pprint("found DOI (this is only a guess, you must verify):" + doi)
         for d in per_page:
@@ -78,7 +79,9 @@ def load_pdfs() -> List[Document]:
                 meta['doi'] = meta_extended['doi']
                 meta['isbn'] = meta_extended['isbn']
             except ValueError as e: 
-                print('pdf from older version, has no extended metadata')
+                if not notified_missing_metadata:
+                 print('pdf from older version, has no extended metadata')
+                 notified_missing_metadata = True
             meta["title"] = pdf.stem
             meta["source"] = str(pdf)
             if 'doi' not in meta or meta['doi'] == "":

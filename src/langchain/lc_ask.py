@@ -8,11 +8,11 @@ from pathlib import Path
 
 from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
-# Prefer new-community import; avoid deprecated langchain.embeddings
+# Prefer langchain-huggingface (new home), fallback to community
 try:
-    from langchain_community.embeddings import HuggingFaceEmbeddings
-except ImportError:  # fallback if environment provides the new split package
     from langchain_huggingface import HuggingFaceEmbeddings  # type: ignore
+except ImportError:
+    from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_openai import ChatOpenAI
 from langchain.chains import RetrievalQA
 
@@ -76,10 +76,15 @@ def main():
     docs = _load_chunks_jsonl(chunks_path)
 
     emb_name_safe = re.sub(r"[^a-zA-Z0-9._-]+", "-", args.embed_model)
-    faiss_dir = Path(f"storage/faiss_{args.key}__{emb_name_safe}")
+    base_dir = Path(f"storage/faiss_{args.key}__{emb_name_safe}")
+    repacked_dir = Path(str(base_dir) + "_repacked")
+    faiss_dir = repacked_dir if repacked_dir.exists() else base_dir
     if not faiss_dir.exists():
         raise SystemExit(
-            f"[lc_ask] FAISS dir not found: {faiss_dir} – rebuild index with --embed-model {args.embed_model}"
+            "[lc_ask] FAISS dir not found: "
+            f"{base_dir} (or repacked: {repacked_dir}).\n"
+            f"  • If you upgraded LangChain, try: make repack-faiss KEY={args.key} EMBED_MODEL={args.embed_model}\n"
+            f"  • Or rebuild the index: python src/langchain/lc_build_index.py {args.key}"
         )
     embedder = HuggingFaceEmbeddings(model_name=args.embed_model)
     vectorstore = FAISS.load_local(
