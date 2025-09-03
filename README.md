@@ -530,6 +530,17 @@ make compose-build-base
 
 To use prebuilt base layers across machines/CI, you can tag and push the base stages to a registry and update `Dockerfile` FROM references if you want to pin them.
 
+### CI Cache Tips
+
+- Use Docker BuildKit + Buildx to push/pull cache to a registry for fast CI builds.
+- Example GitHub Actions workflow is provided at `docs/ci_build_cache_example.yml`.
+- Typical flow:
+  - Cache base-sys and py-deps stages to registry
+  - Build the runner stage with `--cache-from` pointing at those cache refs
+  - Push final image to your registry (e.g., GHCR, ECR, GCR)
+
+If you use Podman in CI, layer caching is local by default; pushing prebuilt base stage images to your registry can still improve cold-start builds.
+
 ## 📜 Scripts Overview
 
 ### lc_ask.py - Core LLM Interface
