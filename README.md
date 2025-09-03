@@ -398,6 +398,17 @@ All CLI interfaces use the same configuration system:
 
 The factory auto-selects an available backend in this order: OpenAI (LangChain) → Ollama → OpenAI (raw). See `src/core/llm.py`.
 
+### Version Compatibility
+
+This project targets LangChain 0.2.x with the split provider packages:
+- `langchain>=0.2.13,<0.3`
+- `langchain-community>=0.2.12,<0.3`
+- `langchain-text-splitters>=0.2.2,<0.3`
+- `langchain-openai>=0.1.7,<0.2`
+- Optional: `langchain-huggingface>=0.0.3`, `langchain-ollama>=0.1.0`
+
+These versions ensure stable imports for retrievers (e.g., EnsembleRetriever) and LLM integrations. If you upgrade beyond these ranges, prefer the Typer CLI (`python -m src.cli.commands`) which already includes robust fallbacks.
+
 ## 🐳 Docker
 
 Run the full system in a Docker container without needing a local Python setup.
@@ -1331,6 +1342,18 @@ python -c "import yaml; yaml.safe_load(open('src/tool/prompts/merge_types.yaml')
 # Check environment configuration
 cat env.json
 # Ensure API keys are set and valid
+```
+
+#### 5. Relative Import Errors
+If you see "attempted relative import with no known parent package", run modules in package mode:
+```bash
+python -m src.cli.commands ask "What is machine learning?"
+python -m src.cli.shell
+```
+Or use the Docker/Compose entrypoint shortcuts:
+```bash
+docker compose run --rm rag-writer ask "What is machine learning?"
+docker compose run --rm rag-writer shell
 ```
 
 ### Debug Mode

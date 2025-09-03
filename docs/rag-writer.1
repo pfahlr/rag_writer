@@ -574,6 +574,26 @@ Requires the \fBopenai\fR package and \fBOPENAI_API_KEY\fR
 .sp
 Override model choices with \fBOPENAI_MODEL\fR and \fBOLLAMA_MODEL\fR. See \fIsrc/core/llm.py\fR.
 
+.SH VERSION COMPATIBILITY
+This project targets LangChain 0.2.x with split provider packages. Recommended minimums:
+.TP
+.B langchain
+\fI>= 0.2.13, < 0.3\fR
+.TP
+.B langchain-community
+\fI>= 0.2.12, < 0.3\fR
+.TP
+.B langchain-text-splitters
+\fI>= 0.2.2, < 0.3\fR
+.TP
+.B langchain-openai
+\fI>= 0.1.7, < 0.2\fR
+.TP
+.B Optional
+\fBlangchain-huggingface\fR (>= 0.0.3), \fBlangchain-ollama\fR (>= 0.1.0)
+.sp
+These versions ensure stable retriever imports and LLM integrations. Newer releases may move classes; when in doubt, use the Typer CLI (\fBpython -m src.cli.commands\fR) which includes fallbacks.
+
 .SH DIRECTORY LAYOUT
 .TP
 .B data_raw/

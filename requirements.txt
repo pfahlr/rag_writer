@@ -11,10 +11,10 @@ textual-dev
 cryptography
 typer
 
-# LangChain stack
-langchain>=0.2.8
-langchain-community>=0.2.7
-langchain-text-splitters
+# LangChain stack (pinned for compatibility)
+langchain>=0.2.13,<0.3
+langchain-community>=0.2.12,<0.3
+langchain-text-splitters>=0.2.2,<0.3
 
 # Vector stores
 lancedb>=0.6,<=0.13
@@ -33,5 +33,12 @@ python-dotenv
 jinja2>=3.1
 pyyaml>=6.0
 
-# Optional (only if you use OpenAI for LLM)
+# OpenAI + LangChain integrations
 openai>=1.40.0
+langchain-openai>=0.1.7,<0.2
+
+# Optional LangChain integrations (enabled if you use these backends)
+# Provides HuggingFace embeddings shim and local Ollama chat backend
+langchain-huggingface>=0.0.3
+langchain-ollama>=0.1.0
+langchain-openai>=0.1.7

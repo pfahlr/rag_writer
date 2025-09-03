@@ -8,12 +8,16 @@ from pathlib import Path
 
 from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
-from langchain.embeddings import HuggingFaceEmbeddings
+# Prefer new-community import; avoid deprecated langchain.embeddings
+try:
+    from langchain_community.embeddings import HuggingFaceEmbeddings
+except ImportError:  # fallback if environment provides the new split package
+    from langchain_huggingface import HuggingFaceEmbeddings  # type: ignore
 from langchain_openai import ChatOpenAI
 from langchain.chains import RetrievalQA
 
-# Ensure project root on path for absolute imports
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+# Ensure project root ('/app') is on sys.path so we can import 'src.*'
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.langchain.retriever_factory import make_retriever
 
@@ -108,4 +112,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

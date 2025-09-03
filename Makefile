@@ -372,22 +372,48 @@ clean-all: clean
 	find $(ROOT)/data_jobs -name "*.jsonl" | xargs -r rm -f
 	@echo "✓ Cleaned all generated content."
 
-.PHONY: lc-index lc-ask-faiss lc-ask-bm25 lc-ask-hybrid lc-ask-hybrid-ce
+.PHONY: lc-ask-faiss lc-ask-bm25 lc-ask-hybrid lc-ask-hybrid-ce
 
-lc-index:
-	python src/langchain/lc_build_index.py $(KEY)
-
+# Legacy direct wrappers around lc_ask.py with safer optional args
 lc-ask-faiss:
-	python src/langchain/lc_ask.py --key $(KEY) --mode faiss --embed-model BAAI/bge-small-en-v1.5 --k $(K) --json $(JSON)
+	@instr="$(INSTR)"; \
+	if [ -z "$$instr" ]; then instr="$(filter-out $@,$(MAKECMDGOALS))"; fi; \
+	if [ -z "$$instr" -a -z "$(JSON)" ]; then echo "Usage: make $@ INSTR=\"question\" [KEY=key] [K=10] [JSON=path]"; exit 1; fi; \
+	cmd="python src/langchain/lc_ask.py --key $(KEY) --mode faiss --embed-model BAAI/bge-small-en-v1.5"; \
+	if [ -n "$(K)" ]; then cmd="$$cmd --k $(K)"; fi; \
+	if [ -n "$(JSON)" ]; then cmd="$$cmd --json $(JSON)"; fi; \
+	if [ -n "$$instr" ]; then cmd="$$cmd \"$$instr\""; fi; \
+	eval $$cmd
 
 lc-ask-bm25:
-	python src/langchain/lc_ask.py --key $(KEY) --mode bm25 --k $(K) --json $(JSON)
+	@instr="$(INSTR)"; \
+	if [ -z "$$instr" ]; then instr="$(filter-out $@,$(MAKECMDGOALS))"; fi; \
+	if [ -z "$$instr" -a -z "$(JSON)" ]; then echo "Usage: make $@ INSTR=\"question\" [KEY=key] [K=10] [JSON=path]"; exit 1; fi; \
+	cmd="python src/langchain/lc_ask.py --key $(KEY) --mode bm25"; \
+	if [ -n "$(K)" ]; then cmd="$$cmd --k $(K)"; fi; \
+	if [ -n "$(JSON)" ]; then cmd="$$cmd --json $(JSON)"; fi; \
+	if [ -n "$$instr" ]; then cmd="$$cmd \"$$instr\""; fi; \
+	eval $$cmd
 
 lc-ask-hybrid:
-	python src/langchain/lc_ask.py --key $(KEY) --mode hybrid --embed-model BAAI/bge-small-en-v1.5 --k $(K) --json $(JSON)
+	@instr="$(INSTR)"; \
+	if [ -z "$$instr" ]; then instr="$(filter-out $@,$(MAKECMDGOALS))"; fi; \
+	if [ -z "$$instr" -a -z "$(JSON)" ]; then echo "Usage: make $@ INSTR=\"question\" [KEY=key] [K=10] [JSON=path]"; exit 1; fi; \
+	cmd="python src/langchain/lc_ask.py --key $(KEY) --mode hybrid --embed-model BAAI/bge-small-en-v1.5"; \
+	if [ -n "$(K)" ]; then cmd="$$cmd --k $(K)"; fi; \
+	if [ -n "$(JSON)" ]; then cmd="$$cmd --json $(JSON)"; fi; \
+	if [ -n "$$instr" ]; then cmd="$$cmd \"$$instr\""; fi; \
+	eval $$cmd
 
 lc-ask-hybrid-ce:
-	python src/langchain/lc_ask.py --key $(KEY) --mode hybrid --rerank ce --ce-model cross-encoder/ms-marco-MiniLM-L-6-v2 --embed-model BAAI/bge-small-en-v1.5 --k $(K) --json $(JSON)
+	@instr="$(INSTR)"; \
+	if [ -z "$$instr" ]; then instr="$(filter-out $@,$(MAKECMDGOALS))"; fi; \
+	if [ -z "$$instr" -a -z "$(JSON)" ]; then echo "Usage: make $@ INSTR=\"question\" [KEY=key] [K=10] [JSON=path]"; exit 1; fi; \
+	cmd="python src/langchain/lc_ask.py --key $(KEY) --mode hybrid --rerank ce --ce-model cross-encoder/ms-marco-MiniLM-L-6-v2 --embed-model BAAI/bge-small-en-v1.5"; \
+	if [ -n "$(K)" ]; then cmd="$$cmd --k $(K)"; fi; \
+	if [ -n "$(JSON)" ]; then cmd="$$cmd --json $(JSON)"; fi; \
+	if [ -n "$$instr" ]; then cmd="$$cmd \"$$instr\""; fi; \
+	eval $$cmd
 
 validate-gold: \
 	validate-gold-retrieval \

@@ -2,10 +2,42 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
-from langchain_community.retrievers import BM25Retriever, EnsembleRetriever, ParentDocumentRetriever
-from langchain.retrievers import ContextualCompressionRetriever
-from langchain_community.document_transformers import CrossEncoderReranker
-from langchain_community.cross_encoders import HuggingFaceCrossEncoder
+from langchain_community.retrievers import BM25Retriever
+
+# Try EnsembleRetriever from multiple locations (version differences)
+try:
+    from langchain.retrievers.ensemble import EnsembleRetriever  # type: ignore
+except Exception:
+    try:
+        from langchain_community.retrievers import EnsembleRetriever  # type: ignore
+    except Exception:
+        EnsembleRetriever = None  # type: ignore
+
+# ContextualCompressionRetriever moved across versions
+try:
+    from langchain.retrievers import ContextualCompressionRetriever  # type: ignore
+except Exception:
+    try:
+        from langchain_community.retrievers import ContextualCompressionRetriever  # type: ignore
+    except Exception:
+        ContextualCompressionRetriever = None  # type: ignore
+
+# ParentDocumentRetriever location varies by version
+try:
+    from langchain.retrievers import ParentDocumentRetriever  # type: ignore
+except Exception:
+    try:
+        from langchain_community.retrievers import ParentDocumentRetriever  # type: ignore
+    except Exception:
+        ParentDocumentRetriever = None  # type: ignore
+
+# Cross-encoder reranker optional
+try:
+    from langchain_community.document_transformers import CrossEncoderReranker  # type: ignore
+    from langchain_community.cross_encoders import HuggingFaceCrossEncoder  # type: ignore
+except Exception:
+    CrossEncoderReranker = None  # type: ignore
+    HuggingFaceCrossEncoder = None  # type: ignore
 
 def _build_faiss(vectorstore: FAISS, k: int):
     return vectorstore.as_retriever(search_kwargs={"k": k})
@@ -16,9 +48,15 @@ def _build_bm25(docs: List[Document], k: int) -> BM25Retriever:
     return bm25
 
 def _build_hybrid(bm25: BM25Retriever, faiss_retriever, weights: Tuple[float, float] = (0.5, 0.5)):
+    if EnsembleRetriever is None:
+        print("[yellow]Warning: EnsembleRetriever not available; falling back to FAISS retriever only.[/yellow]")
+        return faiss_retriever
     return EnsembleRetriever(retrievers=[bm25, faiss_retriever], weights=list(weights))
 
 def _build_ce_compression(base_retriever, ce_model: str):
+    if CrossEncoderReranker is None or HuggingFaceCrossEncoder is None or ContextualCompressionRetriever is None:
+        print("[yellow]Warning: CE reranking not available; using base retriever.[/yellow]")
+        return base_retriever
     ce = HuggingFaceCrossEncoder(model_name=ce_model)
     compressor = CrossEncoderReranker(cross_encoder=ce)
     return ContextualCompressionRetriever(base_retriever=base_retriever, base_compressor=compressor)
@@ -26,6 +64,9 @@ def _build_ce_compression(base_retriever, ce_model: str):
 def _build_parent_child(vectorstore: FAISS, docs: List[Document],
                         child_chunk: int = 300, parent_chunk: int = 1200, k: int = 8):
     # Retrieve on small “child” chunks but return larger parent spans
+    if ParentDocumentRetriever is None:
+        print("[yellow]Warning: ParentDocumentRetriever not available; using FAISS retriever only.[/yellow]")
+        return vectorstore.as_retriever(search_kwargs={"k": k})
     return ParentDocumentRetriever.from_documents(
         docs, vectorstore,
         child_splitter_kwargs={"chunk_size": child_chunk, "chunk_overlap": 40},
