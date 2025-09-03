@@ -380,6 +380,24 @@ All CLI interfaces use the same configuration system:
 }
 ```
 
+### Environment Variables
+
+- OPENAI_API_KEY: API key for OpenAI backends.
+- RAG_KEY: Default collection key (e.g., science, default).
+- OPENAI_MODEL: Override OpenAI chat model (default: gpt-4o-mini).
+- OLLAMA_MODEL: Override local Ollama model (default: llama3.1:8b).
+- EMBED_MODEL: Override embedding model used when building/loading indices.
+- EMBED_BATCH: Batch size for embedding operations.
+- DEBUG: Set to 1/true to enable debug mode in config.
+
+### Models & Backends
+
+- OpenAI via LangChain (preferred): requires `OPENAI_API_KEY` and `langchain-openai`.
+- OpenAI (raw client) fallback: requires `openai` package.
+- Ollama (local): requires `langchain-ollama` or `langchain-community` ChatOllama and a running Ollama daemon; set `OLLAMA_MODEL`.
+
+The factory auto-selects an available backend in this order: OpenAI (LangChain) → Ollama → OpenAI (raw). See `src/core/llm.py`.
+
 ## 🐳 Docker
 
 Run the full system in a Docker container without needing a local Python setup.
@@ -461,6 +479,15 @@ docker compose run --rm rag-writer ask "What is machine learning?"
 - Set `RAG_KEY` to switch collections (defaults to `default`).
 - If you prefer the Makefile workflows, run them inside the container shell and call the Python scripts directly (the Makefile’s venv targets are designed for host use).
 - Some first-time runs will download models (HuggingFace). Use the provided cache volume to avoid repeated downloads.
+- Entrypoint shortcuts: `ask` runs the Typer CLI; `shell` starts the interactive REPL; any other command is executed verbatim (e.g., `python -m src.cli.shell`).
+
+### Directory Layout
+
+- `data_raw/`: Place source PDFs and documents to ingest.
+- `data_processed/`: Extracted chunks and intermediate artifacts.
+- `storage/`: Vector stores (e.g., FAISS), per collection key.
+- `output/`, `exports/`: Generated content and final artifacts.
+- `outlines/`, `data_jobs/`: Outline and job files for the book pipeline.
 
 ### SOPS in Docker
 
@@ -587,6 +614,12 @@ python src/langchain/lc_batch.py --jobs data_jobs/example.jsonl
 ```bash
 python src/langchain/lc_build_index.py --source data/ --index my_index
 ```
+
+Note on FAISS index paths:
+- The multi-model builder writes FAISS directories like `storage/faiss_<key>__<embed_model>`.
+- The Typer CLI (`python -m src.cli.commands`) looks for `storage/faiss_<key>` by default.
+- If you use the multi-model builder and the Typer CLI, copy or symlink your chosen embedding index to the generic path, e.g.:
+  - `ln -s storage/faiss_science__BAAI-bge-small-en-v1.5 storage/faiss_science`
 
 ### lc_merge_runner.py - Advanced Merge System
 

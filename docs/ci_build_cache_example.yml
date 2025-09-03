@@ -1,0 +1,55 @@
+# Example GitHub Actions workflow for fast, cached Docker builds
+# Save as: .github/workflows/docker-build.yml (optional)
+
+name: Docker Build (cached)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write  # for GHCR
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push base layers (optional)
+        run: |
+          docker buildx build \
+            --target base-sys \
+            -t ghcr.io/${{ github.repository }}/rag-writer-base:py311-slim \
+            --cache-to type=registry,ref=ghcr.io/${{ github.repository }}/rag-writer-cache:base,mode=max \
+            --push .
+
+          docker buildx build \
+            --target py-deps \
+            -t ghcr.io/${{ github.repository }}/rag-writer-deps:py311-slim \
+            --cache-from type=registry,ref=ghcr.io/${{ github.repository }}/rag-writer-cache:base \
+            --cache-to type=registry,ref=ghcr.io/${{ github.repository }}/rag-writer-cache:deps,mode=max \
+            --push .
+
+      - name: Build and push final image (uses cache)
+        run: |
+          docker buildx build \
+            --target runner \
+            -t ghcr.io/${{ github.repository }}/rag-writer:latest \
+            --cache-from type=registry,ref=ghcr.io/${{ github.repository }}/rag-writer-cache:base \
+            --cache-from type=registry,ref=ghcr.io/${{ github.repository }}/rag-writer-cache:deps \
+            --cache-to type=registry,ref=ghcr.io/${{ github.repository }}/rag-writer-cache:runner,mode=max \
+            --push .
+

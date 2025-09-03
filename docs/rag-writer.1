@@ -422,6 +422,24 @@ make docker-build-base
 # Build final image (runner stage)
 make docker-build
 .fi
+.SS FAISS Index Paths
+The multi-model index builder writes FAISS directories like:
+.sp
+.nf
+storage/faiss_\fI<key>\fR__\fI<embed_model>\fR
+.fi
+.sp
+The Typer CLI (\fBpython -m src.cli.commands\fR) looks for:
+.sp
+.nf
+storage/faiss_\fI<key>\fR
+.fi
+.sp
+If you use the multi-model builder and the Typer CLI, copy or symlink your chosen embedding index to the generic path, for example:
+.sp
+.nf
+ln -s storage/faiss_science__BAAI-bge-small-en-v1.5 storage/faiss_science
+.fi
 .SS Run (ad-hoc)
 .sp
 .nf
@@ -514,11 +532,64 @@ Create \fBenv.json\fR with your API keys and settings:
 .nf
 {
   "openai_api_key": "your-key-here",
-  "anthropic_api_key": "your-key-here",
-  "default_model": "gpt-4",
-  "embedding_model": "text-embedding-ada-002"
+  "rag_key": "default",
+  "default_model": "gpt-4o-mini",
+  "embedding_model": "BAAI/bge-small-en-v1.5"
 }
 .fi
+.SS Environment Variables
+.TP
+.B OPENAI_API_KEY
+API key for OpenAI backends
+.TP
+.B RAG_KEY
+Default collection key (e.g., \fIdefault\fR, \fIscience\fR)
+.TP
+.B OPENAI_MODEL
+Override OpenAI chat model (default: gpt-4o-mini)
+.TP
+.B OLLAMA_MODEL
+Override local Ollama model (default: llama3.1:8b)
+.TP
+.B EMBED_MODEL
+Override embedding model used when building/loading indices
+.TP
+.B EMBED_BATCH
+Batch size for embedding operations
+.TP
+.B DEBUG
+Enable debug mode in configuration when set to 1/true
+
+.SH LLM BACKENDS
+The system can use multiple LLM backends, selected automatically (in order):
+.TP
+.B OpenAI via LangChain (preferred)
+Requires \fBOPENAI_API_KEY\fR and the \fBlangchain-openai\fR package
+.TP
+.B Ollama (local)
+Requires \fBlangchain-ollama\fR (or compatible) and a running Ollama daemon; set \fBOLLAMA_MODEL\fR
+.TP
+.B OpenAI (raw client)
+Requires the \fBopenai\fR package and \fBOPENAI_API_KEY\fR
+.sp
+Override model choices with \fBOPENAI_MODEL\fR and \fBOLLAMA_MODEL\fR. See \fIsrc/core/llm.py\fR.
+
+.SH DIRECTORY LAYOUT
+.TP
+.B data_raw/
+Source PDFs and input documents
+.TP
+.B data_processed/
+Extracted chunks and intermediate artifacts
+.TP
+.B storage/
+Vector stores (e.g., FAISS) per collection key
+.TP
+.B output/, exports/
+Generated content and final artifacts
+.TP
+.B outlines/, data_jobs/
+Outline definitions and job files for the book pipeline
 .SS Content Types Configuration
 Located in \fBsrc/tool/prompts/content_types/\fR
 .sp
