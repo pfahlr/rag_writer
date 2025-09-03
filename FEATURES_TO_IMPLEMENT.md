@@ -41,10 +41,12 @@ Step through a directory of pdfs; and for each file:
   - does scribbr have an API? if so, add integration with this or similar service.    
     {priority: low}
 
-### [ ] 2. Multi-Shot / Iterative / Agentic Interaction with LLMs:
+### [ ] 2. Multi-Shot / Iterative / Agentic / Self-Ask/ Chain-of Query Interaction with LLMs:
   - Let model ask Vector Database for information it needs
   - command line argument for max_iterations (default 3?)
-  - configuration in playbook.yaml
+  - command line argument for max query expansion (default 1:expansion off)
+  - command line argument for allow searching the web (true|false|'*.example.com,*.wikipedia.com')
+  - command line settings also possible from in playbook.yaml for automated complex multi-step operations.
 
 ### [ ] 3. Revisit Playbooks Functionality
   - Operation of system should be abstracted enough such that a yaml file can represent a multi-stage processess resulting in a finished product. Something like
