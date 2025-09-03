@@ -1,0 +1,22 @@
+services:
+  rag-writer:
+    build:
+      context: .
+      target: runner
+    image: rag-writer:latest
+    working_dir: /app
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - RAG_KEY=${RAG_KEY:-default}
+      # Optional tuning/envs you may set:
+      # - EMBED_MODEL=BAAI/bge-small-en-v1.5
+      # - OPENAI_MODEL=gpt-4o-mini
+      # - DEBUG=1
+    volumes:
+      - ./:/app
+      # Persist model/cache downloads between runs
+      - hf-cache:/root/.cache/huggingface
+    command: ["--help"]
+
+volumes:
+  hf-cache:

@@ -30,8 +30,8 @@ python src/langchain/lc_merge_runner.py --sub 1A1
 Streamlined interface using Typer:
 .sp
 .nf
-python src/cli/commands.py ask "question"
-python src/cli/shell.py                    # Interactive shell
+python -m src.cli.commands ask "question"
+python -m src.cli.shell                    # Interactive shell
 .fi
 .SH COMMANDS
 .SS Core LangChain Scripts
@@ -65,14 +65,14 @@ Interactive viewer for batch-generated content
 Clean and preprocess source documents
 .SS CLI Commands
 .TP
-.B python src/cli/commands.py ask
+.B python -m src.cli.commands ask
 Streamlined RAG query interface
 .TP
-.B python src/cli/shell.py
+.B python -m src.cli.shell
 Interactive shell with presets and multi-step workflows
 .SH CLI COMMANDS INTERFACE
 .SS SYNOPSIS
-.B python src/cli/commands.py ask
+.B python -m src.cli.commands ask
 [\fB\-\-question\fR|\fB\-q\fR \fIQUESTION\fR]
 [\fB\-\-key\fR|\fB\-k\fR \fIKEY\fR]
 [\fB\-\-k\fR \fINUM\fR]
@@ -99,17 +99,17 @@ JSON file containing prompt parameters
 .SS EXAMPLES
 .TP
 Basic query:
-.B python src/cli/commands.py ask "What is machine learning?"
+.B python -m src.cli.commands ask "What is machine learning?"
 .TP
 Advanced query with task separation:
-.B python src/cli/commands.py ask "Explain neural networks" --task "Write for beginners" --key science --k 20
+.B python -m src.cli.commands ask "Explain neural networks" --task "Write for beginners" --key science --k 20
 .TP
 Query from JSON file:
-.B python src/cli/commands.py ask --file query.json --key biology
+.B python -m src.cli.commands ask --file query.json --key biology
 
 .SH INTERACTIVE SHELL
 .SS SYNOPSIS
-.B python src/cli/shell.py
+.B python -m src.cli.shell
 [\fIKEY\fR]
 .SS DESCRIPTION
 Advanced interactive shell with presets, multi-step workflows, and source inspection.
@@ -144,10 +144,10 @@ Exit shell
 .SS EXAMPLES
 .TP
 Start shell:
-.B python src/cli/shell.py
+.B python -m src.cli.shell
 .TP
 Start with specific collection:
-.B RAG_KEY=science python src/cli/shell.py
+.B RAG_KEY=science python -m src.cli.shell
 
 .SH LC-ASK COMMAND
 .SS SYNOPSIS
@@ -410,6 +410,121 @@ Batch processing workflow
 .TP
 .B make examples
 Show available example files
+.SH DOCKER USAGE
+.SS Build
+.sp
+.nf
+docker build -t rag-writer:latest .
+docker compose build
+
+# Seed base layers for faster rebuilds
+make docker-build-base
+# Build final image (runner stage)
+make docker-build
+.fi
+.SS FAISS Index Paths
+The multi-model index builder writes FAISS directories like:
+.sp
+.nf
+storage/faiss_\fI<key>\fR__\fI<embed_model>\fR
+.fi
+.sp
+The Typer CLI (\fBpython -m src.cli.commands\fR) looks for:
+.sp
+.nf
+storage/faiss_\fI<key>\fR
+.fi
+.sp
+If you use the multi-model builder and the Typer CLI, copy or symlink your chosen embedding index to the generic path, for example:
+.sp
+.nf
+ln -s storage/faiss_science__BAAI-bge-small-en-v1.5 storage/faiss_science
+.fi
+.SS Run (ad-hoc)
+.sp
+.nf
+# Show CLI help (default CMD)
+docker run --rm -it \
+  -v "$PWD":/app \
+  -e OPENAI_API_KEY=sk-... \
+  rag-writer:latest --help
+
+# Build FAISS index from PDFs in ./data_raw
+docker run --rm -it \
+  -v "$PWD":/app \
+  -e RAG_KEY=science \
+  rag-writer:latest python src/langchain/lc_build_index.py
+
+# Ask a question using the Typer CLI
+docker run --rm -it \
+  -v "$PWD":/app \
+  -e OPENAI_API_KEY=sk-... \
+  -e RAG_KEY=science \
+  rag-writer:latest ask "What is machine learning?"
+
+# Interactive shell
+docker run --rm -it \
+  -v "$PWD":/app \
+  -e OPENAI_API_KEY=sk-... \
+  rag-writer:latest shell
+.fi
+.SS Run (Compose)
+.sp
+.nf
+export OPENAI_API_KEY=sk-...
+
+# Show help
+docker compose run --rm rag-writer --help
+
+# Build index
+docker compose run --rm rag-writer python src/langchain/lc_build_index.py
+
+# Ask
+docker compose run --rm rag-writer ask "What is machine learning?"
+
+# Shell
+docker compose run --rm rag-writer bash
+.fi
+.SS Makefile Docker Targets
+.sp
+.nf
+make docker-build [DOCKER_IMAGE=rag-writer:latest]
+make docker-ask "What is ML?" KEY=science
+make docker-index KEY=science
+make docker-shell
+
+make compose-build
+make compose-ask "What is ML?" KEY=science
+make compose-index KEY=science
+make compose-shell
+
+# Full book pipeline
+make docker-book-runner BOOK=book.json OUTPUT=exports/books/my_book.md
+make compose-book-runner BOOK=book.json OUTPUT=exports/books/my_book.md
+.fi
+.SS Image Structure and Faster Rebuilds
+The Dockerfile uses multi-stage builds:
+.TP
+.B base-sys
+OS deps (build tools, curl, jq, ca-certificates, libgomp1) + sops
+.TP
+.B py-deps
+Python dependencies from requirements.txt
+.TP
+.B runner
+App source + entrypoint
+.sp
+Only the runner layer changes on code edits, making iteration fast. Use \fBmake docker-build-base\fR to prebuild base layers.
+.SS SOPS Integration
+The container includes \fBsops\fR and \fBjq\fR. If \fB/app/env.json\fR exists and is decryptable (AWS KMS, GCP KMS, or PGP), the entrypoint auto-loads its values into the environment before running your command.
+.sp
+Makefile helpers:
+.sp
+.nf
+make sops-updatekeys [FILE=env.json]
+make sops-decrypt [FILE=env.json] > /tmp/env.json
+make sops-env-export [FILE=env.json] | source /dev/stdin
+.fi
 .SH CONFIGURATION
 .SS Environment Configuration
 Create \fBenv.json\fR with your API keys and settings:
@@ -417,11 +532,64 @@ Create \fBenv.json\fR with your API keys and settings:
 .nf
 {
   "openai_api_key": "your-key-here",
-  "anthropic_api_key": "your-key-here",
-  "default_model": "gpt-4",
-  "embedding_model": "text-embedding-ada-002"
+  "rag_key": "default",
+  "default_model": "gpt-4o-mini",
+  "embedding_model": "BAAI/bge-small-en-v1.5"
 }
 .fi
+.SS Environment Variables
+.TP
+.B OPENAI_API_KEY
+API key for OpenAI backends
+.TP
+.B RAG_KEY
+Default collection key (e.g., \fIdefault\fR, \fIscience\fR)
+.TP
+.B OPENAI_MODEL
+Override OpenAI chat model (default: gpt-4o-mini)
+.TP
+.B OLLAMA_MODEL
+Override local Ollama model (default: llama3.1:8b)
+.TP
+.B EMBED_MODEL
+Override embedding model used when building/loading indices
+.TP
+.B EMBED_BATCH
+Batch size for embedding operations
+.TP
+.B DEBUG
+Enable debug mode in configuration when set to 1/true
+
+.SH LLM BACKENDS
+The system can use multiple LLM backends, selected automatically (in order):
+.TP
+.B OpenAI via LangChain (preferred)
+Requires \fBOPENAI_API_KEY\fR and the \fBlangchain-openai\fR package
+.TP
+.B Ollama (local)
+Requires \fBlangchain-ollama\fR (or compatible) and a running Ollama daemon; set \fBOLLAMA_MODEL\fR
+.TP
+.B OpenAI (raw client)
+Requires the \fBopenai\fR package and \fBOPENAI_API_KEY\fR
+.sp
+Override model choices with \fBOPENAI_MODEL\fR and \fBOLLAMA_MODEL\fR. See \fIsrc/core/llm.py\fR.
+
+.SH DIRECTORY LAYOUT
+.TP
+.B data_raw/
+Source PDFs and input documents
+.TP
+.B data_processed/
+Extracted chunks and intermediate artifacts
+.TP
+.B storage/
+Vector stores (e.g., FAISS) per collection key
+.TP
+.B output/, exports/
+Generated content and final artifacts
+.TP
+.B outlines/, data_jobs/
+Outline definitions and job files for the book pipeline
 .SS Content Types Configuration
 Located in \fBsrc/tool/prompts/content_types/\fR
 .sp
@@ -696,8 +864,8 @@ Best for simple queries and automation:
 - Easy to use in scripts
 .sp
 .nf
-python src/cli/commands.py ask "question" --key science --k 20
-python src/cli/commands.py ask --file query.json
+python -m src.cli.commands ask "question" --key science --k 20
+python -m src.cli.commands ask --file query.json
 .fi
 .SS Interactive Shell
 Best for exploration and complex queries:
@@ -707,13 +875,16 @@ Best for exploration and complex queries:
 - Advanced query types (compare, summarize, outline)
 .sp
 .nf
-python src/cli/shell.py
+python -m src.cli.shell
 rag> ask "What is machine learning?"
 rag> sources
 .fi
 .SH SEE ALSO
 .BR make (1),
 .BR python (1),
+.BR docker (1),
+.BR podman (1),
+.BR sops (1),
 .BR typer (1)
 .SH AUTHOR
 LangChain RAG Writer Team

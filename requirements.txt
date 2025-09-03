@@ -26,6 +26,7 @@ sentence-transformers>=2.6.0
 
 # PDF & utils
 pypdf>=4.0,<5.0
+pymupdf>=1.23,<1.25
 rapidfuzz>=3.9,<4.0
 tqdm
 python-dotenv

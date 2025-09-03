@@ -17,6 +17,5 @@ outlines/*
 logs/*
 !logs/README.md
 exports/*
-*.md
 dictionaries/*
 generated/*

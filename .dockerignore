@@ -1,0 +1,35 @@
+# Git & VCS
+.git
+.gitignore
+
+# Python caches
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.coverage
+htmlcov
+
+# Virtual envs
+venv
+.venv
+
+# Local/editor
+.vscode
+.kilocode
+
+# Large/generated data (mount as volumes instead)
+data_raw
+data_processed
+storage
+output
+exports
+generated
+logs
+exports
+
+# OS files
+.DS_Store
+Thumbs.db
+

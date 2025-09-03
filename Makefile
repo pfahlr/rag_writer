@@ -8,6 +8,9 @@ PY_CMD := $(shell command -v python3.11 || command -v python3.10 || command -v p
 PY := $(ROOT)/venv/bin/python
 PIP := $(ROOT)/venv/bin/pip
 
+# Docker
+DOCKER_IMAGE ?= rag-writer:latest
+
 # ---- Gold data validation ----
 SCHEMAS_DIR := eval/schemas
 DATA_DIR    := eval/data
@@ -24,7 +27,7 @@ EXTRACTION_DATA:= $(DATA_DIR)/extraction/studies.jsonl
 SYNTHESIS_DATA := $(DATA_DIR)/synthesis/questions.jsonl
 MANUALS_DATA   := $(DATA_DIR)/manuals/tasks.jsonl
 
-.PHONY: all init ingest index ask lc-index lc-ask lc-batch content-viewer cleanup-sources lc-merge-runner lc-outline-generator lc-outline-converter lc-book-runner tool-shell clean clean-all help show-config check-setup test test-coverage format lint quality book-from-outline quick-ask batch-workflow examples validate-gold validate-gold-retrieval validate-gold-screening validate-gold-extraction validate-gold-synthesis validate-gold-manuals
+.PHONY: all init ingest index ask lc-index lc-ask lc-batch content-viewer cleanup-sources lc-merge-runner lc-outline-generator lc-outline-converter lc-book-runner tool-shell clean clean-all help show-config check-setup test test-coverage format lint quality book-from-outline quick-ask batch-workflow examples validate-gold validate-gold-retrieval validate-gold-screening validate-gold-extraction validate-gold-synthesis validate-gold-manuals docker-build docker-ask docker-index docker-shell compose-build compose-ask compose-index compose-shell sops-updatekeys sops-decrypt sops-env-export docker-build-base compose-build-base
 
 
 # ===== HELP =====
@@ -409,3 +412,144 @@ validate-gold-synthesis:
 validate-gold-manuals:
 	@python tools/validate_jsonl.py $(MANUALS_SCHEMA) $(MANUALS_DATA)
 
+# ----- Docker -----
+
+## Build Docker image (DOCKER_IMAGE=rag-writer:latest)
+docker-build:
+	docker build -t $(DOCKER_IMAGE) --target runner .
+
+## Build base layers (system + python deps) for faster subsequent builds
+docker-build-base:
+	docker build -t rag-writer-base:py311-slim --target base-sys . \
+	  && docker build -t rag-writer-deps:py311-slim --target py-deps .
+
+## Ask a question via Docker
+## Usage: make docker-ask "What is ML?" [KEY=science]
+docker-ask:
+	@query="$(filter-out $@,$(MAKECMDGOALS))"; key="$(KEY)"; \
+	if [ -z "$$query" ]; then echo "Usage: make docker-ask \"Your question\" [KEY=key]"; exit 1; fi; \
+	if [ -n "$$key" ]; then rk="-e RAG_KEY=$$key"; else rk="-e RAG_KEY"; fi; \
+	docker run --rm -it \
+	  -v "$$PWD":/app \
+	  -e OPENAI_API_KEY \
+	  $$rk \
+	  $(DOCKER_IMAGE) ask "$$query"
+
+## Build FAISS index via Docker (uses PDFs in ./data_raw)
+## Usage: make docker-index [KEY=science]
+docker-index:
+	@key="$(KEY)"; \
+	if [ -n "$$key" ]; then rk="-e RAG_KEY=$$key"; else rk="-e RAG_KEY"; fi; \
+	docker run --rm -it \
+	  -v "$$PWD":/app \
+	  $$rk \
+	  $(DOCKER_IMAGE) python src/langchain/lc_build_index.py
+
+## Interactive shell in the container working directory
+docker-shell:
+	docker run --rm -it \
+	  -v "$$PWD":/app \
+	  -e OPENAI_API_KEY \
+	  -e RAG_KEY \
+	  $(DOCKER_IMAGE) bash
+
+## Run full book pipeline via Docker
+## Usage:
+##   make docker-book-runner BOOK=outlines/converted_structures/my_book.json [OUTPUT=exports/books/my_book.md]
+##   make docker-book-runner BOOK=book.json FORCE=1 SKIP_MERGE=1 USE_RAG=1 RAG_KEY=science NUM_PROMPTS=4
+docker-book-runner:
+	@book="$(BOOK)"; output="$(OUTPUT)"; force="$(FORCE)"; skip_merge="$(SKIP_MERGE)"; \
+	use_rag="$(USE_RAG)"; rag_key="$(RAG_KEY)"; num_prompts="$(NUM_PROMPTS)"; \
+	if [ -z "$$book" ]; then echo "Usage: make docker-book-runner BOOK=\\\"path/to/book_structure.json\\\" [OUTPUT=\\\"output.md\\\"] [FORCE=1] [SKIP_MERGE=1] [USE_RAG=1] [RAG_KEY=key] [NUM_PROMPTS=4]"; exit 1; fi; \
+	cmd="python src/langchain/lc_book_runner.py --book \"$$book\""; \
+	if [ -n "$$output" ]; then cmd="$$cmd --output \"$$output\""; fi; \
+	if [ -n "$$force" ]; then cmd="$$cmd --force"; fi; \
+	if [ -n "$$skip_merge" ]; then cmd="$$cmd --skip-merge"; fi; \
+	if [ -n "$$use_rag" ]; then cmd="$$cmd --use-rag"; fi; \
+	if [ -n "$$rag_key" ]; then cmd="$$cmd --rag-key \"$$rag_key\""; fi; \
+	if [ -n "$$num_prompts" ]; then cmd="$$cmd --num-prompts $$num_prompts"; fi; \
+	docker run --rm -it \
+	  -v "$$PWD":/app \
+	  -e OPENAI_API_KEY \
+	  -e RAG_KEY \
+	  $(DOCKER_IMAGE) sh -lc "$$cmd"
+
+## Build images via docker compose
+compose-build:
+	docker compose build
+
+## Build only base layers with compose’s builder
+compose-build-base:
+	docker build -t rag-writer-base:py311-slim --target base-sys . \
+	  && docker build -t rag-writer-deps:py311-slim --target py-deps .
+
+## Ask a question via docker compose
+## Usage: make compose-ask "What is ML?" [KEY=science]
+compose-ask:
+	@query="$(filter-out $@,$(MAKECMDGOALS))"; \
+	if [ -z "$$query" ]; then echo "Usage: make compose-ask \"Your question\" [KEY=key]"; exit 1; fi; \
+	docker compose run --rm \
+	  -e OPENAI_API_KEY \
+	  $(if $(KEY),-e RAG_KEY="$(KEY)",-e RAG_KEY) \
+	  rag-writer ask "$$query"
+
+## Build FAISS index via docker compose (uses PDFs in ./data_raw)
+## Usage: make compose-index [KEY=science]
+compose-index:
+	docker compose run --rm \
+	  $(if $(KEY),-e RAG_KEY="$(KEY)",-e RAG_KEY) \
+	  rag-writer python src/langchain/lc_build_index.py
+
+## Interactive shell in the compose service container
+compose-shell:
+	docker compose run --rm \
+	  -e OPENAI_API_KEY \
+	  $(if $(KEY),-e RAG_KEY="$(KEY)",-e RAG_KEY) \
+	  rag-writer bash
+
+## Run full book pipeline via docker compose
+## Usage:
+##   make compose-book-runner BOOK=outlines/converted_structures/my_book.json [OUTPUT=exports/books/my_book.md]
+##   make compose-book-runner BOOK=book.json FORCE=1 SKIP_MERGE=1 USE_RAG=1 RAG_KEY=science NUM_PROMPTS=4
+compose-book-runner:
+	@book="$(BOOK)"; output="$(OUTPUT)"; force="$(FORCE)"; skip_merge="$(SKIP_MERGE)"; \
+	use_rag="$(USE_RAG)"; rag_key="$(RAG_KEY)"; num_prompts="$(NUM_PROMPTS)"; \
+	if [ -z "$$book" ]; then echo "Usage: make compose-book-runner BOOK=\\\"path/to/book_structure.json\\\" [OUTPUT=\\\"output.md\\\"] [FORCE=1] [SKIP_MERGE=1] [USE_RAG=1] [RAG_KEY=key] [NUM_PROMPTS=4]"; exit 1; fi; \
+	cmd="python src/langchain/lc_book_runner.py --book \"$$book\""; \
+	if [ -n "$$output" ]; then cmd="$$cmd --output \"$$output\""; fi; \
+	if [ -n "$$force" ]; then cmd="$$cmd --force"; fi; \
+	if [ -n "$$skip_merge" ]; then cmd="$$cmd --skip-merge"; fi; \
+	if [ -n "$$use_rag" ]; then cmd="$$cmd --use-rag"; fi; \
+	if [ -n "$$rag_key" ]; then cmd="$$cmd --rag-key \"$$rag_key\""; fi; \
+	if [ -n "$$num_prompts" ]; then cmd="$$cmd --num-prompts $$num_prompts"; fi; \
+	docker compose run --rm \
+	  -e OPENAI_API_KEY \
+	  $(if $(RAG_KEY),-e RAG_KEY="$(RAG_KEY)",) \
+	  rag-writer sh -lc "$$cmd"
+
+# ----- SOPS helpers -----
+
+## Rewrap SOPS file with new recipients from .sops.yaml
+## Usage: make sops-updatekeys [FILE=env.json]
+sops-updatekeys:
+	@file="$(FILE)"; if [ -z "$$file" ]; then file=env.json; fi; \
+	if ! command -v sops >/dev/null 2>&1; then echo "sops not found; install sops first"; exit 1; fi; \
+	if [ ! -f "$$file" ]; then echo "File not found: $$file"; exit 1; fi; \
+	sops updatekeys "$$file"
+
+## Decrypt a SOPS file to stdout (or redirect to a file)
+## Usage: make sops-decrypt [FILE=env.json]
+sops-decrypt:
+	@file="$(FILE)"; if [ -z "$$file" ]; then file=env.json; fi; \
+	if ! command -v sops >/dev/null 2>&1; then echo "sops not found; install sops first"; exit 1; fi; \
+	if [ ! -f "$$file" ]; then echo "File not found: $$file"; exit 1; fi; \
+	sops -d "$$file"
+
+## Print export lines for env.json
+## Usage: make sops-env-export [FILE=env.json]
+sops-env-export:
+	@file="$(FILE)"; if [ -z "$$file" ]; then file=env.json; fi; \
+	if ! command -v sops >/dev/null 2>&1; then echo "sops not found; install sops first"; exit 1; fi; \
+	if ! command -v jq >/dev/null 2>&1; then echo "jq not found; install jq first"; exit 1; fi; \
+	if [ ! -f "$$file" ]; then echo "File not found: $$file"; exit 1; fi; \
+	sops -d --output-type json "$$file" | jq -r 'to_entries[] | "export \(.key)=\(.value|@sh)"'

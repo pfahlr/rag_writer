@@ -296,13 +296,13 @@ The CLI commands module provides a streamlined interface using Typer:
 
 ```bash
 # Basic RAG query
-python src/cli/commands.py ask "What is machine learning?"
+python -m src.cli.commands ask "What is machine learning?"
 
 # Advanced query with options
-python src/cli/commands.py ask "Explain neural networks" --key science --k 20 --task "Write for beginners"
+python -m src.cli.commands ask "Explain neural networks" --key science --k 20 --task "Write for beginners"
 
 # Query from JSON file
-python src/cli/commands.py ask --file query.json --key biology
+python -m src.cli.commands ask --file query.json --key biology
 ```
 
 **CLI Command Options:**
@@ -318,10 +318,10 @@ The interactive shell provides an advanced REPL interface with presets and multi
 
 ```bash
 # Start interactive shell
-python src/cli/shell.py
+python -m src.cli.shell
 
 # Start with specific collection
-RAG_KEY=science python src/cli/shell.py
+RAG_KEY=science python -m src.cli.shell
 ```
 
 **Shell Commands:**
@@ -337,7 +337,7 @@ RAG_KEY=science python src/cli/shell.py
 
 **Example Shell Session:**
 ```bash
-$ python src/cli/shell.py
+$ python -m src.cli.shell
 RAG Tool Shell
 ROOT: /path/to/project
 KEY: default
@@ -379,6 +379,194 @@ All CLI interfaces use the same configuration system:
   "embedding_model": "text-embedding-ada-002"
 }
 ```
+
+### Environment Variables
+
+- OPENAI_API_KEY: API key for OpenAI backends.
+- RAG_KEY: Default collection key (e.g., science, default).
+- OPENAI_MODEL: Override OpenAI chat model (default: gpt-4o-mini).
+- OLLAMA_MODEL: Override local Ollama model (default: llama3.1:8b).
+- EMBED_MODEL: Override embedding model used when building/loading indices.
+- EMBED_BATCH: Batch size for embedding operations.
+- DEBUG: Set to 1/true to enable debug mode in config.
+
+### Models & Backends
+
+- OpenAI via LangChain (preferred): requires `OPENAI_API_KEY` and `langchain-openai`.
+- OpenAI (raw client) fallback: requires `openai` package.
+- Ollama (local): requires `langchain-ollama` or `langchain-community` ChatOllama and a running Ollama daemon; set `OLLAMA_MODEL`.
+
+The factory auto-selects an available backend in this order: OpenAI (LangChain) → Ollama → OpenAI (raw). See `src/core/llm.py`.
+
+## 🐳 Docker
+
+Run the full system in a Docker container without needing a local Python setup.
+
+### Build
+
+```bash
+docker build -t rag-writer:latest .
+```
+
+Or with Docker Compose:
+
+```bash
+docker compose build
+```
+
+### Run (ad-hoc)
+
+Examples below assume you’re in the project root. Mounting `./` into `/app` keeps your data and outputs on the host.
+
+```bash
+# Show CLI help (default CMD)
+docker run --rm -it \
+  -v "$PWD":/app \
+  -e OPENAI_API_KEY=sk-... \
+  rag-writer:latest --help
+
+# Build FAISS index from PDFs in ./data_raw (mount this dir with your PDFs)
+docker run --rm -it \
+  -v "$PWD":/app \
+  -e RAG_KEY=science \
+  rag-writer:latest python src/langchain/lc_build_index.py
+
+# Ask a question using the Typer CLI
+docker run --rm -it \
+  -v "$PWD":/app \
+  -e OPENAI_API_KEY=sk-... \
+  -e RAG_KEY=science \
+  rag-writer:latest ask "What is machine learning?"
+
+# Interactive shell (optional)
+docker run --rm -it \
+  -v "$PWD":/app \
+  -e OPENAI_API_KEY=sk-... \
+  rag-writer:latest shell
+```
+
+Tip: To persist model downloads across runs, mount a cache:
+
+```bash
+docker run --rm -it \
+  -v "$PWD":/app \
+  -v hf-cache:/root/.cache/huggingface \
+  -e OPENAI_API_KEY=sk-... \
+  rag-writer:latest ask "Explain neural networks"
+```
+
+### Run (Compose)
+
+`compose.yaml` ships with sensible defaults:
+
+```bash
+# With OPENAI_API_KEY exported in your shell
+export OPENAI_API_KEY=sk-...
+
+# Show help
+docker compose run --rm rag-writer --help
+
+# Build index
+docker compose run --rm rag-writer python src/langchain/lc_build_index.py
+
+# Ask
+docker compose run --rm rag-writer ask "What is machine learning?"
+```
+
+### Notes
+
+- Data and outputs are in project subfolders: `data_raw`, `data_processed`, `storage`, `output`, `exports`.
+- Set `RAG_KEY` to switch collections (defaults to `default`).
+- If you prefer the Makefile workflows, run them inside the container shell and call the Python scripts directly (the Makefile’s venv targets are designed for host use).
+- Some first-time runs will download models (HuggingFace). Use the provided cache volume to avoid repeated downloads.
+- Entrypoint shortcuts: `ask` runs the Typer CLI; `shell` starts the interactive REPL; any other command is executed verbatim (e.g., `python -m src.cli.shell`).
+
+### Directory Layout
+
+- `data_raw/`: Place source PDFs and documents to ingest.
+- `data_processed/`: Extracted chunks and intermediate artifacts.
+- `storage/`: Vector stores (e.g., FAISS), per collection key.
+- `output/`, `exports/`: Generated content and final artifacts.
+- `outlines/`, `data_jobs/`: Outline and job files for the book pipeline.
+
+### SOPS in Docker
+
+- The image includes `sops` and `jq`. If `/app/env.json` exists and is decryptable (via AWS KMS, GCP KMS, or PGP), the entrypoint auto-loads its values into the environment before running your command.
+- Keep your existing PGP recipient for local; add cloud KMS recipients to `.sops.yaml` for production. See `docs/sops_kms_examples.md`.
+
+#### SOPS Makefile Helpers
+
+```bash
+# Rewrap env.json with current recipients from .sops.yaml
+make sops-updatekeys [FILE=env.json]
+
+# Decrypt to stdout (or redirect)
+make sops-decrypt [FILE=env.json] > /tmp/env.json
+
+# Print export lines for env.json (use with eval in your shell)
+make sops-env-export [FILE=env.json] | source /dev/stdin
+```
+
+See also: `docs/ci_sops_rewrap_example.yml` for a GitHub Actions example to automate rewrapping.
+
+### Makefile Helpers
+
+```bash
+# Build image
+make docker-build [DOCKER_IMAGE=rag-writer:latest]
+
+# Ask via Docker
+make docker-ask "What is machine learning?" KEY=science
+
+# Index via Docker
+make docker-index KEY=science
+
+# Compose variants
+make compose-build
+make compose-ask "What is machine learning?" KEY=science
+make compose-index KEY=science
+make compose-shell
+
+# Run full book pipeline
+make docker-book-runner BOOK=outlines/converted_structures/my_book.json OUTPUT=exports/books/my_book.md
+make compose-book-runner BOOK=outlines/converted_structures/my_book.json OUTPUT=exports/books/my_book.md
+```
+
+### Image Structure and Faster Rebuilds
+
+The Docker image uses a multi-stage build to speed up development rebuilds:
+
+- base-sys: OS deps (build tools, curl, jq, ca-certificates, libgomp1) + sops binary
+- py-deps: Python dependencies from `requirements.txt`
+- runner: App source + entrypoint
+
+Only the runner layer changes when you edit source files, so rebuilds are much faster.
+
+Common workflows:
+
+```bash
+# Seed base layers (do this after changing system or Python deps)
+make docker-build-base
+
+# Regular dev cycle (code changes only)
+make docker-build             # or: docker compose build
+
+# Compose variant for base layers
+make compose-build-base
+```
+
+To use prebuilt base layers across machines/CI, you can tag and push the base stages to a registry and update `Dockerfile` FROM references if you want to pin them.
+
+### CI Cache Tips
+
+- Use Docker BuildKit + Buildx to push/pull cache to a registry for fast CI builds.
+- Example GitHub Actions workflow is provided at `docs/ci_build_cache_example.yml`.
+- Typical flow:
+  - Cache base-sys and py-deps stages to registry
+  - Build the runner stage with `--cache-from` pointing at those cache refs
+  - Push final image to your registry (e.g., GHCR, ECR, GCR)
+
+If you use Podman in CI, layer caching is local by default; pushing prebuilt base stage images to your registry can still improve cold-start builds.
 
 ## 📜 Scripts Overview
 
@@ -426,6 +614,12 @@ python src/langchain/lc_batch.py --jobs data_jobs/example.jsonl
 ```bash
 python src/langchain/lc_build_index.py --source data/ --index my_index
 ```
+
+Note on FAISS index paths:
+- The multi-model builder writes FAISS directories like `storage/faiss_<key>__<embed_model>`.
+- The Typer CLI (`python -m src.cli.commands`) looks for `storage/faiss_<key>` by default.
+- If you use the multi-model builder and the Typer CLI, copy or symlink your chosen embedding index to the generic path, e.g.:
+  - `ln -s storage/faiss_science__BAAI-bge-small-en-v1.5 storage/faiss_science`
 
 ### lc_merge_runner.py - Advanced Merge System
 
@@ -879,7 +1073,7 @@ Provides structural templates for different output formats:
 1. Add new entry to `src/tool/prompts/playbooks.yaml`
 2. Define interactive inputs and step workflows
 3. Use Jinja2 templating for dynamic content
-4. Test with `python src/cli/shell.py` → `preset your_preset`
+4. Test with `python -m src.cli.shell` → `preset your_preset`
 
 ## 📝 Usage Examples
 
@@ -1185,4 +1379,3 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Uses Rich for beautiful terminal interfaces
 - Inspired by advanced content processing workflows
 - Designed for educational and professional content creation
-
