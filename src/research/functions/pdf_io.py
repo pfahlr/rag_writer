@@ -3,7 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict
 from pypdf import PdfWriter
-import pikepdf
+try:
+    import pikepdf
+except Exception:  # pragma: no cover - optional dependency
+    pikepdf = None
 
 
 def write_pdf_info(src_pdf: Path, dest_pdf: Path, metadata: Dict[str, str]) -> Path:
@@ -20,11 +23,10 @@ def write_pdf_info(src_pdf: Path, dest_pdf: Path, metadata: Dict[str, str]) -> P
 def write_pdf_xmp(path: Path, dc: Dict[str, str], prism: Dict[str, str]) -> None:
     """Write XMP (Dublin Core + Prism) metadata in-place using pikepdf.
 
-    Args:
-        path: PDF file to modify (written in-place)
-        dc: keys like title, creator (comma-separated or list), description
-        prism: keys like publicationName, doi, isbn, aggregationType, issn
+    If pikepdf is not installed, this function silently returns.
     """
+    if pikepdf is None:
+        return
     with pikepdf.Pdf.open(str(path)) as pdf:
         with pdf.open_metadata() as meta:
             meta.register_namespace('dc', 'http://purl.org/dc/elements/1.1/')
