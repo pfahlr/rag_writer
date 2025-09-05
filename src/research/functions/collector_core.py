@@ -377,6 +377,13 @@ def parse_google_scholar_html(html: str) -> List[ArticleMetadata]:
                     _fllog(f"Found PDF URL in all_links: {article.pdf_url}")
                     break
 
+        pdf_link_div = div.find(class_="gs_or_ggsm")
+        if pdf_link_div:
+            real_pdf_link = pdf_link_div.find('a')
+            real_pdf_link_href = real_pdf_link.get('href','')
+            if real_pdf_link_href and real_pdf_link_href.startswith('http'):
+                article.pdf_url = real_pdf_link_href
+
         # Look for PDF links in gs_or_ggsm divs (child elements)
 #        if not article.pdf_url:
 #            next_div = div.find('div', class_=re.compile(r'gs_or_ggsm|gs_or|gs_.*'))

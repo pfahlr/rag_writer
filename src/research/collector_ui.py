@@ -358,6 +358,7 @@ class CollectorUI(App):
         if not self.articles:
             return
         art = self.articles[self.current_index]
+        _fllog(json.dumps(art))
         self._set_input("#title_input", art.get("title", ""))
         self._set_input("#authors_input", ", ".join(art.get("authors", [])))
         self._set_input("#date_input", art.get("date", ""))
@@ -418,12 +419,20 @@ class CollectorUI(App):
             self.mode_label.update("Saved current article to manifest")
 
     def _delete_current_article(self) -> None:
+        _fllog(self.current_index)
         if not self.articles:
             return
+        _fllog(self.current_index)
+        _fllog("attempting to delete:")
+        _fllog(json.dumps(self.articles[self.current_index]))
         del self.articles[self.current_index]
+    
         if self.current_index >= len(self.articles):
             self.current_index = max(0, len(self.articles) - 1)
-        self._save_current_article(update_only=True)
+        _fllog("now current index points to:")
+        _fllog(json.dumps(self.articles[self.current_index]))
+        _fllog("and remaining list of articles is:")
+        _fllog(json.dumps(self.articles))
         self._refresh_edit_form()
 
     def _download_pdf_current(self) -> None:
