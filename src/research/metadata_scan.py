@@ -8,10 +8,10 @@ from typing import List, Dict, Any
 
 import typer
 
-from .manifest import file_checksum, load_manifest, save_manifest
-from .pdf_io import write_pdf_info, write_pdf_xmp
-from .clients.crossref_client import fetch_crossref_by_doi
-from .clients.isbn_openlibrary import fetch_openlibrary_by_isbn
+from functions.manifest import file_checksum, load_manifest, save_manifest
+from functions.pdf_io import write_pdf_info, write_pdf_xmp
+from clients.crossref_client import fetch_crossref_by_doi
+from clients.isbn_openlibrary import fetch_openlibrary_by_isbn
 
 app = typer.Typer(add_completion=False)
 
@@ -82,6 +82,7 @@ def scan(
 ):
     """Scan PDFs for DOI/ISBN, fetch metadata, and record to manifest (v1)."""
     pdfs: List[Path] = sorted(Path(dir).glob(glob))
+    print(pdfs)
     data = load_manifest(manifest)
     entries: List[Dict[str, Any]] = data.get("entries", [])
     known_ids = {e.get("id"): e for e in entries if e.get("id")}
