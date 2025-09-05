@@ -192,12 +192,17 @@ class CollectorUI(App):
                 html = Path(self.opt_file).read_text(encoding="utf-8")
                 new_articles = self._html_parser(html)
                 self.articles += new_articles
+                self._save_current_article(update_only=True)
+
             except Exception:
                 self.articles += []
+            
         elif self.opt_xml and Path(self.opt_xml).exists():
             try:
                 xml = Path(self.opt_xml).read_text(encoding="utf-8")
                 self.articles += self._xml_parser(xml)
+                self._save_current_article(update_only=True)
+               
             except Exception:
                 self.articles += []
         else:
@@ -386,6 +391,7 @@ class CollectorUI(App):
             "pdf_url": gv("#pdf_input"),
             "scholar_url": gv("#scholar_input"),
         }
+        
 
     def _nav_prev(self) -> None:
         if not self.articles:
@@ -442,6 +448,8 @@ class CollectorUI(App):
         dest = save_pdf(url, filename, meta, str(OUT_DIR), tmp_path=str(OUT_DIR / 'tmp'))
         if self.mode_label:
             self.mode_label.update(f"Downloaded: {dest or 'failed'}")
+        if self.mode_label and not update_only:
+            self.mode_label.update("Saved current article to manifest")
 
     def _open_url_current(self) -> None:
         if not self.articles:
@@ -461,6 +469,7 @@ class CollectorUI(App):
 
     def _complete_fields_current(self) -> None:
         self.articles[self.current_index] = complete_article_fields(self.articles[self.current_index] )
+        self._save_current_article()
 #        if not self.articles:
 #            return
 #        art = self._collect_form()
