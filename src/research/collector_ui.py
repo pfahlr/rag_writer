@@ -152,7 +152,6 @@ class CollectorUI(App):
         yield Footer()
         
     def _html_parser(self, html):
-        _fllog("_html_parser")
         arts = parse_google_scholar_html(html)
         articles = [
             {
@@ -187,17 +186,12 @@ class CollectorUI(App):
         return articles
 
     def on_mount(self) -> None:
-        _fllog("on mount")
         # Load from provided sources or manifest
         if self.opt_file and Path(self.opt_file).exists():
             try:
-                _fllog("try")
                 html = Path(self.opt_file).read_text(encoding="utf-8")
-                #_fllog(str(len(self.articles)))
                 new_articles = self._html_parser(html)
-                _fllog("tried")
                 self.articles += new_articles
-                #_fllog(str(len(self.articles)))
             except Exception:
                 self.articles += []
         elif self.opt_xml and Path(self.opt_xml).exists():
@@ -293,17 +287,13 @@ class CollectorUI(App):
         self.query(".main-menu-btn").remove_class("btn-active")
         self.query(".btn-links").add_class("btn-active")
         combined = sorted(list(dict.fromkeys((self.current_links or []) + _load_manifest_links())))
-        _fllog("here!!!")
-        _fllog(json.dumps(_load_manifest_links()))
         if self.links_text:
             self.links_text.load_text("\n".join(combined))
         self._toggle(edit=False, imp=False, links=True)
 
     # ============ Import handlers ============
     def _handle_import_html(self) -> None:
-        _fllog("_handle_import_html")
         text = self.import_text.document.text if self.import_text else ""
-        _fllog(text)
         self.articles += self._html_parser(text)
         self.import_text.clear()
         ts = _now_ts()
@@ -312,9 +302,7 @@ class CollectorUI(App):
         self._show_links()
 
     def _handle_import_xml(self) -> None:
-        _fllog("_handle_import_xml()")
         text = self.import_text.document.text if self.import_text else ""
-        _fllog(text) 
         self.articles += self._xml_parser(text)
         self.import_text.clear()
         ts = _now_ts()

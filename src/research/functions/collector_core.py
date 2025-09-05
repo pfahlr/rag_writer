@@ -91,7 +91,6 @@ def _load_manifest_links(manifest: Path | None = None) -> List[str]:
         return []
     try:
         data = json.loads(manifest.read_text(encoding="utf-8"))
-        _fllog(data)
     except Exception:
         return []
     entries = data.get("entries") if isinstance(data, dict) else data
@@ -175,13 +174,11 @@ def parse_xml_markup_simple(xml_content: str) -> List[ArticleMetadata]:
 
 def parse_google_scholar_html_simple(html: str) -> List[ArticleMetadata]:
     """Parse Google Scholar result HTML into article metadata objects."""
-    _fllog("parse_google_scholar_simple")
     if not HAS_BEAUTIFULSOUP:
         return []
     soup = BeautifulSoup(html, "html.parser")
     articles: List[ArticleMetadata] = []
     blocks = soup.find_all("div", class_=re.compile(r"gs_r|gs_ri|gs_scl|gs_or"))
-    _fllog(blocks)
     for div in blocks:
         a = div.find("a")
         title = (a.text or "").strip() if a else ""
@@ -261,12 +258,10 @@ def parse_xml_markup(xml_content: str) -> List[ArticleMetadata]:
 
 def parse_google_scholar_html(html: str) -> List[ArticleMetadata]:
     """Parse Google Scholar HTML to extract article metadata."""
-    _fllog("parse_google_scholar")
     if not HAS_BEAUTIFULSOUP:
         console.print("[red]Error: BeautifulSoup required. Install with: pip install beautifulsoup4[/red]")
         sys.exit(1)
 
-    _fllog("soup installed")
     console.print(f"[dim]HTML length: {len(html)} characters[/dim]")
     soup = BeautifulSoup(html, 'html.parser')
     console.print(f"[dim]Soup title: {soup.title}[/dim]")
@@ -311,7 +306,6 @@ def parse_google_scholar_html(html: str) -> List[ArticleMetadata]:
                     article.pdf_source_url = article.pdf_url
                     _fllog(f"Found PDF URL in title link: {article.pdf_url}")
 
-        _fllog("searching authors_div")
         # Extract authors, publication, and date from gs_a div
         authors_div = div.find('div', class_=re.compile(r'gs_a'))
         if authors_div:
@@ -343,7 +337,6 @@ def parse_google_scholar_html(html: str) -> List[ArticleMetadata]:
                         article.date = year_match.group(0)
                         _fllog(f"Extracted date: {article.date}")
         
-        _fllog(f"looking for DOI")    
         # Extract DOI from various sources
         doi_links = div.find_all('a', href=re.compile(r'doi\.org|doi:'))
         for link in doi_links:
@@ -363,8 +356,6 @@ def parse_google_scholar_html(html: str) -> List[ArticleMetadata]:
                 article.doi = doi_match.group(0).strip()
                 _fllog(f"Extracted DOI from text: {article.doi}")
         
-        _fllog(f"looking other places pdf links might be")    
-
         # Look for PDF links in multiple locations
         pdf_links = div.find_all('a', href=re.compile(r'\.pdf'))
         for link in pdf_links:
@@ -374,8 +365,6 @@ def parse_google_scholar_html(html: str) -> List[ArticleMetadata]:
                 article.source_pdf_url = article.pdf_url
                 _fllog(f"Found PDF URL in div regex: {article.pdf_url}")
                 break
-
-        _fllog(f"search data attributes etc")    
 
         # Also check for PDF links in the article's data attributes or other elements
         if not article.pdf_url:
@@ -387,8 +376,6 @@ def parse_google_scholar_html(html: str) -> List[ArticleMetadata]:
                     article.pdf_source_url = article.pdf_url
                     _fllog(f"Found PDF URL in all_links: {article.pdf_url}")
                     break
-
-        _fllog(f"gs_or_gssm")    
 
         # Look for PDF links in gs_or_ggsm divs (child elements)
 #        if not article.pdf_url:
@@ -418,7 +405,6 @@ def parse_google_scholar_html(html: str) -> List[ArticleMetadata]:
                     articles.append(article)
                     console.print(f"[dim]Added article (DOI): {article.doi}...[/dim]")
     
-    _fllog(f"Parsed {len(articles)} articles from HTML")
     console.print(f"[green]Parsed {len(articles)} articles from HTML[/green]")
 
     # Debug: Print what we found
@@ -447,7 +433,6 @@ def complete_article_fields(article: ArticleMetadata):
         response = requests.get(article['scholar_url'], headers=headers, timeout=30)
         response.raise_for_status()
         html = response.text
-        _fllog(f"Fetched HTML length: {len(html)}")
 
         soup = BeautifulSoup(html, 'html.parser')
 
@@ -523,7 +508,6 @@ def complete_article_fields(article: ArticleMetadata):
         #         article.publication = pub_text
         #         _fllog(f"Extracted publication: {article.publication}")
         #         break
-        _fllog(json.dumps(article))
         _fllog("Fields completion finished")
 
 
