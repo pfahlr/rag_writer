@@ -2,7 +2,7 @@
 import os, sys
 from pathlib import Path
 sys.path.insert(0, os.path.abspath(os.getenv('BASE_PATH','./src')))
-print(sys.path)
+
 
 #from __future__ import annotations
 import json
@@ -49,7 +49,8 @@ class CollectorUI(App):
                  allow_delete: bool = True,
                  rescan: bool = False,
                  depth: int = 0,
-                 jobs: int = 0) -> None:
+                 jobs: int = 0, 
+                 article_index: int =0 ) -> None:
         super().__init__()
         self.mode_label: Label | None = None
         self.import_text: TextArea | None = None
@@ -66,77 +67,87 @@ class CollectorUI(App):
         self.opt_rescan = rescan
         self.opt_depth = depth
         self.opt_jobs = jobs
+        self.article_index = article_index
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
+        with Vertical(classes="app-container"):
+            # Top navigation buttons
+            with Horizontal(id="nav_buttons"):
+                yield Button("Edit", id="btn_edit", variant="primary")
+                yield Button("Import", id="btn_import")
+                yield Button("Links", id="btn_links")
 
-        # Top controls
-        with Horizontal():
-            yield Button("Edit", id="btn_edit")
-            yield Button("Import", id="btn_import")
-            yield Button("Links", id="btn_links")
-        self.mode_label = Label("Edit Mode")
-        yield self.mode_label
+            # Mode/status label
+            self.mode_label = Label("Initializing...", id="mode_label")
+            yield self.mode_label
 
-        # Edit panel
-        with Vertical(id="panel_edit"):
-            with Horizontal():
-                yield Label("Title", classes="field")
-                yield Input(id="title_input")
-            with Horizontal():
-                yield Label("Authors (comma)", classes="field")
-                yield Input(id="authors_input")
-            with Horizontal():
-                yield Label("Date", classes="field")
-                yield Input(id="date_input")
-            with Horizontal():
-                yield Label("Publication", classes="field")
-                yield Input(id="pub_input")
-            with Horizontal():
-                yield Label("DOI", classes="field")
-                yield Input(id="doi_input")
-            with Horizontal():
-                yield Label("ISBN", classes="field")
-                yield Input(id="isbn_input")
-            with Horizontal():
-                yield Label("PDF URL", classes="field")
-                yield Input(id="pdf_input")
-            with Horizontal():
-                yield Label("Scholar URL", classes="field")
-                yield Input(id="scholar_input")
-            with Horizontal():
-                yield Button("Prev", id="btn_prev")
-                yield Button("Save", id="btn_save")
-                yield Button("Next", id="btn_next")
-                if self.opt_allow_delete:
-                    yield Button("Delete", id="btn_delete")
-                yield Button("Download PDF", id="btn_download")
-                yield Button("Open URL", id="btn_open_url")
-                yield Button("Open PDF", id="btn_open_pdf")
-                yield Button("Complete", id="btn_complete")
-                yield Button("Quit", id="btn_quit")
+            # Edit Panel
+            with Vertical(id="panel_edit"):
+                # Basic fields
+                yield Label("Title")
+                yield Input(placeholder="Title", id="title_input")
 
-        # Import panel
-        self.import_text = TextArea("", id="import_text")
-        self.import_text.display = False
-        yield self.import_text
-        with Horizontal(id="import_buttons"):
-            yield Button("Import HTML", id="btn_import_html")
-            yield Button("Import XML", id="btn_import_xml")
-            yield Button("Back to Edit", id="btn_back_from_import")
-        self.query_one("#import_buttons").display = False
+                yield Label("Authors")
+                yield Input(placeholder="Author1, Author2", id="authors_input")
 
-        # Links panel
-        self.links_text = TextArea("", id="links_text")
-        self.links_text.display = False
-        yield self.links_text
-        with Horizontal(id="links_buttons"):
-            yield Button("Save Links to File", id="btn_save_links")
-            yield Button("Back to Edit", id="btn_back_from_links")
-            yield Button("Back to Import", id="btn_back_to_import")
-        self.query_one("#links_buttons").display = False
+                with Horizontal():
+                    with Vertical():
+                        yield Label("Date")
+                        yield Input(placeholder="2023", id="date_input")
+                    with Vertical():
+                        yield Label("Publication")
+                        yield Input(placeholder="Journal Name", id="pub_input")
+
+                with Horizontal():
+                    with Vertical():
+                        yield Label("DOI")
+                        yield Input(placeholder="10.1000/example", id="doi_input")
+                    with Vertical():
+                        yield Label("ISBN")
+                        yield Input(placeholder="978-0-123456-78-9", id="isbn_input")
+
+                # PDF URL row + actions
+                yield Label("PDF URL")
+                yield Input(placeholder="https://example.com/paper.pdf", id="pdf_input")
+                with Horizontal():
+                    yield Button("Download", id="btn_download", variant="primary")
+                    yield Button("Open PDF", id="btn_open_pdf")
+
+                # Scholar URL row + actions
+                yield Label("Scholar (web) URL")
+                yield Input(placeholder="ARTICLE WEB URL", id="scholar_input")
+                with Horizontal():
+                    yield Button("Open Page", id="btn_open_url")
+                    yield Button("Complete Fields", id="btn_complete")
+                    yield Button("Delete", id="btn_delete", variant="error")
+
+                # Navigation row
+                with Horizontal():
+                    yield Button("Previous", id="btn_prev")
+                    yield Button("Save", id="btn_save", variant="primary")
+                    yield Button("Next", id="btn_next")
+        c            yield Button("Quit", id="btn_quit", variant="error")
+
+            # Import Panel
+            self.import_text = TextArea()
+            self.import_text.display = False
+            yield self.import_text
+            with Horizontal(id="import_buttons"):
+                yield Button("Import HTML", id="btn_import_html", variant="primary")
+                yield Button("Import XML", id="btn_import_xml")
+                yield Button("Back", id="btn_back_from_import")
+
+            # Links Panel
+            self.links_text = TextArea()
+            self.links_text.display = False
+            yield self.links_text
+            with Horizontal(id="links_buttons"):
+                yield Button("Save Links", id="btn_save_links", variant="primary")
+                yield Button("Back", id="btn_back_from_links")
 
         yield Footer()
+        
 
     def on_mount(self) -> None:
         # Load from provided sources or manifest

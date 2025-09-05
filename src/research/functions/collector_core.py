@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import List
 import os
 BASE_PATH = os.getenv('BASE_PATH', '../../')
+print(BASE_PATH)
 from src.globals import SRC_DIR, ROOT_DIR
 
 try:
@@ -19,8 +20,6 @@ _DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:a-zA-Z0-9]*[a-zA-Z0-9]")
 _ISBN_RE = re.compile(r"\b(?:97[89][- ]?)?[0-9][- 0-9]{9,}[0-9Xx]\b")
 
 from classes.article_metadata import ArticleMetadata
-
-
 
 def _now_ts() -> str:
     return str(int(time.time()))

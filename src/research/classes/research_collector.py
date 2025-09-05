@@ -1,6 +1,8 @@
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 class ResearchCollector:
-    """Core functions for collecting, storing, and parsing article metadata."""
 
+    """Core functions for collecting, storing, and parsing article metadata."""
     def __init__(self, output_dir: Path | None = None):
         self.output_dir = output_dir or Path("research/out")
         self.output_dir.mkdir(parents=True, exist_ok=True)
