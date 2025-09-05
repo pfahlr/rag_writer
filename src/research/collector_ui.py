@@ -22,12 +22,13 @@ except Exception:
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Button, Label, Input, TextArea
 from textual.containers import Vertical, Horizontal
+from rich.console import Console
 
-# Support both package and direct script execution
-print(sys.path)
+console = Console()
 
 from functions.pdfwriter import save_pdf
-from functions.collector_core import parse_google_scholar_html, parse_xml_markup, _load_manifest_links, _extract_doi, _extract_isbn, _now_ts, _extract_pdf_links_from_html, _extract_pdf_links_from_xml
+from functions.filelogger import _fllog
+from functions.collector_core import parse_google_scholar_html, parse_xml_markup, complete_article_fields, _load_manifest_links, _extract_doi, _extract_isbn, _now_ts, _extract_pdf_links_from_html, _extract_pdf_links_from_xml
 
 from classes.research_collector import ResearchCollector
 
@@ -38,19 +39,18 @@ import requests
 MANIFEST = Path("../research/out/manifest.json")
 OUT_DIR = Path("../research/out")
 
-
 class CollectorUI(App):
-    CSS = ""
+    CSS_PATH = "styles.tcss"
 
     def __init__(self, *,
-                 file: Optional[str] = None,
-                 xml: Optional[str] = None,
-                 skip_existing: bool = False,
-                 allow_delete: bool = True,
-                 rescan: bool = False,
-                 depth: int = 0,
-                 jobs: int = 0, 
-                 article_index: int =0 ) -> None:
+                    file: Optional[str] = None,
+                    xml: Optional[str] = None,
+                    skip_existing: bool = False,
+                    allow_delete: bool = True,
+                    rescan: bool = False,
+                    depth: int = 0,
+                    jobs: int = 0, 
+                    article_index: int =0 ) -> None:
         super().__init__()
         self.mode_label: Label | None = None
         self.import_text: TextArea | None = None
@@ -71,124 +71,141 @@ class CollectorUI(App):
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        with Vertical(classes="app-container"):
+        with Vertical(classes="app-container ui-section ui-section-vertical"):
             # Top navigation buttons
-            with Horizontal(id="nav_buttons"):
-                yield Button("Edit", id="btn_edit", variant="primary")
-                yield Button("Import", id="btn_import")
-                yield Button("Links", id="btn_links")
+            with Horizontal(id="main-menu-buttons-panel", classes="ui-section ui-section-horizontal"):
+                yield Button("Edit", id="btn_edit", classes="button main-menu-btn btn-edit")
+                yield Button("Import", id="btn_import", classes="button main-menu-btn btn-import")
+                yield Button("Links", id="btn_links", classes="button main-menu-btn btn-links")
 
             # Mode/status label
-            self.mode_label = Label("Initializing...", id="mode_label")
+            self.mode_label = Label("Initializing...", id="mode_label", classes="field-label")
             yield self.mode_label
 
             # Edit Panel
-            with Vertical(id="panel_edit"):
+            with Vertical(id="panel_edit", classes="form-edit-container  main-app-section-container form-container ui-section ui-section-vertical"):
                 # Basic fields
-                yield Label("Title")
-                yield Input(placeholder="Title", id="title_input")
+                with Horizontal(classes="ui-section ui-section-horizontal"):
+                    with Vertical(classes="ui-section ui-section-vertical"):
+                        yield Label("Title", classes="field-label")
+                        yield Input(placeholder="Title", id="title_input", classes="form-field")
+                    with Vertical(classes="ui-section ui-section-vertical"):
+                        yield Label("Authors", classes="field-label")
+                        yield Input(placeholder="Author1, Author2", id="authors_input", classes="form-field")
 
-                yield Label("Authors")
-                yield Input(placeholder="Author1, Author2", id="authors_input")
+                with Horizontal(classes="ui-section ui-section-horizontal"):
+                    with Vertical(classes="ui-section ui-section-vertical"):
+                        yield Label("Date", classes="field-label")
+                        yield Input(placeholder="2023", id="date_input", classes="form-field")
+                    with Vertical(classes="ui-section ui-section-vertical"):
+                        yield Label("Publication", classes="field-label")
+                        yield Input(placeholder="Journal Name", id="pub_input", classes="form-field")
 
-                with Horizontal():
-                    with Vertical():
-                        yield Label("Date")
-                        yield Input(placeholder="2023", id="date_input")
-                    with Vertical():
-                        yield Label("Publication")
-                        yield Input(placeholder="Journal Name", id="pub_input")
-
-                with Horizontal():
-                    with Vertical():
-                        yield Label("DOI")
-                        yield Input(placeholder="10.1000/example", id="doi_input")
-                    with Vertical():
-                        yield Label("ISBN")
-                        yield Input(placeholder="978-0-123456-78-9", id="isbn_input")
+                with Horizontal(classes="ui-section ui-section-horizontal"):
+                    with Vertical(classes="ui-section ui-section-vertical"):
+                        yield Label("DOI", classes="field-label")
+                        yield Input(placeholder="10.1000/example", id="doi_input", classes="form-field")
+                    with Vertical(classes="ui-section ui-section-vertical"):
+                        yield Label("ISBN", classes="field-label")
+                        yield Input(placeholder="978-0-123456-78-9", id="isbn_input", classes="form-field")
 
                 # PDF URL row + actions
-                yield Label("PDF URL")
-                yield Input(placeholder="https://example.com/paper.pdf", id="pdf_input")
-                with Horizontal():
+                yield Label("PDF URL", classes="field-label")
+                yield Input(placeholder="https://example.com/paper.pdf", id="pdf_input", classes="form-field")
+                with Horizontal(classes="ui-section ui-section-horizontal"):
                     yield Button("Download", id="btn_download", variant="primary")
                     yield Button("Open PDF", id="btn_open_pdf")
 
                 # Scholar URL row + actions
-                yield Label("Scholar (web) URL")
-                yield Input(placeholder="ARTICLE WEB URL", id="scholar_input")
-                with Horizontal():
-                    yield Button("Open Page", id="btn_open_url")
-                    yield Button("Complete Fields", id="btn_complete")
-                    yield Button("Delete", id="btn_delete", variant="error")
+                yield Label("Scholar (web) URL", classes="field-label")
+                yield Input(placeholder="ARTICLE WEB URL", id="scholar_input", classes="form-field")
+                with Horizontal(classes="article-buttons-panel ui-section ui-section-horizontal"):
+                    yield Button("Previous", id="btn_prev", classes="button article-btn")
+                    yield Button("Open Page", id="btn_open_url", classes="button article-btn")
+                    yield Button("Complete Fields", id="btn_complete", classes="button article-btn")
+                    yield Button("Save", id="btn_save", classes="button article-btn btn-save")
+                    yield Button("Delete", id="btn_delete", variant="error", classes="button article-btn btn-delete")
+                    yield Button("Next", id="btn_next", classes="button article-btn btn-next")
+
+            with Vertical(classes="form-import-container main-app-section-container form-container ui-section ui-section-vertical"):
+                # Import Panel
+                self.import_text = TextArea()
+                self.import_text.display = True
+                yield self.import_text
+                with Horizontal(id="import_buttons", classes="import-buttons-panel ui-section ui-section-horizontal"):
+                    yield Button("Import HTML", id="btn_import_html", classes="button import-btn btn-import-html")
+                    yield Button("Import XML", id="btn_import_xml", classes="button import-btn btn-import-xml")
+            
+            with Vertical(classes="form-links-container main-app-section-container form-container ui-section ui-section-vertical"):
+                # Links Panel
+                self.links_text = TextArea()
+                self.links_text.display = True
+                yield self.links_text
+                with Horizontal(id="links_buttons", classes="links-buttons-panel ui-section ui-section-horizontal"):
+                    yield Button("Save Links", id="btn_save_links", variant="primary", classes="button")
+                    yield Button("Back", id="btn_back_from_links", classes="button")
 
                 # Navigation row
-                with Horizontal():
-                    yield Button("Previous", id="btn_prev")
-                    yield Button("Save", id="btn_save", variant="primary")
-                    yield Button("Next", id="btn_next")
-        c            yield Button("Quit", id="btn_quit", variant="error")
-
-            # Import Panel
-            self.import_text = TextArea()
-            self.import_text.display = False
-            yield self.import_text
-            with Horizontal(id="import_buttons"):
-                yield Button("Import HTML", id="btn_import_html", variant="primary")
-                yield Button("Import XML", id="btn_import_xml")
-                yield Button("Back", id="btn_back_from_import")
-
-            # Links Panel
-            self.links_text = TextArea()
-            self.links_text.display = False
-            yield self.links_text
-            with Horizontal(id="links_buttons"):
-                yield Button("Save Links", id="btn_save_links", variant="primary")
-                yield Button("Back", id="btn_back_from_links")
+        with Horizontal(classes="footer-buttons-panel ui-section ui-section-horizontal"):
+            yield Button("Quit", id="btn_quit", classes="button nav-btn btn-quit")
 
         yield Footer()
         
+    def _html_parser(self, html):
+        _fllog("_html_parser")
+        arts = parse_google_scholar_html(html)
+        articles = [
+            {
+                "title": a.title,
+                "authors": a.authors or [],
+                "date": a.date,
+                "publication": a.publication,
+                "doi": a.doi,
+                "isbn": a.isbn,
+                "pdf_url": a.pdf_url,
+                "scholar_url": a.scholar_url,
+            }
+            for a in arts
+        ]
+        return articles
+
+    def _xml_parser(self, xml):
+        arts = parse_xml_markup(xml)
+        articles = [
+            {
+                "title": a.title,
+                "authors": a.authors or [],
+                "date": a.date,
+                "publication": a.publication,
+                "doi": a.doi,
+                "isbn": a.isbn,
+                "pdf_url": a.pdf_url,
+                "scholar_url": a.scholar_url,
+            }
+            for a in arts
+        ]
+        return articles
 
     def on_mount(self) -> None:
+        _fllog("on mount")
         # Load from provided sources or manifest
         if self.opt_file and Path(self.opt_file).exists():
             try:
+                _fllog("try")
                 html = Path(self.opt_file).read_text(encoding="utf-8")
-                arts = parse_google_scholar_html(html)
-                self.articles = [
-                    {
-                        "title": a.title,
-                        "authors": a.authors or [],
-                        "date": a.date,
-                        "publication": a.publication,
-                        "doi": a.doi,
-                        "isbn": a.isbn,
-                        "pdf_url": a.pdf_url,
-                        "scholar_url": a.scholar_url,
-                    }
-                    for a in arts
-                ]
+                #_fllog(str(len(self.articles)))
+                new_articles = self._html_parser(html)
+                _fllog("tried")
+                self.articles += new_articles
+                #_fllog(str(len(self.articles)))
             except Exception:
-                self.articles = []
+                self.articles += []
         elif self.opt_xml and Path(self.opt_xml).exists():
             try:
                 xml = Path(self.opt_xml).read_text(encoding="utf-8")
-                arts = parse_xml_markup(xml)
-                self.articles = [
-                    {
-                        "title": a.title,
-                        "authors": a.authors or [],
-                        "date": a.date,
-                        "publication": a.publication,
-                        "doi": a.doi,
-                        "isbn": a.isbn,
-                        "pdf_url": a.pdf_url,
-                        "scholar_url": a.scholar_url,
-                    }
-                    for a in arts
-                ]
+                self.articles += self._xml_parser(xml)
             except Exception:
-                self.articles = []
+                self.articles += []
         else:
             self._load_articles()
         if self.articles:
@@ -196,6 +213,7 @@ class CollectorUI(App):
             self._show_edit()
         else:
             self._show_import()
+
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id or ""
@@ -241,47 +259,67 @@ class CollectorUI(App):
         self.query_one("#panel_edit").display = edit
         if self.import_text:
             self.import_text.display = imp
+            self.import_text.classes="textarea textarea-import"
         self.query_one("#import_buttons").display = imp
         if self.links_text:
             self.links_text.display = links
+            self.links_text.classes="textarea textarea-links"
         self.query_one("#links_buttons").display = links
 
     def _show_edit(self) -> None:
         if self.mode_label:
             self.mode_label.update(self._edit_header_text())
+        self.query(".main-app-section-container").remove_class("active-form-panel")
+        self.query(".form-edit-container").add_class("active-form-panel")
+        self.query(".main-menu-btn").remove_class("active")
+        self.query(".btn-edit").add_class("active")
         self._toggle(edit=True, imp=False, links=False)
 
     def _show_import(self) -> None:
         if self.mode_label:
             self.mode_label.update("Import Mode: paste HTML/XML, then click a button")
+        self.query(".main-app-section-container").remove_class("active-form-panel")
+        self.query(".form-import-container").add_class("active-form-panel")
+        self.query(".main-menu-btn").remove_class("btn-active")
+        self.query(".btn-import").add_class("btn-active")
         self._toggle(edit=False, imp=True, links=False)
 
     def _show_links(self) -> None:
         if self.mode_label:
             self.mode_label.update("Links Mode: current known PDF links")
         # merge session links with manifest links
+        self.query(".main-app-section-container").remove_class("active-form-panel")
+        self.query(".form-links-container").add_class("active-form-panel")        
+        self.query(".main-menu-btn").remove_class("btn-active")
+        self.query(".btn-links").add_class("btn-active")
         combined = sorted(list(dict.fromkeys((self.current_links or []) + _load_manifest_links())))
+        _fllog("here!!!")
+        _fllog(json.dumps(_load_manifest_links()))
         if self.links_text:
             self.links_text.load_text("\n".join(combined))
         self._toggle(edit=False, imp=False, links=True)
 
     # ============ Import handlers ============
     def _handle_import_html(self) -> None:
+        _fllog("_handle_import_html")
         text = self.import_text.document.text if self.import_text else ""
-        links = _extract_pdf_links_from_html(text)
+        _fllog(text)
+        self.articles += self._html_parser(text)
+        self.import_text.clear()
         ts = _now_ts()
         OUT_DIR.mkdir(parents=True, exist_ok=True)
         (OUT_DIR / f"{ts}_processed.html").write_text(text, encoding="utf-8")
-        self.current_links = links
         self._show_links()
 
     def _handle_import_xml(self) -> None:
+        _fllog("_handle_import_xml()")
         text = self.import_text.document.text if self.import_text else ""
-        links = _extract_pdf_links_from_xml(text)
+        _fllog(text) 
+        self.articles += self._xml_parser(text)
+        self.import_text.clear()
         ts = _now_ts()
         OUT_DIR.mkdir(parents=True, exist_ok=True)
         (OUT_DIR / f"{ts}_processed.xml").write_text(text, encoding="utf-8")
-        self.current_links = links
         self._show_links()
 
     def _save_links_file(self) -> None:
@@ -434,26 +472,27 @@ class CollectorUI(App):
             webbrowser.open(u)
 
     def _complete_fields_current(self) -> None:
-        if not self.articles:
-            return
-        art = self._collect_form()
-        u = (art.get("scholar_url") or "").strip()
-        if not u:
-            return
-        try:
-            r = requests.get(u, timeout=15)
-            html = r.text
-            # Simple DOI detection and title heuristic
-            m = re.search(r"10\.\d{4,9}/[-._;()/:a-zA-Z0-9]*[a-zA-Z0-9]", html)
-            if m:
-                self._set_input("#doi_input", m.group(0))
-            # Title heuristic
-            tm = re.search(r"<title>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
-            if tm and not (self.query_one("#title_input", Input).value or "").strip():
-                title = re.sub(r"\s+", " ", tm.group(1)).strip()
-                self._set_input("#title_input", title)
-        except Exception:
-            pass
+        self.articles[self.current_index] = complete_article_fields(self.articles[self.current_index] )
+#        if not self.articles:
+#            return
+#        art = self._collect_form()
+#        u = (art.get("scholar_url") or "").strip()
+#        if not u:
+#            return
+#        try:
+#            r = requests.get(u, timeout=15)
+#            html = r.text
+#            # Simple DOI detection and title heuristic
+#            m = re.search(r"10\.\d{4,9}/[-._;()/:a-zA-Z0-9]*[a-zA-Z0-9]", html)
+#            if m:
+#                self._set_input("#doi_input", m.group(0))
+#            # Title heuristic
+#            tm = re.search(r"<title>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
+#            if tm and not (self.query_one("#title_input", Input).value or "").strip():
+#                title = re.sub(r"\s+", " ", tm.group(1)).strip()
+#                self._set_input("#title_input", title)
+#        except Exception:
+#            pass
 
 
 def main() -> None:
