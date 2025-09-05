@@ -1,12 +1,23 @@
-from pathlib import Path
-from typing import Any, Dict, List, Optional
-class ResearchCollector:
+"""Simple manifest management for the research collector."""
 
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Dict, List, Optional
+
+import requests
+
+from .article_metadata import ArticleMetadata
+
+
+class ResearchCollector:
     """Core functions for collecting, storing, and parsing article metadata."""
-    def __init__(self, output_dir: Path | None = None):
+
+    def __init__(self, output_dir: Path | None = None, manifest_file: Optional[Path] = None):
         self.output_dir = output_dir or Path("research/out")
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.manifest_file = self.output_dir / "manifest.json"
+        self.manifest_file = manifest_file or (self.output_dir / "manifest.json")
         self.articles: List[ArticleMetadata] = []
         self.current_index = 0
         self.load_manifest()
@@ -37,4 +48,9 @@ class ResearchCollector:
 
     def load_html_from_file(self, file_path: str) -> str:
         return Path(file_path).read_text(encoding='utf-8')
+
+    def add_articles(self, articles: List[ArticleMetadata]) -> None:
+        """Append new articles and immediately persist the manifest."""
+        self.articles.extend(articles)
+        self.save_manifest()
 
