@@ -1,0 +1,85 @@
+ .main-app-section-container {
+  display: none;
+  height:0;
+ }
+
+.active-form-panel {
+  display: block;
+  height:40;
+}
+
+.button {
+  margin:0 1;
+  background: #111155;
+}
+
+.btn-active {
+  background: #6666FF;
+  color: #000000;
+}
+
+.app-container {
+  background: hsl(290, 70%, 10%);
+  height:45;
+}
+
+.form-container {
+  background: #112233;
+}
+
+.main-menu-buttons-panel {
+  background: #333344;
+}
+
+.article-buttons-panel{
+  background: #333344;
+}
+
+.article-nav-buttons-panel {
+   background: #222233;
+}
+ .main-app-section-container .textarea {
+  height: 35;
+}
+
+.import-buttons-panel {
+   background: #2F222F;
+}
+
+.links-buttons-panel {
+   background: #2F222F;
+}
+
+.form-edit-container {
+  background: #333388;
+}
+
+.form-import-container {
+  background: #3F333F;
+  border: solid green;
+}
+
+.form-links-container {
+  border: solid blue;
+}
+
+.heading-bar {
+  background: #555577;
+  height:4;
+  padding:1;
+}
+
+.field-container {
+  margin: 1;
+}
+
+.field-label{
+  width: 100%; 
+  margin: 0 1; 
+}
+
+.form-field {
+  width:100%;
+  margin-bottom:1;
+}
+

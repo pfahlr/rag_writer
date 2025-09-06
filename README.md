@@ -548,7 +548,45 @@ make compose-book-runner BOOK=outlines/converted_structures/my_book.json OUTPUT=
 make clean-faiss KEY=your_key         # remove FAISS dirs for key
 make reindex KEY=your_key             # clean + rebuild FAISS for key
 make repack-faiss KEY=your_key EMBED_MODEL=BAAI/bge-small-en-v1.5  # salvage old index
+
+# Metadata scanning (pre-alpha)
+make scan-metadata DIR=data_raw WRITE=1 RENAME=yes SKIP_EXISTING=1
+
+# Collector UI (import HTML/XML, export links)
+make collector-ui
 ```
+
+### Metadata Scanner (pre‑alpha)
+
+Scans PDFs for DOI/ISBN, fetches metadata (Crossref/OpenLibrary), writes a manifest, and updates PDF metadata (Info + XMP/DC/Prism). It looks at the filename and the first few pages to avoid picking up references at the end.
+
+- Default manifest: `research/out/manifest.json`
+- Safe renaming: slugifies to `title[_YEAR].pdf` with collision handling
+
+Usage examples:
+
+```bash
+# Preview (no writes)
+python -m src.research.metadata_scan scan --dir data_raw
+
+# Write manifest, rename files, and update PDF metadata
+python -m src.research.metadata_scan scan \
+  --dir data_raw \
+  --write \
+  --rename yes \
+  --skip-existing
+
+# Via Makefile (equivalent)
+make scan-metadata DIR=data_raw WRITE=1 RENAME=yes SKIP_EXISTING=1
+```
+
+Options (subset):
+- `--dir`: Root to scan (default `data_raw`)
+- `--glob`: File pattern (default `**/*.pdf`)
+- `--write`: Write manifest and PDF metadata (default off)
+- `--manifest`: Manifest path (default `research/out/manifest.json`)
+- `--rename`: `yes|no` to rename files by slugified title/year
+- `--skip-existing`: Skip already processed files in manifest
 
 ### Image Structure and Faster Rebuilds
 

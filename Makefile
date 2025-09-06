@@ -404,6 +404,23 @@ repack-faiss:
 	echo "Running: $$cmd"; \
 	eval $$cmd
 
+## Scan PDFs for DOI/ISBN and write manifest entries (pre-alpha)
+## Usage:
+##   make scan-metadata [DIR=data_raw] [WRITE=1] [RENAME=yes] [SKIP_EXISTING=1]
+scan-metadata:
+	@dir="$(DIR)"; write="$(WRITE)"; rename="$(RENAME)"; skip="$(SKIP_EXISTING)"; \
+	if [ -z "$$dir" ]; then dir=data_raw; fi; \
+	cmd="python -m src.research.metadata_scan scan --dir \"$$dir\""; \
+	if [ -n "$$write" ]; then cmd="$$cmd --write"; fi; \
+	if [ -n "$$rename" ]; then cmd="$$cmd --rename \"$$rename\""; fi; \
+	if [ -n "$$skip" ]; then cmd="$$cmd --skip-existing"; fi; \
+	echo "Running: $$cmd"; \
+	eval $$cmd
+
+## Collector UI (import HTML/XML; export known PDF links)
+collector-ui:
+	python -m src.research.collector_ui
+
 ## Deep clean including generated content
 clean-all: clean
 	@echo "Deep cleaning all generated content..."
@@ -619,4 +636,4 @@ sops-env-export:
 	if ! command -v sops >/dev/null 2>&1; then echo "sops not found; install sops first"; exit 1; fi; \
 	if ! command -v jq >/dev/null 2>&1; then echo "jq not found; install jq first"; exit 1; fi; \
 	if [ ! -f "$$file" ]; then echo "File not found: $$file"; exit 1; fi; \
-	sops -d --output-type json "$$file" | jq -r 'to_entries[] | "export \(.key)=\(.value|@sh)"'
+	sops -d --output-type json "$$file" | sed -e "s|_pt||g;s|_unencrypted||g" | jq -r 'to_entries[] | "export \(.key)=\(.value|@sh)"'

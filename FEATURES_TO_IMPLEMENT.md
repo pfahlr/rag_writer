@@ -41,10 +41,110 @@ Step through a directory of pdfs; and for each file:
   - does scribbr have an API? if so, add integration with this or similar service.    
     {priority: low}
 
-### [ ] 2. Multi-Shot / Iterative / Agentic Interaction with LLMs:
+#### Proposed CLI and Flow (v1 – low friction)
+
+- New module: `research/metadata_scan.py`
+- Goal: Walk `data_raw/` (or a provided folder), detect DOI/ISBN for each PDF, fetch full metadata, confirm with user, then write:
+  - PDF Info dictionary (via `pypdf.PdfWriter.add_metadata`)
+  - Sidecar `manifest.json` (aggregated record of all files)
+
+##### Flow
+- For each `*.pdf` (depth configurable):
+  1) Detect identifiers: DOI (regex already in `lc_build_index.py`), ISBN‑10/13 (regex + checksum).
+  2) Query metadata:
+     - DOI → Crossref (primary)
+     - ISBN → OpenLibrary (primary), Google Books (fallback)
+  3) Present summary (filename + proposed metadata) with actions:
+     - [W] Write: Save metadata → PDF Info + `manifest.json`, optionally rename PDF using slugified title + year.
+     - [D] New DOI: prompt; requery; return to confirmation.
+     - [I] New ISBN: prompt; requery; return to confirmation.
+     - [S] Skip: mark as processed=false in manifest (or no entry if `--no-manifest`), continue.
+     - [R] Remove: delete file (guarded by `--allow-delete`), continue.
+  4) On not found/invalid IDs: offer [D]/[I]/[S]/[R] menu.
+
+##### CLI Options (initial)
+- `--dir DIR` (default `data_raw`): root to scan; `--glob "**/*.pdf"` to control pattern.
+- `--write/--dry-run`: actually write files vs. preview.
+- `--manifest PATH` (default `research/out/manifest.json`): location for manifest aggregation.
+- `--rename yes|no` (default yes): rename file to `slugified_title[_YEAR].pdf` on write.
+- `--interactive tui|cli` (default cli): TUI via Textual if available; falls back to prompts.
+- `--skip-existing`: skip files already present in manifest with `processed=true`.
+- `--allow-delete`: enable [R] remove.
+- `--rescan`: ignore cached results; re-detect IDs and re-query remote APIs.
+- `--depth N`: recursion depth limit; `--jobs N`: parallel metadata lookups (rate‑limited).
+- `--file` : file containing listing html from google scholar search
+- `--xml`: file containing rough 'xml' markup for manual addition <book || article><author/><title/><isbn/><doi/><publisher/><date/><pdf_link/><scholar_url/></book || article>
+
+- on load: if --file or --xml contains listings or $root/research/out/manifest.json
+contains listings display the edit form just like the original collector.py, with the same functionality. Below the row of prev, save, complete, open url, open pdf, delete, next buttons (edit mode actions), display the 'import/edit mode toggle', 'save to file', 'quit' (program level actions)  If no listings found, display the textarea to paste listings markup to parse listings from. Below the text area and above the program level action buttons, display a 'run import' button  (import mode actions)
+
+##### Data Sources and Rate Limits
+- Crossref for DOI (JSON API), OpenLibrary for ISBN, fallback Google Books.
+- Exponential back‑off on HTTP 429/5xx; user‑friendly error messages; offline mode if `--offline`.
+
+##### Manifest Schema (v1)
+```json
+{
+  "version": 1,
+  "entries": [
+    {
+      "id": "<stable-id or checksum>",
+      "filename": "<current filename>",
+      "title": "",
+      "authors": [""],
+      "publication": "",
+      "date": "YYYY-MM-DD" ,
+      "year": 2023,
+      "doi": "",
+      "isbn": "",
+      "pdf_url": "",
+      "source_url": "",
+      "processed": true,
+      "retrieved_at": "ISO8601",
+      "notes": "",
+      "tags": []
+    }
+  ]
+}
+```
+
+##### PDF Metadata Writing (v1)
+- Use `pypdf.PdfWriter.add_metadata` to set `/Title`, `/Author` (comma‑separated), `/Subject` (publication), and custom fields in the Info dict (e.g., `/doi`, `/isbn`).
+- XMP/DC/Prism embedding is deferred to v2 (likely via `pikepdf`).
+
+##### Idempotency and Safety
+- Compute file checksum (e.g., SHA‑256) to create a stable `id` for manifest deduplication.
+- Respect `--skip-existing` to avoid re‑prompting processed files.
+- `--dry-run` shows proposed changes (rename path, metadata) without writing.
+- Deletion guarded by `--allow-delete` and confirmation prompt.
+
+##### File Renaming
+- Slugify `title` and append `_YEAR` if available; ensure uniqueness by appending numeric suffix on collision.
+- Optionally move renamed files into `data_raw/` (in‑place by default); emit mapping in manifest.
+
+##### Makefile Integration
+- `make scan-metadata [DIR=data_raw] [WRITE=1] [RENAME=yes] [SKIP_EXISTING=1]`
+- `make repair-metadata FILE=...` (open in single‑file mode for quick edits).
+
+##### Indexing Integration (v1)
+- `lc_build_index.py` reads `manifest.json` (if present) and merges fields (doi, isbn, title, authors, publication, year) into chunk metadata.
+- Downstream: allow “DOI/ISBN token” replacement at formatting time (see separate feature bullet) to render inline citations + works cited from manifest.
+
+##### Extensibility
+- Source adapters: pluggable client interface so we can add Crossref+, OpenAlex, PubMed, ArXiv.
+- Output adapters: JSON manifest today, add CSV/NDJSON if requested.
+
+##### Acceptance Criteria (v1)
+- Runs over a folder, detects IDs, fetches metadata, confirms with user, writes Info + manifest.
+- Re‑running with `--skip-existing` and `--dry-run` behaves predictably.
+- `lc_build_index.py` includes manifest fields in chunk metadata when available.
+
+### [ ] 2. Multi-Shot / Iterative / Agentic / Self-Ask/ Chain-of Query Interaction with LLMs:
   - Let model ask Vector Database for information it needs
   - command line argument for max_iterations (default 3?)
-  - configuration in playbook.yaml
+  - command line argument for max query expansion (default 1:expansion off)
+  - command line argument for allow searching the web (true|false|'*.example.com,*.wikipedia.com')
+  - command line settings also possible from in playbook.yaml for automated complex multi-step operations.
 
 ### [ ] 3. Revisit Playbooks Functionality
   - Operation of system should be abstracted enough such that a yaml file can represent a multi-stage processess resulting in a finished product. Something like
@@ -128,7 +228,15 @@ Step through a directory of pdfs; and for each file:
 
 
 ### [ ] 4. Make Tools Available to Models:
-In addition to being able to query RAG for information necessary to perform an analysis, it there are other sources of information that would certainly be beneficial to an LLM capable of performing reasoning tasks for scientific analysis or any other sort of 'cognitive' or 'thinking' sort of task. Of course the LLM can perform simple aritmetic and algebra, but I'm not so sure about complex statistical analyses. For that reason, it might be useful to provide it access to a mathematical package, like R (along with some recipies for performing stuff like z-tests, t-tests, chi-square, anova etc, this would be especially useful in the literature review/meta analysis research type work. Some other data sources we might find useful to expose:
+In addition to being able to query RAG for information necessary to perform an analysis, it there are other sources of information that would certainly be beneficial to an LLM capable of performing reasoning tasks for scientific analysis or any other sort of 'cognitive' or 'thinking' sort of task. Of course the LLM can perform simple aritmetic and algebra, but I'm not so sure about complex statistical analyses. For that reason, it might be useful to provide it access to a mathematical package, like R? (along with some recipies for performing stuff like z-tests, t-tests, chi-square, anova etc, this would be especially useful in the literature review/meta analysis research type work:
+
+  a) R/Julia/Spark/KNIME/Numpy
+  b) Pandas/Polars/Tidytable/dtplyr
+  c) SageMath/Spyder/Maxima/SymPy/OpenAxiom/Octave/Scilab/
+  d) XCos/QUCS/Qucs-S/Pspice/SPICE/
+  e) ELKI/WEKA/AdvancedMiner/Altair RapidMiner/Orange
+
+Some other data sources we might find useful to expose:
   a) GIS Data files
   b) Scraped Data
   c) Maltego Projects
@@ -141,10 +249,25 @@ It seems like the creation of a standardized connector module is in order for th
 
 So we have 3 sorts of tools we should handle 1) external data sources 2) existing data analysis tools, and finally 3) information display/formatting tools such as:
   a) graphing/plotting
+    -mathplotlib
+    -plotly
+    -d3.js
+    -Bokeh
+    -Google Charts
+    -Apache Echarts
+    -Vis.js
+    -Scichart
+  
   b) mapping (GIS etc)
+    -ArcGis
+    -QGis
+    -GrassGIS
+    -Placemark
+    -Plonk
+
   c) Advanced Text Formatting tools like TEX/LaTEX
-
-
+    -TeX
+    
 
 
 
