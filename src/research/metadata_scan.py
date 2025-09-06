@@ -109,16 +109,16 @@ def _gather_pdf_info(pdf_path: Path) -> Tuple[Dict[str, Any], bool]:
 
 
 
-def main():
+def main(
     dir: Path = typer.Option(Path("data_raw"), "--dir", help="Directory to scan for PDFs"),
     glob: str = typer.Option("**/*.pdf", "--glob", help="Glob pattern for PDFs"),
     write: bool = typer.Option(False, "--write", help="Write manifest entries and update PDF metadata (Info+XMP)"),
     manifest: Path = typer.Option(_default_manifest_path(), "--manifest", help="Manifest JSON path"),
-    rename: str = typer.Option("yes", "--rename", help="Rename files to slugified title and year [yes|no]"),
     skip_existing: bool = typer.Option(False, "--skip-existing", help="Skip files already present in manifest as processed"),
+    rename: str = typer.Option("yes", "--rename", help="Rename files to slugified title and year [yes|no]"),
     allow_delete: bool = typer.Option(False, "--allow-delete", help="Enable [R] remove option to delete files"),
     rescan: bool = typer.Option(False, "--rescan", help="Ignore cached results and re-query remote APIs"),
-):
+    ):
     """Scan PDFs for DOI/ISBN, fetch metadata, and record to manifest (v1)."""
     pdfs: List[Path] = sorted(Path(dir).glob(glob))
     data = load_manifest(manifest)
