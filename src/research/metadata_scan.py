@@ -14,7 +14,9 @@ from functions.pdf_io import write_pdf_info, write_pdf_xmp
 from clients.crossref_client import fetch_crossref_by_doi, search_crossref
 from clients.isbn_openlibrary import fetch_openlibrary_by_isbn
 
+from clients.arxiv_client import fetch_arxiv_by_doi
 from pypdf import PdfReader
+
 
 DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:a-zA-Z0-9]*[a-zA-Z0-9]")
 ISBN_RE = re.compile(r"\b(?:97[89][- ]?)?[0-9][- 0-9]{9,}[0-9Xx]\b")
@@ -66,7 +68,8 @@ def _gather_pdf_info(pdf_path: Path) -> Tuple[Dict[str, Any], bool]:
 
     Returns a tuple of (metadata, record_found) where record_found indicates
     whether a remote lookup (Crossref/OpenLibrary) succeeded.
-    """    
+    """
+
     text = pdf_path.name + "\n" + _extract_text_first_pages(pdf_path)
     ids = _detect_ids(text)
     meta: Dict[str, Any] = {
@@ -76,6 +79,7 @@ def _gather_pdf_info(pdf_path: Path) -> Tuple[Dict[str, Any], bool]:
         "date": "",
         "year": None,
     }
+
     # Try to read existing PDF metadata for title/author hints
     try:
         reader = PdfReader(str(pdf_path))
@@ -85,29 +89,29 @@ def _gather_pdf_info(pdf_path: Path) -> Tuple[Dict[str, Any], bool]:
         if info.get("/Author"):
             meta["authors"] = [a.strip() for a in re.split(r",|;| and ", info.get("/Author")) if a.strip()]
     except Exception:
-        pass    
+        pass
+
     meta.update(ids)
     record_found = False
     if ids.get("doi"):
-        data = fetch_crossref_by_doi(ids["doi"])
+        data = fetch_crossref_by_doi(ids["doi"]) or fetch_arxiv_by_doi(ids["doi"])
         if data:
             meta.update({k: v for k, v in data.items() if v})
             record_found = True
     if ids.get("isbn") and not record_found:
-       data = fetch_openlibrary_by_isbn(ids["isbn"])
-       if data:
-           meta.update({k: v for k, v in data.items() if v})
-           record_found = True
+
+        data = fetch_openlibrary_by_isbn(ids["isbn"])
+        if data:
+            meta.update({k: v for k, v in data.items() if v})
+            record_found = True
     if not record_found:
-       query_title = meta.get("title") or pdf_path.stem
-       query_author = meta.get("authors", [""])[0] if meta.get("authors") else ""
-       data = search_crossref(query_title, query_author)
-       if data:
-           meta.update({k: v for k, v in data.items() if v})
-           record_found = True
+        query_title = meta.get("title") or pdf_path.stem
+        query_author = meta.get("authors", [""])[0] if meta.get("authors") else ""
+        data = search_crossref(query_title, query_author)
+        if data:
+            meta.update({k: v for k, v in data.items() if v})
+            record_found = True
     return meta, record_found
-
-
 
 def main(
     dir: Path = typer.Option(Path("data_raw"), "--dir", help="Directory to scan for PDFs"),
@@ -118,7 +122,7 @@ def main(
     rename: str = typer.Option("yes", "--rename", help="Rename files to slugified title and year [yes|no]"),
     allow_delete: bool = typer.Option(False, "--allow-delete", help="Enable [R] remove option to delete files"),
     rescan: bool = typer.Option(False, "--rescan", help="Ignore cached results and re-query remote APIs"),
-    ):
+):
     """Scan PDFs for DOI/ISBN, fetch metadata, and record to manifest (v1)."""
     pdfs: List[Path] = sorted(Path(dir).glob(glob))
     data = load_manifest(manifest)
@@ -236,7 +240,9 @@ def main(
                 new_doi = typer.prompt("Enter DOI").strip()
                 if new_doi:
                     entry["doi"] = new_doi.lower()
-                    data = fetch_crossref_by_doi(entry["doi"]) or {}
+
+                    data = fetch_crossref_by_doi(entry["doi"]) or fetch_arxiv_by_doi(entry["doi"]) or {}
+
                     entry.update({k: v for k, v in data.items() if v})
                     found = bool(data)
                 else:
@@ -282,7 +288,6 @@ def main(
                 break
             else:
                 typer.echo("Invalid choice")
-
 
 
 if __name__ == "__main__":
