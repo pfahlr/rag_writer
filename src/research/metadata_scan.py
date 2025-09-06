@@ -3,17 +3,18 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime
 from pathlib import Path
+from datetime import datetime
 from typing import List, Dict, Any, Tuple
 
 import typer
 
 from functions.manifest import file_checksum, load_manifest, save_manifest
 from functions.pdf_io import write_pdf_info, write_pdf_xmp
-from clients.crossref_client import fetch_crossref_by_doi
+from clients.crossref_client import fetch_crossref_by_doi, search_crossref
 from clients.isbn_openlibrary import fetch_openlibrary_by_isbn
 
+from pypdf import PdfReader
 
 DOI_RE = re.compile(r"10\.\d{4,9}/[-._;()/:a-zA-Z0-9]*[a-zA-Z0-9]")
 ISBN_RE = re.compile(r"\b(?:97[89][- ]?)?[0-9][- 0-9]{9,}[0-9Xx]\b")
@@ -39,15 +40,14 @@ def _detect_ids(text: str) -> Dict[str, str]:
 
 
 def _default_manifest_path() -> Path:
-    return Path("research/out/manifest.json")
+    return Path("research/out/tmp/manifest.json")
 
-
+ 
 def _relpath(path: Path, base: Path) -> str:
     try:
         return str(path.relative_to(base))
     except ValueError:
         return str(path)
-
 
 def _extract_text_first_pages(pdf_path: Path, max_pages: int = 5) -> str:
     try:
@@ -66,7 +66,7 @@ def _gather_pdf_info(pdf_path: Path) -> Tuple[Dict[str, Any], bool]:
 
     Returns a tuple of (metadata, record_found) where record_found indicates
     whether a remote lookup (Crossref/OpenLibrary) succeeded.
-    """
+    """    
     text = pdf_path.name + "\n" + _extract_text_first_pages(pdf_path)
     ids = _detect_ids(text)
     meta: Dict[str, Any] = {
@@ -76,6 +76,16 @@ def _gather_pdf_info(pdf_path: Path) -> Tuple[Dict[str, Any], bool]:
         "date": "",
         "year": None,
     }
+    # Try to read existing PDF metadata for title/author hints
+    try:
+        reader = PdfReader(str(pdf_path))
+        info = reader.metadata or {}
+        if info.get("/Title"):
+            meta["title"] = info.get("/Title")
+        if info.get("/Author"):
+            meta["authors"] = [a.strip() for a in re.split(r",|;| and ", info.get("/Author")) if a.strip()]
+    except Exception:
+        pass    
     meta.update(ids)
     record_found = False
     if ids.get("doi"):
@@ -84,14 +94,22 @@ def _gather_pdf_info(pdf_path: Path) -> Tuple[Dict[str, Any], bool]:
             meta.update({k: v for k, v in data.items() if v})
             record_found = True
     if ids.get("isbn") and not record_found:
-        data = fetch_openlibrary_by_isbn(ids["isbn"])
-        if data:
-            meta.update({k: v for k, v in data.items() if v})
-            record_found = True
+       data = fetch_openlibrary_by_isbn(ids["isbn"])
+       if data:
+           meta.update({k: v for k, v in data.items() if v})
+           record_found = True
+    if not record_found:
+       query_title = meta.get("title") or pdf_path.stem
+       query_author = meta.get("authors", [""])[0] if meta.get("authors") else ""
+       data = search_crossref(query_title, query_author)
+       if data:
+           meta.update({k: v for k, v in data.items() if v})
+           record_found = True
     return meta, record_found
 
 
-def main(
+
+def main():
     dir: Path = typer.Option(Path("data_raw"), "--dir", help="Directory to scan for PDFs"),
     glob: str = typer.Option("**/*.pdf", "--glob", help="Glob pattern for PDFs"),
     write: bool = typer.Option(False, "--write", help="Write manifest entries and update PDF metadata (Info+XMP)"),
@@ -142,7 +160,7 @@ def main(
                     title = entry.get("title") or Path(entry["filename"]).stem
                     year = entry.get("year")
                     authors = entry.get("authors") or []
-                    subject = entry.get("publication") or ""
+                    publication = entry.get("publication") or ""
                     doi = entry.get("doi") or ""
                     isbn = entry.get("isbn") or ""
 
@@ -182,10 +200,19 @@ def main(
                     typer.echo(f"[write] manifest updated: {manifest}")
 
                     tmp_path = dest_path.with_suffix(".tmp.pdf")
+                    index_meta = {
+                        "title": title,
+                        "authors": authors,
+                        "publication": publication,
+                        "date": entry.get("date"),
+                        "year": year,
+                        "doi": doi,
+                        "isbn": isbn,
+                    }
                     info_meta = {
                         "/Title": title,
                         "/Author": ", ".join(authors) if authors else "",
-                        "/Subject": subject,
+                        "/Subject": json.dumps(index_meta, ensure_ascii=False),
                         "/doi": doi,
                         "/isbn": isbn,
                     }
@@ -193,7 +220,7 @@ def main(
                     write_pdf_xmp(
                         tmp_path,
                         dc={"title": title, "creator": authors},
-                        prism={"publicationName": subject, "doi": doi, "isbn": isbn},
+                        prism={"publicationName": publication, "doi": doi, "isbn": isbn},
                     )
                     tmp_path.replace(dest_path)
                     if dest_path != src_path:
@@ -255,6 +282,7 @@ def main(
                 break
             else:
                 typer.echo("Invalid choice")
+
 
 
 if __name__ == "__main__":
