@@ -90,7 +90,7 @@ ask:
 
 # ----- LangChain -----
 
-## Build FAISS index for LangChain retrieval [KEY=key_name] [SHARD_SIZE=n] [RESUME=0|1]
+## Build FAISS index for LangChain retrieval [KEY=key_name] [SHARD_SIZE=n] [RESUME=1]
 lc-index:
         @k="$(filter-out $@,$(MAKECMDGOALS))"; \
         shard_size="$(SHARD_SIZE)"; \
@@ -99,7 +99,7 @@ lc-index:
         if [ -z "$$k" ]; then k=default; fi; \
         cmd="$(PY) $(ROOT)/src/langchain/lc_build_index.py \"$$k\""; \
         if [ -n "$$shard_size" ]; then cmd="$$cmd --shard-size \"$$shard_size\""; fi; \
-        if [ -n "$$resume" ]; then cmd="$$cmd --resume \"$$resume\""; fi; \
+        if [ -n "$$resume" ]; then cmd="$$cmd --resume"; fi; \
         eval $$cmd
 
 ## Ask questions using LangChain RAG system
