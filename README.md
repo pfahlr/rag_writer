@@ -1387,6 +1387,14 @@ or a final response:
 
 See [docs/tool_agent_schema.md](docs/tool_agent_schema.md) for the full specification and transcript example.
 
+### MCP Tool Server
+
+Start the tool server to expose registered tools via the Model Context Protocol:
+
+```bash
+python -m src.tool.mcp_server  # or: make tool-shell
+```
+
 ## 🔍 Troubleshooting
 
 ### Common Issues

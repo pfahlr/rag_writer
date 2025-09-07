@@ -308,8 +308,8 @@ quality: format lint test
 ## Start unified tool shell for advanced operations
 tool-shell:
 	@k="$(KEY)"; \
-	if [ -n "$$k" ]; then RAG_KEY="$$k" $(PY) $(ROOT)/src/tool/cli.py shell; \
-	else $(PY) $(ROOT)/src/tool/cli.py shell; fi
+	if [ -n "$$k" ]; then RAG_KEY="$$k" $(PY) -m src.tool.mcp_server; \
+	else $(PY) -m src.tool.mcp_server; fi
 
 # ===== EXAMPLE WORKFLOWS =====
 
