@@ -78,8 +78,22 @@ def main():
     emb_name_safe = re.sub(r"[^a-zA-Z0-9._-]+", "-", args.embed_model)
     base_dir = Path(f"storage/faiss_{args.key}__{emb_name_safe}")
     repacked_dir = Path(str(base_dir) + "_repacked")
-    faiss_dir = repacked_dir if repacked_dir.exists() else base_dir
-    if not faiss_dir.exists():
+
+    # Prefer a repacked/merged index if available
+    faiss_dir = None
+    for cand in (repacked_dir, base_dir):
+        if (cand / "index.faiss").exists():
+            faiss_dir = cand
+            break
+
+    if faiss_dir is None:
+        if base_dir.exists():
+            shards = [p for p in base_dir.iterdir() if p.is_dir()]
+            if shards:
+                raise SystemExit(
+                    f"[lc_ask] FAISS shards found but no merged index: {base_dir}\n"
+                    "  • Merge shards before querying (merge step not completed)"
+                )
         raise SystemExit(
             "[lc_ask] FAISS dir not found: "
             f"{base_dir} (or repacked: {repacked_dir}).\n"
