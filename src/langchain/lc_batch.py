@@ -22,7 +22,11 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import (
+    ChatPromptTemplate,
+    HumanMessagePromptTemplate,
+    SystemMessagePromptTemplate,
+)
 
 from rich.console import Console
 from rich.panel import Panel
@@ -226,14 +230,15 @@ def run_rag_query(
         system_prompt = get_system_prompt(content_type)
         if tool_registry is not None:
             tool_prompt = generate_tool_prompt(tool_registry)
-            tool_prompt = tool_prompt.replace("{", "{{").replace("}", "}}")
             system_prompt = f"{system_prompt}\n\n{tool_prompt}"
 
         # Create prompt and generate response
         prompt = ChatPromptTemplate.from_messages(
             [
-                ("system", system_prompt),
-                ("human", USER_PROMPT),
+                SystemMessagePromptTemplate.from_template(
+                    system_prompt, template_format="jinja2"
+                ),
+                HumanMessagePromptTemplate.from_template(USER_PROMPT),
             ]
         )
 
