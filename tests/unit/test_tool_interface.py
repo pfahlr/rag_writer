@@ -29,6 +29,15 @@ def test_tool_registry_basic():
     out = reg.run("adder", a=2, b=3)
     assert out["result"] == 5
 
+    desc = reg.describe()
+    assert desc == [
+        {
+            "name": "adder",
+            "description": "add numbers",
+            "input_schema": spec.input_schema,
+        }
+    ]
+
 
 class DummyRetriever:
     def get_relevant_documents(self, query: str):

@@ -36,6 +36,7 @@ from core.retriever import RetrieverFactory, RetrieverConfig
 from core.llm import LLMFactory, LLMConfig
 from config.settings import get_config
 from utils.error_handler import handle_and_exit, validate_collection
+from src.tool import ToolRegistry
 
 console = Console()
 
@@ -145,8 +146,19 @@ def _format_context(docs):
     return "\n\n---\n\n".join(_fmt_doc_for_context(d) for d in docs)
 
 
-def run_rag_query(task: str, instruction: str, key: str = "default", content_type: str = "pure_research", topk: int = None):
-    """Run RAG query directly using core modules (no subprocess calls)."""
+def run_rag_query(
+    task: str,
+    instruction: str,
+    key: str = "default",
+    content_type: str = "pure_research",
+    topk: int = None,
+    tool_registry: Optional[ToolRegistry] = None,
+) -> Dict[str, Any]:
+    """Run RAG query directly using core modules (no subprocess calls).
+
+    If a ``ToolRegistry`` is provided, its descriptions are appended to the
+    system prompt so the model knows how to format tool calls.
+    """
     try:
         # Validate collection exists
         validate_collection(key, config.paths.storage_dir)
@@ -192,8 +204,18 @@ def run_rag_query(task: str, instruction: str, key: str = "default", content_typ
         # Build final question
         final_question = f"{task} {instruction}".strip() if task and task.strip() else instruction
 
-        # Get system prompt
+        # Get system prompt and append tool descriptions if provided
         system_prompt = get_system_prompt(content_type)
+        if tool_registry is not None:
+            tool_desc = tool_registry.describe()
+            if tool_desc:
+                parts = []
+                for t in tool_desc:
+                    schema = json.dumps(t["input_schema"], ensure_ascii=False)
+                    schema = schema.replace("{", "{{").replace("}", "}}")
+                    parts.append(f"- {t['name']}: {t['description']} Input schema: {schema}")
+                tools_text = "\n".join(parts)
+                system_prompt = f"{system_prompt}\n\nAvailable tools:\n{tools_text}"
 
         # Create prompt and generate response
         prompt = ChatPromptTemplate.from_messages([

@@ -56,3 +56,21 @@ class ToolRegistry:
 
     def list_tools(self) -> Dict[str, Tool]:
         return dict(self._tools)
+
+    def describe(self) -> list[Dict[str, Any]]:
+        """Return summary information for all registered tools.
+
+        Each entry contains the tool's name, description and input schema
+        so that an LLM can understand how to invoke the tool.
+        """
+
+        out: list[Dict[str, Any]] = []
+        for tool in self._tools.values():
+            out.append(
+                {
+                    "name": tool.spec.name,
+                    "description": tool.spec.description,
+                    "input_schema": tool.spec.input_schema,
+                }
+            )
+        return out
