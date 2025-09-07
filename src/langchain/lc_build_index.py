@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
-import sys, json
+import sys, json, math
 from typing import List
 from tqdm import tqdm
 from rich.pretty import pprint
@@ -38,17 +38,44 @@ def write_chunks_jsonl(chunks: List[Document], out_path: Path):
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
-def build_faiss_for_models(chunks: List[Document], key: str, embedding_models: list[str]):
+def build_faiss_for_models(
+    chunks: List[Document],
+    key: str,
+    embedding_models: list[str],
+    shard_size: int = 1000,
+):
     texts = [d.page_content for d in chunks]
     metadatas = [d.metadata for d in chunks]
-    for emb in embedding_models:
+    num_shards = max(1, math.ceil(len(texts) / shard_size))
+    for emb in tqdm(embedding_models, desc="Embeddings", leave=True):
         emb_name = _fs_safe(emb)
         vs_dir = Path(f"storage/faiss_{key}__{emb_name}")
         vs_dir.mkdir(parents=True, exist_ok=True)
         embedder = HuggingFaceEmbeddings(model_name=emb)
-        vs = FAISS.from_texts(texts=texts, embedding=embedder, metadatas=metadatas)
-        vs.save_local(str(vs_dir))
-        print(f"[build] wrote FAISS: {vs_dir}")
+        vs = None
+        shard_pbar = tqdm(
+            range(num_shards),
+            leave=False,
+            desc=f"{emb_name} shard 1/{num_shards}",
+        )
+        for shard_idx in shard_pbar:
+            shard_pbar.set_description(
+                f"{emb_name} shard {shard_idx + 1}/{num_shards}"
+            )
+            start = shard_idx * shard_size
+            end = min(start + shard_size, len(texts))
+            shard_vs = FAISS.from_texts(
+                texts=texts[start:end],
+                embedding=embedder,
+                metadatas=metadatas[start:end],
+            )
+            if vs is None:
+                vs = shard_vs
+            else:
+                vs.merge_from(shard_vs)
+        if vs is not None:
+            vs.save_local(str(vs_dir))
+            print(f"[build] wrote FAISS: {vs_dir}")
 
 
 # ---------------------------------------------------------------------------
