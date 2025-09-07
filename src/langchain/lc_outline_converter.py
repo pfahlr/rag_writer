@@ -381,86 +381,44 @@ def parse_json_outline(content: str) -> Tuple[List[OutlineSection], BookMetadata
     )
 
     # Extract sections
-    sections = []
-    chapters = data.get('chapters', [])
+    sections: List[OutlineSection] = []
 
-    for chapter in chapters:
-        chapter_num = chapter['number']
+    def add_sections(node: Dict[str, Any], parent_id: Optional[str], level: int) -> None:
+        """Construct an OutlineSection and recursively process child sections."""
 
-        # Add chapter as section
+        id_key = "number" if level % 2 == 0 else "letter"
+        section_id = (
+            str(node[id_key]) if parent_id is None else f"{parent_id}{node[id_key]}"
+        )
+
+        word_defaults = {2: 5000, 3: 2000, 4: 1000, 5: 500, 6: 250}
+
         sections.append(
             OutlineSection(
-                id=str(chapter_num),
-                title=chapter['title'],
-                level=2,
-                description=chapter.get('description', ''),
-                estimated_words=chapter.get('estimated_words', 5000),
+                id=section_id,
+                title=node["title"],
+                level=level,
+                parent_id=parent_id,
+                description=node.get("description", ""),
+                estimated_words=node.get(
+                    "estimated_words", word_defaults.get(level, 1000)
+                ),
             )
         )
 
-        for section in chapter.get('sections', []):
-            section_letter = section['letter']
-            section_id = f"{chapter_num}{section_letter}"
+        child_key_map = {
+            2: "sections",
+            3: "subsections",
+            4: "subsubsections",
+            5: "subsubsubsections",
+        }
+        child_key = child_key_map.get(level)
+        if child_key:
+            for child in node.get(child_key, []):
+                add_sections(child, section_id, level + 1)
 
-            # Add section
-            sections.append(
-                OutlineSection(
-                    id=section_id,
-                    title=section['title'],
-                    level=3,
-                    parent_id=str(chapter_num),
-                    description=section.get('description', ''),
-                    estimated_words=section.get('estimated_words', 2000),
-                )
-            )
-
-            for subsection in section.get('subsections', []):
-                subsection_num = subsection['number']
-                subsection_id = f"{section_id}{subsection_num}"
-
-                # Add subsection
-                sections.append(
-                    OutlineSection(
-                        id=subsection_id,
-                        title=subsection['title'],
-                        level=4,
-                        parent_id=section_id,
-                        description=subsection.get('description', ''),
-                        estimated_words=subsection.get('estimated_words', 1000),
-                    )
-                )
-
-                # Add sub-subsections if they exist
-                for subsubsection in subsection.get('subsubsections', []):
-                    subsubsection_letter = subsubsection['letter']
-                    subsubsection_id = f"{subsection_id}{subsubsection_letter}"
-
-                    sections.append(
-                        OutlineSection(
-                            id=subsubsection_id,
-                            title=subsubsection['title'],
-                            level=5,
-                            parent_id=subsection_id,
-                            description=subsubsection.get('description', ''),
-                            estimated_words=subsubsection.get('estimated_words', 500),
-                        )
-                    )
-
-                    # Add sub-sub-subsections if they exist
-                    for subsubsubsection in subsubsection.get('subsubsubsections', []):
-                        subsubsubsection_num = subsubsubsection['number']
-                        subsubsubsection_id = f"{subsubsection_id}{subsubsubsection_num}"
-
-                        sections.append(
-                            OutlineSection(
-                                id=subsubsubsection_id,
-                                title=subsubsubsection['title'],
-                                level=6,
-                                parent_id=subsubsection_id,
-                                description=subsubsubsection.get('description', ''),
-                                estimated_words=subsubsubsection.get('estimated_words', 250),
-                            )
-                        )
+    for chapter in data.get("chapters", []):
+        add_sections(chapter, None, 2)
 
     return sections, metadata
 
