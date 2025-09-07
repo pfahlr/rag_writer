@@ -1,0 +1,62 @@
+# .github/project-board.yml
+name: RAG Writer Roadmap
+description: Consolidated features from Codex/Agent/Deep Research reviews
+version: 1
+
+columns:
+  - name: 🟢 Core Features (Must)
+    cards:
+      - title: Multi-Perspective Planning + Mind Map
+        body: >
+          Implement perspective extraction + concept graph; integrate into outline stage.
+      - title: Multi-Agent Research Pipeline
+        body: >
+          Planner/Executor/Publisher separation; parallel retrieval + publishing.
+      - title: Async LLM Service
+        body: >
+          Replace subprocess with async LLMService, retries, JSON guardrails.
+      - title: Unified Config
+        body: >
+          Centralize with Pydantic settings; profiles for dev/prod.
+      - title: Structured Logging + Unified Exceptions
+        body: >
+          JSON/Rich logging; canonical exceptions; error mapping.
+      - title: Test Coverage
+        body: >
+          Unit + integration tests for retriever, LLMService, outline planner, citations.
+      - title: Playbooks v2
+        body: >
+          New declarative YAML schema, runtime with contracts, hooks, validation.
+      - title: MCP Migration
+        body: >
+          Expose tools/prompts via MCP; conformance tests; update playbooks.
+
+  - name: 🟡 Performance / Retrieval (Should)
+    cards:
+      - title: Enhanced Retrieval + Re-Ranking
+        body: >
+          Add Bing/Tavily connectors, hybrid search, optional cross-encoder reranking.
+      - title: Cache + Parallelization
+        body: >
+          Disk cache for retrievals/LLM generations; --parallel flag; metrics.
+      - title: Flexible Exports
+        body: >
+          Markdown → PDF/DOCX; CLI flags; templates; smoke tests.
+      - title: Web Dashboard
+        body: >
+          FastAPI + HTMX frontend; trigger/playbooks, view logs, download artifacts.
+
+  - name: 🔵 Extensions (Could)
+    cards:
+      - title: Human-in-the-Loop Checkpoints
+        body: >
+          CLI outline approvals; source review; JSON mind-map viewer.
+      - title: Source Reliability + Dead Link Detection
+        body: >
+          Scoring heuristic + link checker integrated into retriever.
+      - title: Visual Content Pipeline
+        body: >
+          Reserve placeholders for charts/images; prototype scraping.
+      - title: Advanced Determinism Profiles
+        body: >
+          --deterministic flag, run manifest, reproducibility docs.
