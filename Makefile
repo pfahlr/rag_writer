@@ -90,7 +90,7 @@ ask:
 
 # ----- LangChain -----
 
-## Build FAISS index for LangChain retrieval [KEY=key_name] [SHARD_SIZE=n] [RESUME=0|1]
+## Build FAISS index for LangChain retrieval [KEY=key_name] [SHARD_SIZE=n] [RESUME=1]
 lc-index:
 	@k="$(filter-out $@,$(MAKECMDGOALS))"; \
 	shard_size="$(SHARD_SIZE)"; \
