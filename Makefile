@@ -90,12 +90,19 @@ ask:
 
 # ----- LangChain -----
 
-## Build FAISS index for LangChain retrieval [KEY=key_name]
+## Build FAISS index for LangChain retrieval [KEY=key_name] [SHARD_SIZE=n] [RESUME=0|1]
 lc-index:
 	@k="$(filter-out $@,$(MAKECMDGOALS))"; \
 	if [ -z "$$k" ]; then k="$(KEY)"; fi; \
 	if [ -z "$$k" ]; then k=default; fi; \
-        $(PY) $(ROOT)/src/langchain/lc_index.py "$$k"
+  shard_size="$(SHARD_SIZE)"; \
+  resume="$(RESUME)"; \
+  if [ -z "$$k" ]; then k="$(KEY)"; fi; \
+  if [ -z "$$k" ]; then k=default; fi; \
+  cmd="$(PY) $(ROOT)/src/langchain/lc_build_index.py \"$$k\""; \
+  if [ -n "$$shard_size" ]; then cmd="$$cmd --shard-size \"$$shard_size\""; fi; \
+  if [ -n "$$resume" ]; then cmd="$$cmd --resume \"$$resume\""; fi; \
+  eval $$cmd
 
 ## Ask questions using LangChain RAG system
 ## Usage:
@@ -372,10 +379,17 @@ clean:
 ## Remove FAISS index for a specific KEY (inside container)
 ## Usage: make clean-faiss KEY=your_key
 clean-faiss:
-	@key="$(KEY)"; \
-	if [ -z "$$key" ]; then echo "Usage: make clean-faiss KEY=your_key"; exit 1; fi; \
-	rm -rf storage/faiss_"$$key" storage/faiss_"$$key"__*
-	@echo "✓ Removed FAISS index(es) for key: $(KEY)"
+        @key="$(KEY)"; \
+        if [ -z "$$key" ]; then echo "Usage: make clean-faiss KEY=your_key"; exit 1; fi; \
+        rm -rf storage/faiss_"$$key" storage/faiss_"$$key"__*
+        @echo "✓ Removed FAISS index(es) for key: $(KEY)"
+
+## Remove FAISS shard directories for a KEY and embedding model
+## Usage: make clean-shards KEY=your_key EMB=BAAI/bge-small-en-v1.5
+clean-shards:
+        @key="$(KEY)"; emb="$(EMB)"; \
+        if [ -z "$$key" ] || [ -z "$$emb" ]; then echo "Usage: make clean-shards KEY=your_key EMB=embed_model"; exit 1; fi; \
+        python src/langchain/cleanup_shards.py "$$key" "$$emb"
 
 ## Rebuild FAISS index for a KEY (inside container)
 ## Usage: make reindex KEY=your_key
