@@ -546,6 +546,7 @@ make compose-book-runner BOOK=outlines/converted_structures/my_book.json OUTPUT=
 
 # Index maintenance
 make clean-faiss KEY=your_key         # remove FAISS dirs for key
+make clean-shards KEY=your_key EMB=BAAI/bge-small-en-v1.5  # remove FAISS shards for model
 make reindex KEY=your_key             # clean + rebuild FAISS for key
 make repack-faiss KEY=your_key EMBED_MODEL=BAAI/bge-small-en-v1.5  # salvage old index
 
