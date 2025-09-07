@@ -116,7 +116,7 @@ make ask QUESTION="question"
 
 #### LangChain Content Generation
 ```bash
-make lc-index [KEY=key_name]                    # Build FAISS index
+make lc-index KEY=foo SHARD_SIZE=2000 RESUME=1  # Build sharded FAISS index (resume skips existing shards)
 make lc-ask INSTR="instruction" [TASK="task"]   # RAG query with custom parameters
 make lc-batch FILE="jobs.jsonl" [PARALLEL=4]    # Batch processing
 make lc-merge-runner [SUB=1A1]                  # Content merging
@@ -546,6 +546,7 @@ make compose-book-runner BOOK=outlines/converted_structures/my_book.json OUTPUT=
 
 # Index maintenance
 make clean-faiss KEY=your_key         # remove FAISS dirs for key
+make clean-shards KEY=your_key EMB=BAAI/bge-small-en-v1.5  # remove FAISS shards for model
 make reindex KEY=your_key             # clean + rebuild FAISS for key
 make repack-faiss KEY=your_key EMBED_MODEL=BAAI/bge-small-en-v1.5  # salvage old index
 
