@@ -16,6 +16,7 @@ This suite provides a complete workflow for content creation and processing usin
 - [Usage Examples](#usage-examples)
 - [Pipeline Types](#pipeline-types)
 - [API Reference](#api-reference)
+- [Tool Agent Schema](#tool-agent-schema)
 - [Troubleshooting](#troubleshooting)
 
 ## 🏗️ Architecture
@@ -1369,6 +1370,22 @@ Options:
   --force             Force regeneration of all content
   --skip-merge        Skip merge processing, only run batch
 ```
+
+## 🧩 Tool Agent Schema
+
+Defines the JSON contract for tool-enabled agents. Each assistant message must be either a tool invocation:
+
+```json
+{"tool": "<tool_name>", "args": { /* ... */ }}
+```
+
+or a final response:
+
+```json
+{"final": "<answer text>"}
+```
+
+See [docs/tool_agent_schema.md](docs/tool_agent_schema.md) for the full specification and transcript example.
 
 ## 🔍 Troubleshooting
 
