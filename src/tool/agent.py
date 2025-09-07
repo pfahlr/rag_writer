@@ -51,8 +51,16 @@ def run_agent(
 
         try:
             data = json.loads(text)
-        except Exception:
-            raise ValueError("LLM did not return valid JSON")
+        except json.JSONDecodeError as e:
+            # Append error message and continue the loop
+            messages.append({"role": "assistant", "content": text})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": json.dumps({"error": f"Invalid JSON: {e}"}),
+                }
+            )
+            continue
 
         if "final" in data:
             return str(data["final"])
