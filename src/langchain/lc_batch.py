@@ -37,6 +37,7 @@ from core.llm import LLMFactory, LLMConfig
 from config.settings import get_config
 from utils.error_handler import handle_and_exit, validate_collection
 from src.tool import ToolRegistry
+from src.tool.prompts import generate_tool_prompt
 
 console = Console()
 
@@ -207,15 +208,9 @@ def run_rag_query(
         # Get system prompt and append tool descriptions if provided
         system_prompt = get_system_prompt(content_type)
         if tool_registry is not None:
-            tool_desc = tool_registry.describe()
-            if tool_desc:
-                parts = []
-                for t in tool_desc:
-                    schema = json.dumps(t["input_schema"], ensure_ascii=False)
-                    schema = schema.replace("{", "{{").replace("}", "}}")
-                    parts.append(f"- {t['name']}: {t['description']} Input schema: {schema}")
-                tools_text = "\n".join(parts)
-                system_prompt = f"{system_prompt}\n\nAvailable tools:\n{tools_text}"
+            tool_prompt = generate_tool_prompt(tool_registry)
+            tool_prompt = tool_prompt.replace("{", "{{").replace("}", "}}")
+            system_prompt = f"{system_prompt}\n\n{tool_prompt}"
 
         # Create prompt and generate response
         prompt = ChatPromptTemplate.from_messages([
