@@ -377,10 +377,17 @@ clean:
 ## Remove FAISS index for a specific KEY (inside container)
 ## Usage: make clean-faiss KEY=your_key
 clean-faiss:
-	@key="$(KEY)"; \
-	if [ -z "$$key" ]; then echo "Usage: make clean-faiss KEY=your_key"; exit 1; fi; \
-	rm -rf storage/faiss_"$$key" storage/faiss_"$$key"__*
-	@echo "✓ Removed FAISS index(es) for key: $(KEY)"
+        @key="$(KEY)"; \
+        if [ -z "$$key" ]; then echo "Usage: make clean-faiss KEY=your_key"; exit 1; fi; \
+        rm -rf storage/faiss_"$$key" storage/faiss_"$$key"__*
+        @echo "✓ Removed FAISS index(es) for key: $(KEY)"
+
+## Remove FAISS shard directories for a KEY and embedding model
+## Usage: make clean-shards KEY=your_key EMB=BAAI/bge-small-en-v1.5
+clean-shards:
+        @key="$(KEY)"; emb="$(EMB)"; \
+        if [ -z "$$key" ] || [ -z "$$emb" ]; then echo "Usage: make clean-shards KEY=your_key EMB=embed_model"; exit 1; fi; \
+        python src/langchain/cleanup_shards.py "$$key" "$$emb"
 
 ## Rebuild FAISS index for a KEY (inside container)
 ## Usage: make reindex KEY=your_key
