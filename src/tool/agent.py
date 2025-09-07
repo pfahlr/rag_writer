@@ -75,7 +75,16 @@ def run_agent(
         if "final" in data:
             return str(data["final"])
         if "tool" not in data or "args" not in data:
-            raise ValueError("LLM output missing 'tool' or 'args'")
+            messages.append({"role": "assistant", "content": text})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {"error": "LLM output missing 'tool' or 'args'"}
+                    ),
+                }
+            )
+            continue
 
         tool_name = str(data["tool"])
         args = data.get("args", {})
