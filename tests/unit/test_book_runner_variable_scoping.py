@@ -57,7 +57,7 @@ class TestBookRunnerVariableScoping:
                     mock_process.return_value = ([], [])  # No results, no errors
 
                     # Call run_batch_processing with book_structure parameter
-                    result = run_batch_processing(section, job_file, book_structure)
+                    result, _ = run_batch_processing(section, job_file, book_structure)
 
                     # Verify the function completed without variable scoping errors
                     assert isinstance(result, bool)
