@@ -6,6 +6,7 @@ import json
 from typing import Dict, List
 
 from .base import ToolRegistry
+from .prompts import generate_tool_prompt
 
 
 def run_agent(
@@ -13,6 +14,7 @@ def run_agent(
     registry: ToolRegistry,
     question: str,
     max_iters: int = 5,
+    system_prompt: str | None = None,
 ) -> str:
     """Run a simple agent loop until a final answer is produced.
 
@@ -22,6 +24,8 @@ def run_agent(
         registry: The ``ToolRegistry`` containing available tools.
         question: Initial user question to kick off the conversation.
         max_iters: Maximum number of LLM/tool iterations.
+        system_prompt: Optional system prompt. If not provided, one is
+            generated from ``registry`` via :func:`generate_tool_prompt`.
 
     Returns:
         Final answer string produced by the agent.
@@ -35,7 +39,13 @@ def run_agent(
     allowing the LLM to recover.
     """
 
-    messages: List[Dict[str, str]] = [{"role": "user", "content": question}]
+    if system_prompt is None:
+        system_prompt = generate_tool_prompt(registry)
+
+    messages: List[Dict[str, str]] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": question},
+    ]
 
     for _ in range(max_iters):
         # Call the LLM
