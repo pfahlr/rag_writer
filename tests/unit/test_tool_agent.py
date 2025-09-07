@@ -46,6 +46,7 @@ def test_tool_agent_executes_tool_and_returns_final_answer():
     assert answer == "5"
 
 
+
 def test_run_agent_prompt_contains_normal_json_examples():
     """System prompt should contain standard JSON snippets, not escaped braces."""
 
@@ -64,3 +65,22 @@ def test_run_agent_prompt_contains_normal_json_examples():
     assert '{"tool": "<tool_name>", "args": {<tool arguments>}}' in system_prompt
     assert '{"final": "<answer text>"}' in system_prompt
     assert "{{" not in system_prompt
+
+def test_tool_agent_handles_missing_tool_or_args():
+    """Agent should surface an error if "tool" or "args" are missing."""
+
+    reg = ToolRegistry()
+
+    class DummyLLM:
+        def __init__(self):
+            self.calls = 0
+
+        def __call__(self, messages):
+            if self.calls == 0:
+                self.calls += 1
+                return json.dumps({"foo": "bar"})
+            return json.dumps({"final": messages[-1]["content"]})
+
+    answer = run_agent(DummyLLM(), reg, "hello")
+    assert "LLM output missing 'tool' or 'args'" in answer
+
