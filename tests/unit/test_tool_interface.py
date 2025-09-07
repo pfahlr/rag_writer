@@ -139,3 +139,52 @@ def test_run_agent_recovers_from_malformed_json():
     assert answer == "ok"
     assert llm.calls == 2
 
+
+def test_mcp_tool_registration_and_invocation(monkeypatch):
+    class DummyClient:
+        def __init__(self):
+            self.fetch_called = False
+            self.called_with = None
+
+        def fetch_tools(self):
+            self.fetch_called = True
+            return [
+                {
+                    "name": "adder",
+                    "description": "add numbers",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "a": {"type": "integer"},
+                            "b": {"type": "integer"},
+                        },
+                        "required": ["a", "b"],
+                    },
+                    "output_schema": {
+                        "type": "object",
+                        "properties": {"result": {"type": "integer"}},
+                        "required": ["result"],
+                    },
+                }
+            ]
+
+        def call_tool(self, name, **kwargs):
+            self.called_with = (name, kwargs)
+            return {"result": kwargs["a"] + kwargs["b"]}
+
+    dummy_client = DummyClient()
+
+    class DummyModule:
+        def connect(self, url):  # noqa: D401 - simple dummy
+            return dummy_client
+
+    monkeypatch.setattr("src.tool.base.mcp_client", DummyModule())
+
+    reg = ToolRegistry()
+    reg.register_mcp_server("dummy://server")
+    assert dummy_client.fetch_called
+
+    out = reg.run("adder", a=2, b=3)
+    assert out["result"] == 5
+    assert dummy_client.called_with == ("adder", {"a": 2, "b": 3})
+
