@@ -362,8 +362,8 @@ Ask questions using RAG (LlamaIndex)
 Alternative form using a named variable instead of a positional argument
 .SS LangChain Targets
 .TP
-.B make lc-index [KEY=key_name]
-Build FAISS index
+.B make lc-index KEY=foo SHARD_SIZE=2000 RESUME=1
+Build FAISS index with shard size control and resume support
 .TP
 .B make lc-ask INSTR="instruction" [TASK="task"]
 RAG query with custom parameters
