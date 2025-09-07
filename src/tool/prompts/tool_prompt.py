@@ -20,7 +20,6 @@ def generate_tool_prompt(registry: ToolRegistry) -> str:
     lines = ["You can use the following tools:"]
     for tool in tools:
         schema = json.dumps(tool.get("input_schema", {}), separators=(",", ":"))
-        schema = schema.replace("{", "{{").replace("}", "}}")
         lines.append(
             f"- {tool['name']}: {tool['description']} | args schema: {schema}"
         )
@@ -30,5 +29,5 @@ def generate_tool_prompt(registry: ToolRegistry) -> str:
         '{"tool": "<tool_name>", "args": {<tool arguments>}}\n'
         "To provide the final answer, respond with\n"
         '{"final": "<answer text>"}'
-    ).replace("{", "{{").replace("}", "}}")
+    )
     return "\n".join(lines) + "\n\n" + instructions + "\n"

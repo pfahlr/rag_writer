@@ -44,3 +44,23 @@ def test_tool_agent_executes_tool_and_returns_final_answer():
 
     assert calls["tool"] == 1
     assert answer == "5"
+
+
+def test_run_agent_prompt_contains_normal_json_examples():
+    """System prompt should contain standard JSON snippets, not escaped braces."""
+
+    registry = ToolRegistry()
+
+    captured = {}
+
+    class DummyLLM:
+        def __call__(self, messages):
+            captured["system"] = messages[0]["content"]
+            return json.dumps({"final": "done"})
+
+    run_agent(DummyLLM(), registry, "hi")
+
+    system_prompt = captured["system"]
+    assert '{"tool": "<tool_name>", "args": {<tool arguments>}}' in system_prompt
+    assert '{"final": "<answer text>"}' in system_prompt
+    assert "{{" not in system_prompt
