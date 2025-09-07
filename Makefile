@@ -95,7 +95,7 @@ lc-index:
 	@k="$(filter-out $@,$(MAKECMDGOALS))"; \
 	if [ -z "$$k" ]; then k="$(KEY)"; fi; \
 	if [ -z "$$k" ]; then k=default; fi; \
-	$(PY) $(ROOT)/src/langchain/lc_build_index.py "$$k"
+        $(PY) $(ROOT)/src/langchain/lc_index.py "$$k"
 
 ## Ask questions using LangChain RAG system
 ## Usage:
