@@ -115,3 +115,27 @@ def test_run_agent_invalid_tool():
 
     answer = run_agent(DummyLLM(), reg, "hello")
     assert "Unknown tool" in answer
+
+
+def test_run_agent_recovers_from_malformed_json():
+    """Agent should continue after malformed JSON and return final answer."""
+
+    reg = ToolRegistry()
+
+    class DummyLLM:
+        def __init__(self):
+            self.calls = 0
+
+        def __call__(self, messages):
+            self.calls += 1
+            if self.calls == 1:
+                return "not-json"
+            # Ensure the agent surfaced the JSON error from the previous step
+            assert "Invalid JSON" in json.loads(messages[-1]["content"])["error"]
+            return json.dumps({"final": "ok"})
+
+    llm = DummyLLM()
+    answer = run_agent(llm, reg, "hello")
+    assert answer == "ok"
+    assert llm.calls == 2
+
