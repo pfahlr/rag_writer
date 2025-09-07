@@ -15,6 +15,7 @@ from src.langchain.lc_batch import (
     main
 )
 from src.config.settings import get_config
+from src.tool import Tool, ToolSpec, ToolRegistry
 
 
 class TestJSONLHandling:
@@ -79,6 +80,42 @@ class TestRAGQueryIntegration:
             assert "error" in result
             assert result["generated_content"] == ""
             assert result["sources"] == []
+
+    def test_run_rag_query_includes_tool_descriptions(self):
+        """System prompt should include tool descriptions when registry provided."""
+
+        def dummy_add(a: int, b: int) -> dict:
+            return {"result": a + b}
+
+        spec = ToolSpec(
+            name="adder",
+            description="add numbers",
+            input_schema={"type": "object", "properties": {}},
+            output_schema={"type": "object", "properties": {"result": {"type": "integer"}}},
+        )
+        tool = Tool(spec, dummy_add)
+        reg = ToolRegistry()
+        reg.register(tool)
+
+        dummy_retriever = Mock()
+        dummy_retriever.get_relevant_documents.return_value = []
+
+        dummy_llm = Mock()
+        dummy_llm.invoke.return_value = Mock(content="answer")
+
+        with patch('src.langchain.lc_batch.validate_collection'), \
+             patch('src.langchain.lc_batch.RetrieverFactory') as mock_factory, \
+             patch('src.langchain.lc_batch.LLMFactory') as mock_llm_factory, \
+             patch('src.langchain.lc_batch.get_system_prompt', return_value='BASE'):
+            mock_factory.return_value.create_hybrid_retriever.return_value = dummy_retriever
+            mock_llm_factory.return_value.create_llm.return_value = ("lc_openai", dummy_llm)
+
+            run_rag_query("task", "instruction", tool_registry=reg)
+
+            sent_messages = dummy_llm.invoke.call_args[0][0]
+            system_prompt = next(m.content for m in sent_messages if m.type == "system")
+            assert "adder" in system_prompt
+            assert "add numbers" in system_prompt
 
 
 class TestCommandLineInterface:
