@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Tuple
+import webbrowser
 
 import typer
 
@@ -154,9 +155,9 @@ def main(
             typer.echo(f"\nFile: {pdf}")
             typer.echo(json.dumps(entry, ensure_ascii=False, indent=2))
             if found:
-                prompt = "[W]rite/[D]OI/[I]SBN/[S]kip/[R]emove"
+                prompt = "✅ Metadata Found: [W]rite /⦿/ [D]OI /⦿/ [I]SBN /⦿/ [V]iew /⦿/ [S]kip /⦿/ [R]emove"
             else:
-                prompt = "No metadata found. [D]OI/[I]SBN/[S]kip/[R]emove"
+                prompt = "⛔ No Metadata Found: [D]OI \⦾\ [I]SBN \⦾\ [V]iew \⦾\ [S]kip \⦾\ [R]emove"
             choice = typer.prompt(prompt).strip().lower()
 
             if choice == "w" and found:
@@ -236,6 +237,8 @@ def main(
                 else:
                     typer.echo("[dry-run] metadata would be written")
                 break
+            elif choice == "v":
+                webbrowser.open(entry['filename'])
             elif choice == "d":
                 new_doi = typer.prompt("Enter DOI").strip()
                 if new_doi:
