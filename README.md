@@ -116,7 +116,7 @@ make ask QUESTION="question"
 
 #### LangChain Content Generation
 ```bash
-make lc-index KEY=foo SHARD_SIZE=2000 RESUME=1  # Build FAISS index
+make lc-index KEY=foo SHARD_SIZE=2000 RESUME=1  # Build sharded FAISS index (resume skips existing shards)
 make lc-ask INSTR="instruction" [TASK="task"]   # RAG query with custom parameters
 make lc-batch FILE="jobs.jsonl" [PARALLEL=4]    # Batch processing
 make lc-merge-runner [SUB=1A1]                  # Content merging

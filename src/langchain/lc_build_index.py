@@ -52,21 +52,33 @@ def build_faiss_for_models(
     texts = [d.page_content for d in chunks]
     metadatas = [d.metadata for d in chunks]
     n_shards = math.ceil(len(texts) / shard_size)
-    for emb in embedding_models:
+
+    for emb in tqdm(
+        embedding_models, desc="Embedding models", unit="model", leave=True
+    ):
         emb_name = _fs_safe(emb)
         base_dir = Path(f"storage/faiss_{key}__{emb_name}")
         shards_dir = base_dir / "shards"
         shards_dir.mkdir(parents=True, exist_ok=True)
         embedder = HuggingFaceEmbeddings(model_name=emb)
 
-        for shard_idx, start in enumerate(
-            tqdm(
-                range(0, len(texts), shard_size),
-                total=n_shards,
-                desc=f"Shards {emb_name}",
-                unit="shard",
+        existing_shards = 0
+        if resume:
+            existing_shards = sum(
+                1
+                for p in shards_dir.glob("shard_*")
+                if (p / "index.faiss").exists()
             )
-        ):
+
+        shard_range = range(existing_shards * shard_size, len(texts), shard_size)
+        shard_bar = tqdm(
+            shard_range,
+            total=max(n_shards - existing_shards, 0),
+            unit="shard",
+            leave=False,
+        )
+        for shard_idx, start in enumerate(shard_bar, existing_shards):
+            shard_bar.set_description(f"{emb_name} shard {shard_idx}")
             shard_path = shards_dir / f"shard_{shard_idx:03d}"
             if resume and (shard_path / "index.faiss").exists():
                 continue
@@ -76,6 +88,7 @@ def build_faiss_for_models(
                 texts=slice_texts, embedding=embedder, metadatas=slice_metas
             )
             vs.save_local(str(shard_path))
+        shard_bar.close()
 
         shard_paths = sorted(shards_dir.glob("shard_*"))
         vectorstore = None
