@@ -737,7 +737,8 @@ python -m src.tool.mcp_server  # or: make tool-shell
 
 ## 💾 Classes and Function Libraries
 
-### `research/functions/pdf-io.py`: Handles writing PDF files with metadata in dublin core and prism formats. 
+### `research/functions/pdf-io.py`
+Handles writing PDF files with metadata in dublin core and prism formats. 
 
 #### write_pdf_info(src_pdf: Path, dest_pdf: Path, metadata: Dict[str, str]) -> Path
 Write standard PDF metadata fields with pypdf
@@ -746,7 +747,8 @@ Write standard PDF metadata fields with pypdf
 
 Write XMP (Dublin Core + Prism) metadata in-place using pikepdf. If pikepdf is not installed, this function silently returns
 
-### `research/functions/filelogger.py`: Provides debout log output to a file for cases where it is not possible to access the standard error and standard out streams directly.
+### `research/functions/filelogger.py` 
+Provides debout log output to a file for cases where it is not possible to access the standard error and standard out streams directly.
 
 #### _fllog(s: str) -> void:
 log str to file
