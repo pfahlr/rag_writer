@@ -56,19 +56,8 @@ cp env.json.template env.json
 
 ### Basic Usage
 
-#### Option 1: Direct Script Execution
-```bash
-# 1. Build knowledge index (optional, for RAG)
-python src/langchain/lc_build_index.py
 
-# 2. Generate content variations
-python src/langchain/lc_batch.py
-
-# 3. Merge and refine content
-python src/langchain/lc_merge_runner.py
-```
-
-#### Option 2: Makefile (Recommended)
+#### Option 1: Makefile (Recommended)
 ```bash
 # Complete setup and workflow
 make init                # Set up environment
@@ -80,7 +69,7 @@ make cli-shell           # Interactive shell
 make book-from-outline OUTLINE="examples/sample_outline_text.txt" TITLE="My Book"
 ```
 
-#### Option 3: Interactive Examples
+#### Option 2: Interactive Examples
 ```bash
 # See all available example files
 make examples
@@ -91,6 +80,19 @@ make quick-ask "What is machine learning?" KEY="science" CONTENT_TYPE="technical
 # Batch processing with parallel execution
 make batch-workflow FILE="examples/sample_jobs_1A1.jsonl" PARALLEL=4
 ```
+
+#### Option 3: Direct Script Execution
+```bash
+# 1. Build knowledge index (optional, for RAG)
+python src/langchain/lc_build_index.py
+
+# 2. Generate content variations
+python src/langchain/lc_batch.py
+
+# 3. Merge and refine content
+python src/langchain/lc_merge_runner.py
+```
+
 
 ## 📋 Makefile Usage
 
@@ -136,6 +138,7 @@ make check-setup         # Validate project setup
 ### Advanced Makefile Features
 
 #### Complete Workflows
+
 ```bash
 # Generate book from outline (complete pipeline)
 make book-from-outline OUTLINE="examples/sample_outline_text.txt" TITLE="My Book"
@@ -147,73 +150,6 @@ make quick-ask "What is machine learning?" KEY="science" CONTENT_TYPE="technical
 make batch-workflow FILE="jobs.jsonl" KEY="biology" PARALLEL=4
 ```
 
-#### LangChain Script Options via Makefile
-
-**`make lc-ask`** - Complete RAG query options:
-- `INSTR`: Instruction for retrieval (what to search for)
-- `TASK`: Task prefix for LLM (how to answer)
-- `FILE`: JSON file containing query parameters
-- `KEY`: Collection key (default: default)
-- `CONTENT_TYPE`: Writing style (default: pure_research)
-- `K`: Number of documents to retrieve (default: 30)
-
-**`make lc-batch`** - Batch processing with full options:
-- `FILE`: JSON or JSONL file containing job definitions
-- `KEY`: Collection key (default: default)
-- `CONTENT_TYPE`: Writing style (default: pure_research)
-- `K`: Retriever top-k (default: 30)
-- `PARALLEL`: Number of parallel workers (default: 1)
-- `OUTPUT_DIR`: Custom output directory
-
-**`make lc-merge-runner`** - Intelligent content merging:
-- `SUB`: Subsection ID (e.g., 1A1)
-- `JOBS`: Path to JSONL jobs file
-- `KEY`: Collection key for lc_ask
-- `K`: Retriever top-k for lc_ask
-- `BATCH_ONLY`: Force use of batch results only
-- `CHAPTER/SECTION/SUBSECTION`: Hierarchical context titles
-
-**`make lc-outline-converter`** - Outline conversion:
-- `OUTLINE`: Input outline file (JSON, Markdown, or Text)
-- `OUTPUT`: Output book structure JSON file
-- `TITLE/TOPIC/AUDIENCE`: Override metadata
-- `WORDCOUNT`: Override word count target
-- `NUM_PROMPTS`: Number of prompts to generate per section
-- `CONTENT_TYPE`: Content type for job generation
-
-**`make lc-book-runner`** - Complete book orchestration:
-- `BOOK`: JSON file defining book structure
-- `OUTPUT`: Output markdown file path
-- `FORCE`: Force regeneration of all content
-- `SKIP_MERGE`: Skip merge processing, only run batch
-- `USE_RAG`: Use RAG for additional context
-- `RAG_KEY`: Collection key for RAG retrieval
-- `NUM_PROMPTS`: Number of prompts to generate per section
-
-#### Example Usage Patterns
-
-```bash
-# Simple RAG query
-make lc-ask "Explain neural networks"
-
-# Advanced RAG query with all options
-make lc-ask INSTR="Explain neural networks" TASK="Write for beginners" KEY="science" CONTENT_TYPE="technical_manual_writer" K=20
-
-# Batch processing with parallel execution
-make lc-batch FILE="examples/sample_jobs_1A1.jsonl" KEY="biology" PARALLEL=4
-
-# Convert outline with custom metadata
-make lc-outline-converter OUTLINE="examples/sample_outline_text.txt" TITLE="My Book" TOPIC="AI" AUDIENCE="developers"
-
-# Complete book generation
-make lc-book-runner BOOK="examples/book_structure_example.json" OUTPUT="my_book.md"
-
-# Force regeneration of all content
-make lc-book-runner BOOK="book.json" FORCE=1
-
-# Skip merge step (batch only)
-make lc-book-runner BOOK="book.json" SKIP_MERGE=1
-```
 
 ### Makefile Benefits
 
@@ -247,7 +183,7 @@ make repack-faiss KEY=science EMBED_MODEL=BAAI/bge-small-en-v1.5
 make repack-faiss FAISS_DIR=storage/faiss_science__BAAI-bge-small-en-v1.5 OUT=storage/faiss_science__BAAI-bge-small-en-v1.5_repacked
 ```
 
-#### lc_ask.py - Core LLM Interface
+#### ⏯️ `lc_ask.py` - Core LLM Interface
 
 **Purpose**: Direct interface to language models for single queries.
 
@@ -276,7 +212,27 @@ python src/langchain/lc_ask.py ask "Explain neural networks" --content-type tech
 python src/langchain/lc_ask.py ask --file query.json --key biology
 ```
 
-#### lc_batch.py - Batch Processing
+**Makefile Usage**:
+
+**`make lc-ask`** - Complete RAG query options:
+- `INSTR`: Instruction for retrieval (what to search for)
+- `TASK`: Task prefix for LLM (how to answer)
+- `FILE`: JSON file containing query parameters
+- `KEY`: Collection key (default: default)
+- `CONTENT_TYPE`: Writing style (default: pure_research)
+- `K`: Number of documents to retrieve (default: 30)
+
+```bash
+# Simple RAG query
+make lc-ask "Explain neural networks"
+
+# Advanced RAG query with all options
+make lc-ask INSTR="Explain neural networks" TASK="Write for beginners" KEY="science" CONTENT_TYPE="technical_manual_writer" K=20
+```
+
+---
+
+#### ⏯️ `lc_batch.py` - Batch Processing
 
 **Purpose**: Process multiple content generation jobs in parallel.
 
@@ -305,7 +261,24 @@ python src/langchain/lc_batch.py --jobs jobs.jsonl --parallel 4 --k 30
 python src/langchain/lc_batch.py --jobs jobs.jsonl --output-dir ./custom_output
 ```
 
-#### lc_build_index.py - Index Builder
+**Makefile Usage**:
+
+**`make lc-batch`** - Batch processing with full options:
+- `FILE`: JSON or JSONL file containing job definitions
+- `KEY`: Collection key (default: default)
+- `CONTENT_TYPE`: Writing style (default: pure_research)
+- `K`: Retriever top-k (default: 30)
+- `PARALLEL`: Number of parallel workers (default: 1)
+- `OUTPUT_DIR`: Custom output directory
+
+```bash
+# Batch processing with parallel execution
+make lc-batch FILE="examples/sample_jobs_1A1.jsonl" KEY="biology" PARALLEL=4
+```
+
+---
+
+#### ⏯️ `lc_build_index.py` - Index Builder
 
 **Purpose**: Create vector indexes for retrieval-augmented generation.
 
@@ -332,7 +305,9 @@ python src/langchain/lc_build_index.py --source data/ --index --resume --shard_s
 
 ```
 
-#### lc_merge_runner.py - Advanced Merge System
+---
+
+#### ⏯️ `lc_merge_runner.py` - Advanced Merge System
 
 **Purpose**: Intelligent content merging with multi-stage editorial pipelines.
 
@@ -366,7 +341,19 @@ python src/langchain/lc_merge_runner.py --sub 1A1 --key science
 python src/langchain/lc_merge_runner.py --jobs data_jobs/1A1.jsonl --chapter "Chapter 1"
 ```
 
-#### lc_outline_generator.py - Interactive Outline Creator
+**Makefile Usage**:
+
+**`make lc-merge-runner`** - Intelligent content merging:
+- `SUB`: Subsection ID (e.g., 1A1)
+- `JOBS`: Path to JSONL jobs file
+- `KEY`: Collection key for lc_ask
+- `K`: Retriever top-k for lc_ask
+- `BATCH_ONLY`: Force use of batch results only
+- `CHAPTER/SECTION/SUBSECTION`: Hierarchical context titles
+
+---
+
+#### ⏯️ `lc_outline_generator.py` - Interactive Outline Creator
 
 **Purpose**: Generate intelligent book outlines using LangChain's indexed knowledge.
 
@@ -390,7 +377,9 @@ python src/langchain/lc_outline_generator.py
 python src/langchain/lc_outline_generator.py --output my_book_outline.json
 ```
 
-#### lc_outline_converter.py - Outline to Book Structure Converter
+---
+
+#### ⏯️ `lc_outline_converter.py` - Outline to Book Structure Converter
 
 **Purpose**: Convert existing outlines into book structure and job files.
 
@@ -431,6 +420,15 @@ python src/langchain/lc_outline_converter.py --outline examples/sample_outline_m
 ```
 
 **Makefile Usage**:
+
+**`make lc-outline-converter`** - Outline conversion:
+- `OUTLINE`: Input outline file (JSON, Markdown, or Text)
+- `OUTPUT`: Output book structure JSON file
+- `TITLE/TOPIC/AUDIENCE`: Override metadata
+- `WORDCOUNT`: Override word count target
+- `NUM_PROMPTS`: Number of prompts to generate per section
+- `CONTENT_TYPE`: Content type for job generation
+
 ```bash
 # Interactive outline generation
 make lc-outline-generator
@@ -453,9 +451,15 @@ make lc-book-runner examples/book_structure_example.json FORCE=1
 
 # Skip merge step (batch only)
 make lc-book-runner examples/book_structure_example.json SKIP_MERGE=1
+
+# Convert outline with custom metadata
+make lc-outline-converter OUTLINE="examples/sample_outline_text.txt" TITLE="My Book" TOPIC="AI" AUDIENCE="developers"
+
 ```
 
-#### lc_book_runner.py - Book Orchestration
+---
+
+#### ⏯️ `lc_book_runner.py` - Book Orchestration
 
 **Purpose**: High-level orchestration for entire books and chapters.
 
@@ -492,7 +496,31 @@ python src/langchain/lc_book_runner.py --book book.json --force
 python src/langchain/lc_book_runner.py --book book.json --skip-merge
 ```
 
-####  research/metadata_scan.py
+**Makefile Usage**:
+
+**`make lc-book-runner`** - Complete book orchestration:
+- `BOOK`: JSON file defining book structure
+- `OUTPUT`: Output markdown file path
+- `FORCE`: Force regeneration of all content
+- `SKIP_MERGE`: Skip merge processing, only run batch
+- `USE_RAG`: Use RAG for additional context
+- `RAG_KEY`: Collection key for RAG retrieval
+- `NUM_PROMPTS`: Number of prompts to generate per section
+
+```bash
+# Complete book generation
+make lc-book-runner BOOK="examples/book_structure_example.json" OUTPUT="my_book.md"
+
+# Force regeneration of all content
+make lc-book-runner BOOK="book.json" FORCE=1
+
+# Skip merge step (batch only)
+make lc-book-runner BOOK="book.json" SKIP_MERGE=1
+```
+
+---
+
+####  ⏯️ `research/metadata_scan.py`
 
 **Purpose**: To add metadata (doi/isbn/author/title/date) to pdfs prior to indexing
 
@@ -530,7 +558,9 @@ python research/metadata_scan.py --dir data_raw  --write
 make scan-metadata DIR=data_raw WRITE=1 RENAME=yes SKIP_EXISTING=1
 ```
 
-####  research/collector_ui.py
+---
+
+####  ⏯️ `research/collector_ui.py`
 
 **Purpose**: to aid in the gathering and metadata population of journal articles and books in pdf format which serve as the basis for the RAG index
 
@@ -561,7 +591,9 @@ python research/collector_ui.py --file ../research/out/research.html
 python research/collector_ui.py --xml ../research/out/research.xml
 ```
 
-### CLI Commands (src/cli/commands.py)
+---
+
+### CLI Commands (src/cli/commands.py) 
 
 The CLI commands module provides a streamlined interface using Typer:
 
@@ -623,6 +655,8 @@ rag> sources
 
 rag> quit
 ```
+
+
 
 ### Comparison of Interfaces
 
