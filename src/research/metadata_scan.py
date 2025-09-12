@@ -30,6 +30,19 @@ def _slugify(s: str, maxlen: int = 120) -> str:
     s = re.sub(r"_+", "_", s).strip("_")
     return s[:maxlen] if len(s) > maxlen else s
 
+def _decode_doi_from_filename(filename: str) -> str:
+    if 'doi' in filename or '10.' in filename:
+        parts = filename.split('--')
+        if 'doi' in parts[0]:
+            doi = parts[1]+'/'+parts[2]
+        else: 
+            doi = parts[0]+'/'+parts[1]
+        
+        print ("found doi:"+doi)
+        return doi 
+    else:
+        return ""
+
 
 def _detect_ids(text: str) -> Dict[str, str]:
     ids: Dict[str, str] = {}
@@ -74,6 +87,11 @@ def _gather_pdf_info(pdf_path: Path) -> Tuple[Dict[str, Any], bool]:
 
     text = pdf_path.name + "\n" + _extract_text_first_pages(pdf_path)
     ids = _detect_ids(text)
+    doi = _decode_doi_from_filename(pdf_path.name)
+    if doi != "":
+        ids['doi'] = doi
+    
+
     meta: Dict[str, Any] = {
         "title": pdf_path.stem,
         "authors": [],
@@ -153,6 +171,8 @@ def main(
     rename: str = typer.Option("yes", "--rename", help="Rename files to slugified title and year [yes|no]"),
     allow_delete: bool = typer.Option(False, "--allow-delete", help="Enable [R] remove option to delete files"),
     rescan: bool = typer.Option(False, "--rescan", help="Ignore cached results and re-query remote APIs"),
+    quickscan: bool = typer.Option(False, "--quickscan", help="Just handle files that can be automatically processed"),
+
 ):
     """Scan PDFs for DOI/ISBN, fetch metadata, and record to manifest (v1)."""
     pdfs: List[Path] = sorted(Path(dir).glob(glob))
@@ -199,6 +219,9 @@ def main(
             "processed": False,
             **meta,
         }
+
+        if quickscan and not found:
+            continue
 
         while True:
             typer.echo(f"\nFile: {pdf}")
@@ -300,6 +323,7 @@ def main(
                 else:
                     typer.echo("[dry-run] metadata would be written")
                 break
+
             elif choice == "v":
                 print('opening: '+entry['filename']) 
                 webbrowser.open(entry['filename'])
