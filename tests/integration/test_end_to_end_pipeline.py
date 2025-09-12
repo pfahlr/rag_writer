@@ -5,37 +5,45 @@ Integration tests for the complete content generation pipeline.
 import json
 import pytest
 import yaml
-from pathlib import Path
 from unittest.mock import patch, Mock
 import os
+
 project_base = os.getcwd()
 
 from langchain.lc_outline_converter import (
     parse_text_outline,
     generate_book_structure,
-    generate_job_file
+    generate_job_file,
 )
 from langchain.lc_batch import load_jsonl_file, main as batch_main
 from langchain.lc_merge_runner import main as merge_main
-from langchain.lc_book_runner import load_book_structure, main as book_main
+from langchain.lc_book_runner import load_book_structure
 
 
 @pytest.mark.integration
 class TestEndToEndPipeline:
     """Test the complete pipeline from outline to final content."""
 
-    def test_complete_pipeline_text_outline(self, temp_dir, sample_text_outline, mock_subprocess_run, mock_console):
+    def test_complete_pipeline_text_outline(
+        self, temp_dir, sample_text_outline, mock_subprocess_run, mock_console
+    ):
         """Test complete pipeline with text outline input."""
         # Step 1: Parse outline and generate book structure
         sections, metadata = parse_text_outline(sample_text_outline)
 
-        with patch('langchain.lc_outline_converter.ROOT', temp_dir), \
-             patch('langchain.job_generation.ROOT', temp_dir):
+        with patch("langchain.lc_outline_converter.ROOT", temp_dir), patch(
+            "langchain.job_generation.ROOT", temp_dir
+        ):
             book_structure = generate_book_structure(sections, metadata)
 
             # Verify book structure
-            assert len(book_structure["sections"]) == 9  # 2 chapters + 3 sections + 4 subsections (all levels)
-            assert book_structure["title"] == "Professional Development Handbook for Primary School Educators"
+            assert (
+                len(book_structure["sections"]) == 9
+            )  # 2 chapters + 3 sections + 4 subsections (all levels)
+            assert (
+                book_structure["title"]
+                == "Professional Development Handbook for Primary School Educators"
+            )
 
             # Step 2: Generate job files
             generated_jobs = 0
@@ -70,10 +78,7 @@ class TestEndToEndPipeline:
         # Create a minimal book structure
         book_data = {
             "title": "Test Book",
-            "metadata": {
-                "target_audience": "General",
-                "topic": "Testing"
-            },
+            "metadata": {"target_audience": "General", "topic": "Testing"},
             "sections": [
                 {
                     "subsection_id": "1A1",
@@ -81,47 +86,51 @@ class TestEndToEndPipeline:
                     "job_file": "data_jobs/1A1.jsonl",
                     "batch_params": {"key": "test"},
                     "merge_params": {"key": "test"},
-                    "dependencies": []
+                    "dependencies": [],
                 }
-            ]
+            ],
         }
 
         book_file = temp_dir / "test_book.json"
-        with open(book_file, 'w') as f:
+        with open(book_file, "w") as f:
             json.dump(book_data, f)
 
         # Create corresponding job file
         job_file = temp_dir / "data_jobs" / "1A1.jsonl"
         job_file.parent.mkdir(parents=True, exist_ok=True)
 
-        jobs = [{
-            "task": "Test task",
-            "instruction": "Test instruction",
-            "context": {"subsection_id": "1A1"}
-        }]
+        jobs = [
+            {
+                "task": "Test task",
+                "instruction": "Test instruction",
+                "context": {"subsection_id": "1A1"},
+            }
+        ]
 
-        with open(job_file, 'w') as f:
+        with open(job_file, "w") as f:
             for job in jobs:
-                f.write(json.dumps(job) + '\n')
+                f.write(json.dumps(job) + "\n")
 
         # Test book structure loading
-        with patch('src.langchain.lc_book_runner.ROOT', temp_dir):
+        with patch("src.langchain.lc_book_runner.ROOT", temp_dir):
             book_structure = load_book_structure(book_file)
 
             assert book_structure.title == "Test Book"
             assert len(book_structure.sections) == 1
             assert book_structure.sections[0].subsection_id == "1A1"
 
-    def test_batch_processing_integration(self, temp_dir, sample_job_data, mock_subprocess_run, mock_console):
+    def test_batch_processing_integration(
+        self, temp_dir, sample_job_data, mock_subprocess_run, mock_console
+    ):
         """Test batch processing with JSONL input."""
         # Create test JSONL file
         jsonl_file = temp_dir / "test_jobs.jsonl"
-        with open(jsonl_file, 'w') as f:
+        with open(jsonl_file, "w") as f:
             for job in sample_job_data:
-                f.write(json.dumps(job) + '\n')
+                f.write(json.dumps(job) + "\n")
 
         # Mock command line arguments for batch processing
-        test_args = ['--jobs', str(jsonl_file), '--key', 'test_key']
+        test_args = ["--jobs", str(jsonl_file), "--key", "test_key"]
 
         # Create a mock config that uses temp_dir paths
         mock_config = Mock()
@@ -137,17 +146,21 @@ class TestEndToEndPipeline:
         mock_config.openai_api_key = "test-key"
         mock_config.llm.ollama_model = "llama3.1"
 
-        with patch('sys.argv', ['lc_batch.py'] + test_args), \
-              patch('src.langchain.lc_batch.config', mock_config), \
-              patch('src.langchain.lc_batch.validate_collection', return_value=True), \
-              patch('src.langchain.lc_batch.run_rag_query') as mock_rag_query, \
-              patch('subprocess.run', side_effect=mock_subprocess_run):
+        with patch("sys.argv", ["lc_batch.py"] + test_args), patch(
+            "src.langchain.lc_batch.config", mock_config
+        ), patch(
+            "src.langchain.lc_batch.validate_collection", return_value=True
+        ), patch(
+            "src.langchain.lc_batch.run_rag_query"
+        ) as mock_rag_query, patch(
+            "subprocess.run", side_effect=mock_subprocess_run
+        ):
 
             # Mock RAG query to return success
             mock_rag_query.return_value = {
                 "generated_content": "Mock generated content",
                 "sources": [{"title": "Test Doc", "source": "test.pdf"}],
-                "status": "success"
+                "status": "success",
             }
 
             # This should complete without errors
@@ -155,79 +168,92 @@ class TestEndToEndPipeline:
 
             # Verify output was generated (batch processor saves to real project directory)
             from pathlib import Path
-            real_output_dir = Path(project_base+"/output/batch")
+
+            real_output_dir = Path(project_base + "/output/batch")
             output_files = list(real_output_dir.glob("batch_results_*.json"))
             assert len(output_files) >= 1
 
             # Verify output contents
-            with open(output_files[-1], 'r') as f:  # Get the most recent file
+            with open(output_files[-1], "r") as f:  # Get the most recent file
                 results = json.load(f)
 
             assert len(results) >= 2  # At least two jobs processed
-            assert all('status' in result for result in results)
+            assert all("status" in result for result in results)
 
-    def test_merge_pipeline_integration(self, temp_dir, mock_subprocess_run, mock_console):
+    def test_merge_pipeline_integration(
+        self, temp_dir, mock_subprocess_run, mock_console
+    ):
         """Test merge pipeline with batch results."""
         # Create mock batch results
         batch_results = [
             {
                 "section": "1A1",
                 "generated_content": "Test content 1",
-                "status": "success"
+                "status": "success",
             },
             {
                 "section": "1A1",
                 "generated_content": "Test content 2",
-                "status": "success"
-            }
+                "status": "success",
+            },
         ]
 
         batch_file = temp_dir / "output" / "batch" / "batch_results_test.json"
         batch_file.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(batch_file, 'w') as f:
+        with open(batch_file, "w") as f:
             json.dump(batch_results, f)
 
         # Create merge types configuration
-        merge_types_file = temp_dir / "src" / "tool" / "prompts" / "merge_types.yaml"
+        merge_types_file = (
+            temp_dir / "src" / "config" / "content" / "prompts" / "merge_types.yaml"
+        )
         merge_types_file.parent.mkdir(parents=True, exist_ok=True)
 
         merge_config = {
             "generic_editor": {
                 "description": "Basic editor merge",
-                "system_prompt": "You are a senior editor..."
+                "system_prompt": "You are a senior editor...",
             }
         }
 
-        with open(merge_types_file, 'w') as f:
+        with open(merge_types_file, "w") as f:
             yaml.dump(merge_config, f)
 
         # Mock user inputs for merge process
-        inputs = ['1', 'all', 'Test Chapter', 'Test Section', 'Test Subsection']
+        inputs = ["1", "all", "Test Chapter", "Test Section", "Test Subsection"]
 
         # Mock the config to use temp_dir
         mock_config = Mock()
         mock_config.paths.root_dir = temp_dir
         mock_config.paths.output_dir = temp_dir / "output"
 
-        with patch('src.langchain.lc_merge_runner.get_config', return_value=mock_config), \
-             patch('builtins.input', side_effect=inputs), \
-             patch('subprocess.run', side_effect=mock_subprocess_run), \
-             patch('sys.argv', ['lc_merge_runner.py']):
+        with patch(
+            "src.langchain.lc_merge_runner.get_config", return_value=mock_config
+        ), patch("builtins.input", side_effect=inputs), patch(
+            "subprocess.run", side_effect=mock_subprocess_run
+        ), patch(
+            "sys.argv", ["lc_merge_runner.py"]
+        ):
 
             # This should complete without errors
             merge_main()
 
             # Verify merged output was generated (merge runner saves to real project directory)
             from pathlib import Path
-            real_output_dir = Path(project_base+"/output/merged")
+
+            real_output_dir = Path(project_base + "/output/merged")
             merged_files = list(real_output_dir.glob("merged_content_*.json"))
             assert len(merged_files) >= 1
 
-    def test_advanced_pipeline_integration(self, temp_dir, mock_subprocess_run, mock_console):
+    def test_advanced_pipeline_integration(
+        self, temp_dir, mock_subprocess_run, mock_console
+    ):
         """Test advanced multi-stage pipeline."""
         # Create merge types with advanced pipeline
-        merge_types_file = temp_dir / "src" / "tool" / "prompts" / "merge_types.yaml"
+        merge_types_file = (
+            temp_dir / "src" / "config" / "content" / "prompts" / "merge_types.yaml"
+        )
         merge_types_file.parent.mkdir(parents=True, exist_ok=True)
 
         merge_config = {
@@ -236,21 +262,21 @@ class TestEndToEndPipeline:
                 "stages": {
                     "critique": {
                         "system_prompt": "You are a senior editor evaluating content quality...",
-                        "output_format": "json"
+                        "output_format": "json",
                     },
                     "merge": {
                         "system_prompt": "You are a consolidating editor...",
-                        "output_format": "markdown"
+                        "output_format": "markdown",
                     },
                     "style": {
                         "system_prompt": "You are a line editor harmonizing tone...",
-                        "output_format": "markdown"
-                    }
-                }
+                        "output_format": "markdown",
+                    },
+                },
             }
         }
 
-        with open(merge_types_file, 'w') as f:
+        with open(merge_types_file, "w") as f:
             yaml.dump(merge_config, f)
 
         # Create mock batch results
@@ -258,34 +284,41 @@ class TestEndToEndPipeline:
             {
                 "section": "1A1",
                 "generated_content": "Test content for advanced pipeline",
-                "status": "success"
+                "status": "success",
             }
         ]
 
         batch_file = temp_dir / "output" / "batch" / "batch_results_test.json"
         batch_file.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(batch_file, 'w') as f:
+        with open(batch_file, "w") as f:
             json.dump(batch_results, f)
 
         # Mock user inputs
-        inputs = ['2', 'all', 'Test Chapter', 'Test Section', 'Test Subsection']  # Select advanced pipeline
+        inputs = [
+            "2",
+            "all",
+            "Test Chapter",
+            "Test Section",
+            "Test Subsection",
+        ]  # Select advanced pipeline
 
-        with patch('builtins.input', side_effect=inputs), \
-             patch('subprocess.run', side_effect=mock_subprocess_run), \
-             patch('sys.argv', ['lc_merge_runner.py']):
+        with patch("builtins.input", side_effect=inputs), patch(
+            "subprocess.run", side_effect=mock_subprocess_run
+        ), patch("sys.argv", ["lc_merge_runner.py"]):
 
             merge_main()
 
             # Verify advanced pipeline was executed
             # The merge runner saves to the real project directory, not temp_dir
             from pathlib import Path
-            real_output_dir = Path(project_base+"/output/merged")
+
+            real_output_dir = Path(project_base + "/output/merged")
             merged_files = list(real_output_dir.glob("merged_content_*.json"))
             assert len(merged_files) >= 1
 
             # Check that pipeline metadata indicates advanced processing
-            with open(merged_files[0], 'r') as f:
+            with open(merged_files[0], "r") as f:
                 merged_data = json.load(f)
 
             assert merged_data["metadata"]["pipeline_type"] == "advanced"
@@ -317,16 +350,16 @@ class TestConfigurationIntegration:
         merge_config = {
             "generic_editor": {
                 "description": "Basic editor merge",
-                "system_prompt": "You are a senior editor..."
+                "system_prompt": "You are a senior editor...",
             }
         }
 
-        with open(merge_types_file, 'w') as f:
+        with open(merge_types_file, "w") as f:
             yaml.dump(merge_config, f)
 
         # Verify file was created and has content
         assert merge_types_file.exists()
-        with open(merge_types_file, 'r') as f:
+        with open(merge_types_file, "r") as f:
             content = f.read()
             assert "generic_editor" in content
             assert "Basic editor merge" in content

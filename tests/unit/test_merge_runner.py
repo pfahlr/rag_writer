@@ -3,10 +3,8 @@ Unit tests for merge runner functionality.
 """
 
 import json
-import pytest
 import yaml
-from pathlib import Path
-from unittest.mock import patch, Mock, call
+from unittest.mock import patch
 
 from src.langchain.lc_merge_runner import (
     load_merge_types,
@@ -18,7 +16,7 @@ from src.langchain.lc_merge_runner import (
     run_advanced_pipeline,
     merge_section_content,
     save_merged_results,
-    main
+    main,
 )
 
 
@@ -28,34 +26,34 @@ class TestMergeTypeLoading:
     def test_load_merge_types_valid(self, temp_dir):
         """Test loading valid merge types YAML."""
         # Create test merge types file in the expected location
-        merge_types_dir = temp_dir / "src" / "tool" / "prompts"
+        merge_types_dir = temp_dir / "src" / "config" / "content" / "prompts"
         merge_types_dir.mkdir(parents=True, exist_ok=True)
         merge_types_file = merge_types_dir / "merge_types.yaml"
 
         merge_config = {
             "generic_editor": {
                 "description": "Basic editor merge",
-                "system_prompt": "You are a senior editor..."
+                "system_prompt": "You are a senior editor...",
             },
             "advanced_pipeline": {
                 "description": "Multi-stage pipeline",
                 "stages": {
                     "critique": {
                         "system_prompt": "You are a critic...",
-                        "output_format": "json"
+                        "output_format": "json",
                     },
                     "merge": {
                         "system_prompt": "You are a merger...",
-                        "output_format": "markdown"
-                    }
-                }
-            }
+                        "output_format": "markdown",
+                    },
+                },
+            },
         }
 
-        with open(merge_types_file, 'w') as f:
+        with open(merge_types_file, "w") as f:
             yaml.dump(merge_config, f)
 
-        with patch('src.langchain.lc_merge_runner.ROOT', temp_dir):
+        with patch("src.langchain.lc_merge_runner.ROOT", temp_dir):
             merge_types = load_merge_types()
 
             assert len(merge_types) == 2
@@ -77,7 +75,7 @@ class TestMergeTypeLoading:
 
     def test_load_merge_types_missing_file(self, temp_dir, mock_console):
         """Test loading merge types when file doesn't exist."""
-        with patch('src.langchain.lc_merge_runner.ROOT', temp_dir):
+        with patch("src.langchain.lc_merge_runner.ROOT", temp_dir):
             merge_types = load_merge_types()
 
             # Should return default configuration
@@ -89,7 +87,7 @@ class TestMergeTypeLoading:
         merge_types_file = temp_dir / "merge_types.yaml"
         merge_types_file.write_text("invalid: yaml: content: [")
 
-        with patch('src.langchain.lc_merge_runner.ROOT', temp_dir):
+        with patch("src.langchain.lc_merge_runner.ROOT", temp_dir):
             merge_types = load_merge_types()
 
             # Should return default configuration
@@ -106,15 +104,15 @@ class TestMergeTypeSelection:
             "generic_editor": {
                 "description": "Basic editor merge",
                 "system_prompt": "You are a senior editor...",
-                "stages": None
+                "stages": None,
             },
             "advanced_pipeline": {
                 "description": "Multi-stage pipeline",
-                "stages": {"critique": {}, "merge": {}}
-            }
+                "stages": {"critique": {}, "merge": {}},
+            },
         }
 
-        with patch('builtins.input', return_value='1'):  # Select first option
+        with patch("builtins.input", return_value="1"):  # Select first option
             selected = select_merge_type(merge_types)
             assert selected == "generic_editor"
 
@@ -124,11 +122,11 @@ class TestMergeTypeSelection:
             "generic_editor": {
                 "description": "Basic editor merge",
                 "system_prompt": "You are a senior editor...",
-                "stages": None
+                "stages": None,
             }
         }
 
-        with patch('builtins.input', return_value='generic_editor'):
+        with patch("builtins.input", return_value="generic_editor"):
             selected = select_merge_type(merge_types)
             assert selected == "generic_editor"
 
@@ -138,12 +136,12 @@ class TestMergeTypeSelection:
             "generic_editor": {
                 "description": "Basic editor merge",
                 "system_prompt": "You are a senior editor...",
-                "stages": None
+                "stages": None,
             }
         }
 
-        inputs = ['invalid', '99', 'generic_editor']  # Invalid, then valid
-        with patch('builtins.input', side_effect=inputs):
+        inputs = ["invalid", "99", "generic_editor"]  # Invalid, then valid
+        with patch("builtins.input", side_effect=inputs):
             selected = select_merge_type(merge_types)
             assert selected == "generic_editor"
 
@@ -156,10 +154,10 @@ class TestSectionSelection:
         sections = {
             "1A1": [{"status": "success"}],
             "1A2": [{"status": "success"}],
-            "1B1": [{"status": "success"}]
+            "1B1": [{"status": "success"}],
         }
 
-        with patch('builtins.input', return_value='1A1,1B1'):
+        with patch("builtins.input", return_value="1A1,1B1"):
             selected = select_sections(sections)
             assert set(selected) == {"1A1", "1B1"}
 
@@ -168,22 +166,19 @@ class TestSectionSelection:
         sections = {
             "1A1": [{"status": "success"}],
             "1A2": [{"status": "success"}],
-            "1B1": [{"status": "success"}]
+            "1B1": [{"status": "success"}],
         }
 
-        with patch('builtins.input', return_value='all'):
+        with patch("builtins.input", return_value="all"):
             selected = select_sections(sections)
             assert set(selected) == {"1A1", "1A2", "1B1"}
 
     def test_select_sections_invalid(self, mock_console):
         """Test handling invalid section selection."""
-        sections = {
-            "1A1": [{"status": "success"}],
-            "1A2": [{"status": "success"}]
-        }
+        sections = {"1A1": [{"status": "success"}], "1A2": [{"status": "success"}]}
 
-        inputs = ['invalid', '1A1']  # Invalid, then valid
-        with patch('builtins.input', side_effect=inputs):
+        inputs = ["invalid", "1A1"]  # Invalid, then valid
+        with patch("builtins.input", side_effect=inputs):
             selected = select_sections(sections)
             assert selected == ["1A1"]
 
@@ -196,19 +191,19 @@ class TestJobFileSelection:
         job_file = temp_dir / "custom_jobs.jsonl"
         job_file.write_text('{"test": "data"}')
 
-        with patch('builtins.input', side_effect=['1', str(job_file)]):
+        with patch("builtins.input", side_effect=["1", str(job_file)]):
             result = select_job_file()
             assert result == job_file
 
     def test_select_job_file_default_path(self, mock_console):
         """Test using default job file path."""
-        with patch('builtins.input', side_effect=['2', '1A1']):
+        with patch("builtins.input", side_effect=["2", "1A1"]):
             result = select_job_file()
             assert result is None  # Will use default path
 
     def test_select_job_file_skip(self, mock_console):
         """Test skipping job file processing."""
-        with patch('builtins.input', return_value='3'):
+        with patch("builtins.input", return_value="3"):
             result = select_job_file()
             assert result is False
 
@@ -218,14 +213,14 @@ class TestContextInfo:
 
     def test_get_context_info(self, mock_console):
         """Test gathering context information."""
-        inputs = ['Test Chapter', 'Test Section', 'Test Subsection']
+        inputs = ["Test Chapter", "Test Section", "Test Subsection"]
 
-        with patch('builtins.input', side_effect=inputs):
+        with patch("builtins.input", side_effect=inputs):
             context = get_context_info()
 
-            assert context['chapter'] == 'Test Chapter'
-            assert context['section'] == 'Test Section'
-            assert context['subsection'] == 'Test Subsection'
+            assert context["chapter"] == "Test Chapter"
+            assert context["section"] == "Test Section"
+            assert context["subsection"] == "Test Subsection"
 
 
 class TestPipelineStageExecution:
@@ -247,7 +242,7 @@ class TestAdvancedPipeline:
         """Test advanced pipeline with no successful variations."""
         variations = [
             {"status": "failed", "generated_content": ""},
-            {"status": "error", "generated_content": ""}
+            {"status": "error", "generated_content": ""},
         ]
 
         pipeline_stages = {"merge": {"system_prompt": "Merge..."}}
@@ -266,12 +261,12 @@ class TestSimpleMerge:
         """Test successful simple merge."""
         variations = [
             {"status": "success", "generated_content": "Content 1"},
-            {"status": "success", "generated_content": "Content 2"}
+            {"status": "success", "generated_content": "Content 2"},
         ]
 
         context = {"chapter": "1", "section": "A", "subsection": "1"}
 
-        with patch('subprocess.run', side_effect=mock_subprocess_run):
+        with patch("subprocess.run", side_effect=mock_subprocess_run):
             result = merge_section_content(variations, context, "Test prompt")
 
             assert result == "Mock generated content"
@@ -280,7 +275,7 @@ class TestSimpleMerge:
         """Test merge with no successful variations."""
         variations = [
             {"status": "failed", "generated_content": ""},
-            {"status": "error", "generated_content": ""}
+            {"status": "error", "generated_content": ""},
         ]
 
         context = {"chapter": "1", "section": "A", "subsection": "1"}
@@ -301,21 +296,23 @@ class TestResultSaving:
                 "merged_content": "Merged content",
                 "context": {"chapter": "1", "section": "A", "subsection": "1"},
                 "merge_type": "generic_editor",
-                "pipeline_type": "simple"
+                "pipeline_type": "simple",
             }
         }
 
         context = {"chapter": "1", "section": "A", "subsection": "1"}
 
-        with patch('src.langchain.lc_merge_runner.ROOT', temp_dir):
+        with patch("src.langchain.lc_merge_runner.ROOT", temp_dir):
             save_merged_results(merged_sections, context, "generic_editor")
 
             # Check output file was created
-            output_files = list((temp_dir / "output" / "merged").glob("merged_content_*.json"))
+            output_files = list(
+                (temp_dir / "output" / "merged").glob("merged_content_*.json")
+            )
             assert len(output_files) == 1
 
             # Verify contents
-            with open(output_files[0], 'r') as f:
+            with open(output_files[0], "r") as f:
                 data = json.load(f)
 
             assert data["metadata"]["merge_type"] == "generic_editor"
@@ -338,7 +335,7 @@ class TestErrorHandling:
         """Test merge with no successful variations."""
         variations = [
             {"status": "failed", "generated_content": ""},
-            {"status": "error", "generated_content": ""}
+            {"status": "error", "generated_content": ""},
         ]
 
         context = {"chapter": "1", "section": "A", "subsection": "1"}

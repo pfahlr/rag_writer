@@ -818,12 +818,12 @@ use `sops-edit env.json` to add/edit new environment variables... append `_pt` (
 
 ## 🛠️ YAML Configuration Files
 
-The system uses several YAML configuration files located in `src/tool/prompts/` to define content types, merge pipelines, and interactive presets.
+The system uses several YAML configuration files located in `src/config/content/prompts/` to define content types, merge pipelines, and interactive presets.
 
 ### Content Types Configuration
 
-**File**: `src/tool/prompts/content_types.yaml` (main index)
-**Individual Files**: `src/tool/prompts/content_types/*.yaml`
+**File**: `src/config/content/prompts/content_types.yaml` (main index)
+**Individual Files**: `src/config/content/prompts/content_types/*.yaml`
 
 Content types define different writing styles and system prompts for content generation. Each content type is stored in its own YAML file.
 
@@ -885,7 +885,7 @@ This ensures that new content types can inherit templates from the default confi
 
 ### Merge Types Configuration
 
-**File**: `src/tool/prompts/merge_types.yaml`
+**File**: `src/config/content/prompts/merge_types.yaml`
 
 Defines different merge pipeline configurations for content consolidation and editing.
 
@@ -930,7 +930,7 @@ advanced_pipeline:
 
 ### Playbooks Configuration
 
-**File**: `src/tool/prompts/playbooks.yaml`
+**File**: `src/config/content/prompts/playbooks.yaml`
 
 Defines interactive presets for complex multi-step workflows used in the CLI shell.
 
@@ -985,7 +985,7 @@ inputs:
 
 ### Output Templates
 
-**File**: `src/tool/prompts/templates.md`
+**File**: `src/config/content/prompts/templates.md`
 
 Provides structural templates for different output formats:
 
@@ -1019,21 +1019,21 @@ Provides structural templates for different output formats:
 
 #### Adding New Content Types
 
-1. Create new YAML file in `src/tool/prompts/content_types/`
+1. Create new YAML file in `src/config/content/prompts/content_types/`
 2. Define system prompt and job generation templates
 3. Use template variables for dynamic content
 4. Test with `make lc-batch CONTENT_TYPE=your_type`
 
 #### Adding New Merge Types
 
-1. Add new entry to `src/tool/prompts/merge_types.yaml`
+1. Add new entry to `src/config/content/prompts/merge_types.yaml`
 2. Define stages with system prompts and output formats
 3. Configure parameters for advanced pipelines
 4. Test with `python src/langchain/lc_merge_runner.py`
 
 #### Creating Custom Playbooks
 
-1. Add new entry to `src/tool/prompts/playbooks.yaml`
+1. Add new entry to `src/config/content/prompts/playbooks.yaml`
 2. Define interactive inputs and step workflows
 3. Use Jinja2 templating for dynamic content
 4. Test with `python -m src.cli.shell` → `preset your_preset`
@@ -1527,7 +1527,7 @@ python src/langchain/lc_merge_runner.py --jobs data_jobs/your_file.jsonl
 #### 3. YAML Configuration Errors
 ```bash
 # Validate YAML syntax
-python -c "import yaml; yaml.safe_load(open('src/tool/prompts/merge_types.yaml'))"
+python -c "import yaml; yaml.safe_load(open('src/config/content/prompts/merge_types.yaml'))"
 ```
 
 #### 4. API Key Issues
@@ -1571,13 +1571,13 @@ python src/langchain/lc_merge_runner.py --sub 1A1
 
 ### Adding New Pipeline Types
 
-1. Add configuration to `src/tool/prompts/merge_types.yaml`
+1. Add configuration to `src/config/content/prompts/merge_types.yaml`
 2. Test with sample content
 3. Update documentation
 
 ### Adding New Content Types
 
-1. Add configuration to `src/tool/prompts/content_types.yaml`
+1. Add configuration to `src/config/content/prompts/content_types.yaml`
 2. Test with lc_ask.py
 3. Document usage examples
 

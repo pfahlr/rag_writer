@@ -64,7 +64,7 @@ all: help
 
 ## Initialize project with virtual environment and dependencies
 init:
-	mkdir -p $(ROOT)/data_raw $(ROOT)/data_processed $(ROOT)/storage/lancedb_default $(ROOT)/storage/faiss_default $(ROOT)/src/llamaindex $(ROOT)/src/langchain $(ROOT)/src/tool $(ROOT)/src/tool/prompts
+	mkdir -p $(ROOT)/data_raw $(ROOT)/data_processed $(ROOT)/storage/lancedb_default $(ROOT)/storage/faiss_default $(ROOT)/src/llamaindex $(ROOT)/src/langchain $(ROOT)/src/tool $(ROOT)/src/config/content/prompts
 	$(PY_CMD) -m venv $(ROOT)/venv
 	$(PIP) install -U pip wheel setuptools
 	$(PIP) install -r $(ROOT)/requirements.txt

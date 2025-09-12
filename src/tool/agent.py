@@ -6,7 +6,7 @@ import json
 from typing import Dict, List
 
 from .base import ToolRegistry
-from .prompts import generate_tool_prompt
+from src.config.content.prompts import generate_tool_prompt
 
 
 def run_agent(
