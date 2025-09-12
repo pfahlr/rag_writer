@@ -1491,6 +1491,20 @@ If you use Podman in CI, layer caching is local by default; pushing prebuilt bas
 ---
 
 
+### Multi-agent CLI
+
+Run a tool-enabled agent that combines local RAG retrieval with tools served
+over MCP:
+
+```bash
+python -m src.cli.multi_agent "Find papers on transformers and call the time tool" \
+  --key default --mcp ./tools/mcp_server.py
+```
+
+The command registers the `rag_retrieve` tool for vector search and loads any
+tools exposed by the MCP server so the agent can invoke them during the
+conversation.
+
 ## 🔍 Troubleshooting
 
 ### Common Issues
