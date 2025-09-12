@@ -1,9 +1,26 @@
 import json
+import asyncio
+from contextlib import asynccontextmanager
+from types import SimpleNamespace, ModuleType
+import sys
+
 import pytest
 from langchain_core.documents import Document
 
-from src.tool import Tool, ToolSpec, ToolRegistry, create_rag_retrieve_tool, run_agent
 from src.core.retriever import RetrieverFactory
+
+# Stub out optional MCP dependencies so that src.tool imports succeed even when
+# the ``mcp`` package is absent.
+mcp_stub = ModuleType("mcp")
+mcp_stub.__path__ = []  # mark as package
+mcp_stub.ClientSession = object
+client_mod = ModuleType("mcp.client")
+client_mod.stdio = SimpleNamespace(StdioServerParameters=object, stdio_client=None)
+mcp_stub.client = client_mod
+sys.modules.setdefault("mcp", mcp_stub)
+sys.modules.setdefault("mcp.client", client_mod)
+
+from src.tool import Tool, ToolSpec, ToolRegistry, create_rag_retrieve_tool, run_agent
 
 
 def test_tool_registry_basic():
@@ -140,51 +157,50 @@ def test_run_agent_recovers_from_malformed_json():
     assert llm.calls == 2
 
 
-def test_mcp_tool_registration_and_invocation(monkeypatch):
-    class DummyClient:
-        def __init__(self):
-            self.fetch_called = False
-            self.called_with = None
+@pytest.mark.asyncio
+async def test_mcp_tool_registration_and_invocation(monkeypatch):
+    session = SimpleNamespace(fetch_called=False, called_with=None)
 
-        def fetch_tools(self):
-            self.fetch_called = True
-            return [
-                {
-                    "name": "adder",
-                    "description": "add numbers",
-                    "input_schema": {
-                        "type": "object",
-                        "properties": {
-                            "a": {"type": "integer"},
-                            "b": {"type": "integer"},
-                        },
-                        "required": ["a", "b"],
+    @asynccontextmanager
+    async def connect(url):  # noqa: D401 - simple dummy
+        yield session
+
+    async def fetch_tools(sess):
+        sess.fetch_called = True
+        return [
+            ToolSpec(
+                name="adder",
+                description="add numbers",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "a": {"type": "integer"},
+                        "b": {"type": "integer"},
                     },
-                    "output_schema": {
-                        "type": "object",
-                        "properties": {"result": {"type": "integer"}},
-                        "required": ["result"],
-                    },
-                }
-            ]
+                    "required": ["a", "b"],
+                },
+                output_schema={
+                    "type": "object",
+                    "properties": {"result": {"type": "integer"}},
+                    "required": ["result"],
+                },
+            )
+        ]
 
-        def call_tool(self, name, **kwargs):
-            self.called_with = (name, kwargs)
-            return {"result": kwargs["a"] + kwargs["b"]}
+    async def call_tool(sess, name, args):
+        sess.called_with = (name, args)
+        return {"result": args["a"] + args["b"]}
 
-    dummy_client = DummyClient()
-
-    class DummyModule:
-        def connect(self, url):  # noqa: D401 - simple dummy
-            return dummy_client
-
-    monkeypatch.setattr("src.tool.base.mcp_client", DummyModule())
+    dummy_module = SimpleNamespace(
+        connect=connect, fetch_tools=fetch_tools, call_tool=call_tool
+    )
+    monkeypatch.setattr("src.tool.base.mcp_client", dummy_module)
 
     reg = ToolRegistry()
-    reg.register_mcp_server("dummy://server")
-    assert dummy_client.fetch_called
+    await reg.register_mcp_server("dummy://server")
+    assert session.fetch_called
 
-    out = reg.run("adder", a=2, b=3)
+    out = await asyncio.to_thread(reg.run, "adder", a=2, b=3)
     assert out["result"] == 5
-    assert dummy_client.called_with == ("adder", {"a": 2, "b": 3})
+    assert session.called_with == ("adder", {"a": 2, "b": 3})
 
