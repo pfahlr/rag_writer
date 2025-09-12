@@ -1,14 +1,9 @@
 """Generic tool interface and registry."""
-
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any, Callable, Dict
-
-try:  # pragma: no cover - optional dependency
-    import mcp_client  # type: ignore
-except Exception:  # pragma: no cover - MCP optional
-    mcp_client = None  # type: ignore
 
 try:
     import jsonschema
@@ -43,13 +38,19 @@ class Tool:
         return result
 
 
+try:  # pragma: no cover - optional dependency
+    from . import mcp_client  # type: ignore
+except Exception:  # pragma: no cover - MCP optional
+    mcp_client = None  # type: ignore
+
+
 class ToolRegistry:
     """Registry for discovering and executing tools."""
 
     def __init__(self) -> None:
         self._tools: Dict[str, Tool] = {}
         self._mcp_tools: Dict[str, ToolSpec] = {}
-        self._mcp_client: Any | None = None
+        self._mcp_server_url: str | None = None
 
     def register(self, tool: Tool) -> None:
         self._tools[tool.spec.name] = tool
@@ -57,22 +58,16 @@ class ToolRegistry:
     def get(self, name: str) -> Tool:
         return self._tools[name]
 
-    def register_mcp_server(self, server_url: str) -> None:
+    async def register_mcp_server(self, server_url: str) -> None:
         """Connect to an MCP server and register its tools."""
-
         if mcp_client is None:  # pragma: no cover - MCP optional
             raise RuntimeError("mcp_client dependency not available")
 
-        client = mcp_client.connect(server_url)
-        for t in client.fetch_tools():
-            spec = ToolSpec(
-                name=t["name"],
-                description=t.get("description", ""),
-                input_schema=t.get("input_schema", {}),
-                output_schema=t.get("output_schema", {}),
-            )
+        async with mcp_client.connect(server_url) as session:
+            specs = await mcp_client.fetch_tools(session)
+        for spec in specs:
             self._mcp_tools[spec.name] = spec
-        self._mcp_client = client
+        self._mcp_server_url = server_url
 
     def run(self, name: str, **kwargs: Any) -> Dict[str, Any]:
         if name in self._tools:
@@ -83,9 +78,14 @@ class ToolRegistry:
             spec = self._mcp_tools[name]
             if jsonschema is not None:
                 jsonschema.validate(kwargs, spec.input_schema)
-            if self._mcp_client is None:  # pragma: no cover - register first
+            if self._mcp_server_url is None:  # pragma: no cover - register first
                 raise RuntimeError("MCP server not registered")
-            result = self._mcp_client.call_tool(name, **kwargs)
+
+            async def _call() -> Dict[str, Any]:
+                async with mcp_client.connect(self._mcp_server_url) as session:
+                    return await mcp_client.call_tool(session, name, kwargs)
+
+            result = asyncio.run(_call())
             if jsonschema is not None:
                 jsonschema.validate(result, spec.output_schema)
             return result
