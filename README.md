@@ -71,10 +71,10 @@ python src/langchain/lc_merge_runner.py
 #### Option 2: Makefile (Recommended)
 ```bash
 # Complete setup and workflow
-make init          # Set up environment
-make ingest        # Parse PDFs into documents
-make index         # Build FAISS index
-make ask "What is machine learning?"  # Ask questions
+make init                # Set up environment
+make lc-index KEY=default  # Build FAISS index
+make cli-ask "What is machine learning?"  # Ask questions via Typer CLI
+make cli-shell           # Interactive shell
 
 # Complete book generation workflow
 make book-from-outline OUTLINE="examples/sample_outline_text.txt" TITLE="My Book"
@@ -105,19 +105,16 @@ make examples      # List all available example files
 
 ### Core Workflow Targets
 
-#### Setup and Data Processing
+#### Core CLI Targets
 ```bash
-make init          # Initialize environment and install dependencies
-make ingest        # Parse PDFs into documents (LlamaIndex)
-make index         # Build FAISS index for retrieval
-make ask "question" # Ask questions using RAG (LlamaIndex)
-# or
-make ask QUESTION="question"
+make init                                # Initialize environment and install dependencies
+make lc-index KEY=foo SHARD_SIZE=2000 RESUME=1  # Build sharded FAISS index
+make cli-ask "question"                  # RAG query via Typer CLI
+make cli-shell                           # Interactive shell
 ```
 
 #### LangChain Content Generation
 ```bash
-make lc-index KEY=foo SHARD_SIZE=2000 RESUME=1  # Build sharded FAISS index (resume skips existing shards)
 make lc-ask INSTR="instruction" [TASK="task"]   # RAG query with custom parameters
 make lc-batch FILE="jobs.jsonl" [PARALLEL=4]    # Batch processing
 make lc-merge-runner [SUB=1A1]                  # Content merging

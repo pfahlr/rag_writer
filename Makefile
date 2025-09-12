@@ -28,7 +28,7 @@ EXTRACTION_DATA:= $(DATA_DIR)/extraction/studies.jsonl
 SYNTHESIS_DATA := $(DATA_DIR)/synthesis/questions.jsonl
 MANUALS_DATA   := $(DATA_DIR)/manuals/tasks.jsonl
 
-.PHONY: all init ingest index ask lc-index lc-ask lc-batch content-viewer cleanup-sources lc-merge-runner lc-outline-generator lc-outline-converter lc-book-runner tool-shell clean clean-all help show-config check-setup test test-coverage format lint quality book-from-outline quick-ask batch-workflow examples validate-gold validate-gold-retrieval validate-gold-screening validate-gold-extraction validate-gold-synthesis validate-gold-manuals docker-build docker-ask docker-index docker-shell compose-build compose-ask compose-index compose-shell sops-updatekeys sops-decrypt sops-env-export docker-build-base compose-build-base
+.PHONY: all init lc-index lc-ask lc-batch content-viewer cleanup-sources lc-merge-runner lc-outline-generator lc-outline-converter lc-book-runner cli-ask cli-shell tool-shell clean clean-all help show-config check-setup test test-coverage format lint quality book-from-outline quick-ask batch-workflow examples validate-gold validate-gold-retrieval validate-gold-screening validate-gold-extraction validate-gold-synthesis validate-gold-manuals docker-build docker-ask docker-index docker-shell compose-build compose-ask compose-index compose-shell sops-updatekeys sops-decrypt sops-env-export docker-build-base compose-build-base
 
 
 # ===== HELP =====
@@ -37,9 +37,9 @@ help:
 	@echo ""
 	@echo "QUICK START:"
 	@echo "  make init          # Set up environment and install dependencies"
-	@echo "  make ingest        # Parse PDFs into documents"
-	@echo "  make index         # Build FAISS index for retrieval"
-	@echo "  make ask QUESTION  # Ask questions using RAG"
+	@echo "  make lc-index KEY=default  # Build FAISS index for retrieval"
+	@echo "  make cli-ask \"question\"   # Ask questions using Typer CLI"
+	@echo "  make cli-shell        # Interactive RAG shell"
 	@echo ""
 	@echo "CONTENT GENERATION WORKFLOW:"
 	@echo "  1. make lc-outline-converter OUTLINE=path/to/outline.txt"
@@ -50,7 +50,7 @@ help:
 	@awk '/^[a-zA-Z_-]+:/ { \
 		helpMessage = match(lastLine, /^## (.*)/); \
 		if (helpMessage) { \
-			helpCommand = substr($$1, 1, index($$1, ":")-1); \
+			helpCommand = substr($$1, 1, index($$1, "\:")-1); \
 			helpMessage = substr(lastLine, RSTART + 3, RLENGTH); \
 			printf "  %-20s %s\n", helpCommand, helpMessage; \
 		} \
@@ -60,7 +60,7 @@ help:
 	@echo "For detailed options, use: make <target> --help"
 
 ## Initialize project environment
-all: init ingest index
+all: help
 
 ## Initialize project with virtual environment and dependencies
 init:
@@ -69,24 +69,6 @@ init:
 	$(PIP) install -U pip wheel setuptools
 	$(PIP) install -r $(ROOT)/requirements.txt
 	@echo "Init complete. Put PDFs into $(ROOT)/data_raw/"
-
-# ----- LlamaIndex -----
-
-ingest:
-	$(PY) $(ROOT)/src/llamaindex/parse_pdf.py
-
-# index [key]; default key if omitted
-index:
-	@k="$(filter-out $@,$(MAKECMDGOALS))"; \
-	if [ -z "$$k" ]; then k="$(KEY)"; fi; \
-	if [ -z "$$k" ]; then k=default; fi; \
-	$(PY) $(ROOT)/src/llamaindex/build_index.py "$$k"
-
-ask:
-	@q="$(filter-out $@,$(MAKECMDGOALS))"; \
-	if [ -z "$$q" ]; then q="$(QUESTION)"; fi; \
-	if [ -z "$$q" ]; then echo "Usage: make ask \"Your question\"  OR  make ask QUESTION=\"Your question\""; exit 1; fi; \
-	$(PY) $(ROOT)/src/llamaindex/ask.py "$$q"
 
 # ----- LangChain -----
 
@@ -143,16 +125,31 @@ lc-ask:
 ##   PARALLEL: Number of parallel workers (default: 1)
 ##   OUTPUT_DIR: Custom output directory
 lc-batch:
-	@file="$(FILE)"; key="$(KEY)"; content_type="$(CONTENT_TYPE)"; k="$(K)"; parallel="$(PARALLEL)"; output_dir="$(OUTPUT_DIR)"; \
+        @file="$(FILE)"; key="$(KEY)"; content_type="$(CONTENT_TYPE)"; k="$(K)"; parallel="$(PARALLEL)"; output_dir="$(OUTPUT_DIR)"; \
 	if [ -z "$$key" ]; then key=default; fi; \
 	if [ -z "$$content_type" ]; then content_type=pure_research; fi; \
 	if [ -z "$$k" ]; then k=30; fi; \
 	if [ -z "$$parallel" ]; then parallel=1; fi; \
 	if [ -n "$$file" ]; then \
 	  $(PY) $(ROOT)/src/langchain/lc_batch.py --jobs "$$file" --key "$$key" --content-type "$$content_type" --k "$$k" --parallel "$$parallel" $(if $(output_dir),--output-dir "$$output_dir",); \
-	else \
-	  $(PY) $(ROOT)/src/langchain/lc_batch.py --key "$$key" --content-type "$$content_type" --k "$$k" --parallel "$$parallel" $(if $(output_dir),--output-dir "$$output_dir",); \
-	fi
+        else \
+          $(PY) $(ROOT)/src/langchain/lc_batch.py --key "$$key" --content-type "$$content_type" --k "$$k" --parallel "$$parallel" $(if $(output_dir),--output-dir "$$output_dir",); \
+        fi
+
+## Ask questions via Typer CLI
+cli-ask:
+        @q="$(QUESTION)"; key="$(KEY)"; k="$(K)"; task="$(TASK)"; file="$(FILE)"; \
+        if [ -z "$$q" ]; then q="$(filter-out $@,$(MAKECMDGOALS))"; fi; \
+        if [ -z "$$q" -a -z "$$file" ]; then echo "Usage: make cli-ask \"question\" [KEY=key] [K=15] [TASK=task] [FILE=path]"; exit 1; fi; \
+        if [ -n "$$file" ]; then \
+          $(PY) -m src.cli.commands ask --file "$$file" $(if $(KEY),--key "$$key",) $(if $(K),--k "$$k",) $(if $(TASK),--task "$$task",); \
+        else \
+          $(PY) -m src.cli.commands ask "$$q" $(if $(KEY),--key "$$key",) $(if $(K),--k "$$k",) $(if $(TASK),--task "$$task",); \
+        fi
+
+## Interactive Typer shell
+cli-shell:
+	$(PY) -m src.cli.shell
 
 ## Interactive viewer for batch-generated content
 content-viewer:
