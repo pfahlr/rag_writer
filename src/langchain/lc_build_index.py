@@ -63,7 +63,7 @@ def build_faiss_for_models(
         embedder = HuggingFaceEmbeddings(model_name=emb)
         completed_index_file = base_dir / "index.faiss"
         
-        if resume and completed_index_file.exits():
+        if resume and completed_index_file.exists():
             continue
 
         existing_shards = 0
