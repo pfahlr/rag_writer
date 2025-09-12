@@ -163,6 +163,8 @@ uvicorn src.api.main:app --reload --port 8000
 * **Errors:** raise typed exceptions with context.
 * **Directory discipline:** core logic in `src/`; side effects isolated in `services/`.
 
+**DO NOT MAKE CODING STYLE UPDATES TO LINES OTHER THAN THOSE CHANGIMG TO FULFILL THE REQUIREMENTS OF THE CURRENT TASK UNLESS THE CURRENT TASK SPECIFIES REFACTORING OVER ALL OR A SUBSET OF THE SOURCE FILES. UNNECESSARY CHANGES CAN RESULT IN UNNECESSARY MERGE CONFLICTS WHEN MULTIPLE CODING TASKS ARE HANDLED IN PARALLEL**
+
 Docstrings: Google or NumPy style.
 
 ---
