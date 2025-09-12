@@ -228,9 +228,43 @@ make lc-book-runner BOOK="book.json" SKIP_MERGE=1
 
 The project provides multiple CLI interfaces for different use cases:
 
-### Direct Script Execution
+### 📜 Scripts Overview
 
-#### lc_ask.py - Core RAG Interface
+Note on FAISS index paths:
+- The multi-model builder writes FAISS directories like `storage/faiss_<key>__<embed_model>`.
+- The Typer CLI (`python -m src.cli.commands`) looks for `storage/faiss_<key>` by default.
+- If you use the multi-model builder and the Typer CLI, copy or symlink your chosen embedding index to the generic path, e.g.:
+  - `ln -s storage/faiss_science__BAAI-bge-small-en-v1.5 storage/faiss_science`
+  - `lc_ask.py` will automatically use a `...__<embed_model>_repacked` directory if present.
+
+If you upgraded LangChain and your old FAISS index fails to load, repack it without re-embedding:
+
+```bash
+# Derive paths from KEY and EMBED_MODEL
+make repack-faiss KEY=science EMBED_MODEL=BAAI/bge-small-en-v1.5
+
+# Or specify explicit directories
+make repack-faiss FAISS_DIR=storage/faiss_science__BAAI-bge-small-en-v1.5 OUT=storage/faiss_science__BAAI-bge-small-en-v1.5_repacked
+```
+
+#### lc_ask.py - Core LLM Interface
+
+**Purpose**: Direct interface to language models for single queries.
+
+**Key Features**:
+- Flexible prompt engineering
+- Multiple content types
+- JSON output support
+- Retrieval-augmented generation (RAG)
+
+**Options:**
+- `--key`: string specifying the faiss index to query
+- `--k`: number of results to return from vector database
+- `--embed-model`: the model index to query (default:`BAAI/bge-small-en-v1.5`)
+- `--ce-model`: cross encoder model (default: `cross-encoder/ms-marco-MiniLM-L-6-v2`)
+
+**Usage**:
+
 ```bash
 # Basic query
 python src/langchain/lc_ask.py ask "What is machine learning?"
@@ -243,6 +277,23 @@ python src/langchain/lc_ask.py ask --file query.json --key biology
 ```
 
 #### lc_batch.py - Batch Processing
+
+**Purpose**: Process multiple content generation jobs in parallel.
+
+**Key Features**:
+- JSONL job file processing
+- Parallel execution
+- Result aggregation
+- Progress tracking
+
+**Options:**
+- `--key`: string specifying the faiss index to query
+- `--k`: number of results to return from vector database
+- `--parallel`: number of parallel workers (default: `1`)
+- `--output-dir`: specify output directory
+- `--jobs`: JSON or JSONL file containing job definitions
+
+**Usage**:
 ```bash
 # Process jobs from JSONL file
 python src/langchain/lc_batch.py --jobs data_jobs/example.jsonl --key science
@@ -254,7 +305,56 @@ python src/langchain/lc_batch.py --jobs jobs.jsonl --parallel 4 --k 30
 python src/langchain/lc_batch.py --jobs jobs.jsonl --output-dir ./custom_output
 ```
 
-#### lc_merge_runner.py - Content Merging
+#### lc_build_index.py - Index Builder
+
+**Purpose**: Create vector indexes for retrieval-augmented generation.
+
+**Key Features**:
+- Document ingestion
+- Vector embeddings
+- Index optimization
+- Multiple data sources
+
+**Options:**
+- `--shard-size`: number of chunks per shard (default:`1000`)
+- `--resume`: Skip shards already built (default: `False`)
+- `--keep-shards`: Do not delete shard directories after merge (default: `False`)
+- `<argument>`:  string specifying the faiss index to query (same as key in other operations)
+
+**Usage**:
+```bash
+
+#simple
+python src/langchain/lc_build_index.py --source data/ --index my_index
+
+#specify shard size of 200, check for existing shards and resume a previously unfinished index operation, and do not delete shards after merge
+python src/langchain/lc_build_index.py --source data/ --index --resume --shard_size 200 --key_shards my_index
+
+```
+
+#### lc_merge_runner.py - Advanced Merge System
+
+**Purpose**: Intelligent content merging with multi-stage editorial pipelines.
+
+**Key Features**:
+- Multi-stage processing (critique → merge → style → images)
+- AI-powered content scoring
+- Jaccard similarity de-duplication
+- YAML-driven configuration
+- Command-line and interactive modes
+
+**Options:**
+- `--sub`: Subsection ID (e.g., 1A1) for job file processing"
+- `--jobs`: Path to JSONL jobs file
+- `--key`: Collection key for lc_ask
+- `--k`: Retriever top-k for lc_ask (default: `10`)
+- `--batch-only`: Force use of batch results only (skip job file prompts) (default: `False`)
+- `--chapter`: Chapter title for context
+- `--section`: Section title for context
+- `--subsection`: Subsection title for context
+  
+**Usage**:
+
 ```bash
 # Interactive mode
 python src/langchain/lc_merge_runner.py
@@ -266,28 +366,199 @@ python src/langchain/lc_merge_runner.py --sub 1A1 --key science
 python src/langchain/lc_merge_runner.py --jobs data_jobs/1A1.jsonl --chapter "Chapter 1"
 ```
 
-#### lc_book_runner.py - Book Orchestration
+#### lc_outline_generator.py - Interactive Outline Creator
+
+**Purpose**: Generate intelligent book outlines using LangChain's indexed knowledge.
+
+**Key Features**:
+- Interactive book detail collection
+- Outline depth selection (3-5 levels)
+- AI-powered outline generation using indexed content
+- Automatic conversion to book runner format
+- Comprehensive outline validation and summary
+
+**Options:**
+- `--output`: Output JSON file path
+- `--non-interactive`: not yet implemented (user will be able to supply json file containing answers to all prompts)
+  
+**Usage**:
 ```bash
-# Process complete book
-python src/langchain/lc_book_runner.py --book examples/book_structure_example.json
+# Interactive outline generation
+python src/langchain/lc_outline_generator.py
 
-# Custom output with force regeneration
-python src/langchain/lc_book_runner.py --book book.json --output my_book.md --force
-
-# Skip merge step
-python src/langchain/lc_book_runner.py --book book.json --skip-merge
+# Save to specific location
+python src/langchain/lc_outline_generator.py --output my_book_outline.json
 ```
 
-#### lc_outline_converter.py - Outline Conversion
+#### lc_outline_converter.py - Outline to Book Structure Converter
+
+**Purpose**: Convert existing outlines into book structure and job files.
+
+**Key Features**:
+- Multiple input format support (JSON, Markdown, Text)
+- Automatic hierarchical context generation
+- Job file generation for each subsection
+- Dependency relationship detection
+- Format validation and conversion
+
+**Options:**
+- `--outline`: Input outline file (JSON, Markdown, or Text)
+- `--output`: Output book structure JSON file"
+- `--title`:  Override book title
+- `--topic`: Override book topic
+- `--audience`: Override target audience
+- `--wordcount`: Override word count target
+- `--num-prompts`: Number of prompts to generate per section
+- `--content-type`: Content type for job generation (default: technical_manual_writer)
+  
+**Supported Input Formats**:
+- **JSON**: Structured outline format (from lc_outline_generator.py)
+- **Markdown**: Header-based outline (# ## ### ####)
+- **Text**: Numbered/lettered outline (1. 2. A. B. etc.)
+
 ```bash
 # Convert text outline
 python src/langchain/lc_outline_converter.py --outline examples/sample_outline_text.txt
+
+# Convert JSON outline
+python src/langchain/lc_outline_converter.py --outline my_outline.json
 
 # Convert with custom metadata
 python src/langchain/lc_outline_converter.py --outline outline.md --title "My Book" --topic "AI" --audience "developers"
 
 # Convert markdown outline
 python src/langchain/lc_outline_converter.py --outline examples/sample_outline_markdown.md --output book.json
+```
+
+**Makefile Usage**:
+```bash
+# Interactive outline generation
+make lc-outline-generator
+
+# Convert outline with custom output
+make lc-outline-converter examples/sample_outline_markdown.md OUTPUT=my_book.json
+
+# Convert with metadata overrides
+make lc-outline-converter examples/sample_outline_text.txt \
+  TITLE="My Book" \
+  TOPIC="Machine Learning" \
+  AUDIENCE="Data Scientists" \
+  WORDCOUNT=75000
+
+# Run complete book generation
+make lc-book-runner examples/book_structure_example.json
+
+# Force regeneration of all content
+make lc-book-runner examples/book_structure_example.json FORCE=1
+
+# Skip merge step (batch only)
+make lc-book-runner examples/book_structure_example.json SKIP_MERGE=1
+```
+
+#### lc_book_runner.py - Book Orchestration
+
+**Purpose**: High-level orchestration for entire books and chapters.
+
+**Key Features**:
+- Hierarchical book structure processing (4 levels deep)
+- Automatic job file generation
+- Batch and merge pipeline orchestration
+- Final document aggregation
+- Progress tracking and error recovery
+- Section dependency management
+
+**Options:**
+- `--book`: JSON file defining book structure
+- `--output`: Output markdown file path
+- `--force`: Force regeneration of all content (default: `False`)
+- `--skip-merge`: Skip merge processing, only run batch (default: `False`)
+- `--use-rag`: Use RAG for additional context when generating job prompts (default: `False`)
+- `--rag-key`: Collection key for RAG retrieval (required if --use-rag is specified)
+- `--num-prompts`: Number of prompts to generate per section (default: 4)
+  
+**Usage**:
+
+```bash
+# Process complete book structure
+python src/langchain/lc_book_runner.py --book examples/book_structure_example.json
+
+# Custom output location
+python src/langchain/lc_book_runner.py --book book.json --output /path/to/final_book.md
+
+# Force regeneration
+python src/langchain/lc_book_runner.py --book book.json --force
+
+# Skip merge step (batch only)
+python src/langchain/lc_book_runner.py --book book.json --skip-merge
+```
+
+####  research/metadata_scan.py
+
+**Purpose**: To add metadata (doi/isbn/author/title/date) to pdfs prior to indexing
+
+**Key Features**:
+- Scans PDFs filename, content, metadata for DOI/ISBN
+- fetches metadata (Crossref/OpenLibrary),
+- writes a manifest, and updates PDF metadata (Info + XMP/DC/Prism).
+- renames files using a consistent format ([slugified title]-[year].pdf)
+
+**Options**:
+- `--dir`: Root to scan (default `data_raw`)
+- `--glob`: File pattern (default `**/*.pdf`)
+- `--write`: Write manifest and PDF metadata (default off)
+- `--quickscan`: Skip files requiring input from user (default off)
+- `--manifest`: Manifest path (default `research/out/manifest.json`)
+- `--rename`: `yes|no` to rename files by slugified title/year (default `yes`)
+- `--skip-existing`: Skip already processed files in manifest (default off)
+ 
+**Usage**:
+
+```bash
+# Preview (no writes)
+python research/metadata_scan.py --dir data_raw
+
+# Process pdf files in data_raw, adding metadata and renaming them where possible from information in files 
+python research/metadata_scan.py --dir data_raw  --write --quickscan
+
+# Process pdf files in data_raw, prompting user to provide the isbn or doi where this is not found or ambiguous
+python research/metadata_scan.py --dir data_raw  --write 
+```
+
+**Makefile Usage**:
+
+```bash
+make scan-metadata DIR=data_raw WRITE=1 RENAME=yes SKIP_EXISTING=1
+```
+
+####  research/collector_ui.py
+
+**Purpose**: to aid in the gathering and metadata population of journal articles and books in pdf format which serve as the basis for the RAG index
+
+**Key Features**:
+- TUI user interface
+- Import html source via textarea
+- Recalls state between runs via manifest.json
+- Export list of PDF URLs for download using any download manager
+- Download PDF directly from UI
+- Load PDF files and URLs, and scholar details URLs with the click of a button
+- Fuzzy search for DOI/ISBN on click
+
+**Options**:
+- `--file`: HTML file with Google Scholar results
+- `-xml`: XML-like markup file with entries
+- `--skip-existing`: Skip entries with processed=true in manifest
+- `--allow-delete`: Enable delete actions
+  
+**Usage**:
+```bash
+# run without filr input or already populated manifest
+python research/collector_ui.py
+
+# load entries from html source
+python research/collector_ui.py --file ../research/out/research.html
+
+# load entries from simple xml format
+python research/collector_ui.py --xml ../research/out/research.xml
 ```
 
 ### CLI Commands (src/cli/commands.py)
@@ -555,37 +826,7 @@ make scan-metadata DIR=data_raw WRITE=1 RENAME=yes SKIP_EXISTING=1
 make collector-ui
 ```
 
-### Metadata Scanner (pre‑alpha)
 
-Scans PDFs for DOI/ISBN, fetches metadata (Crossref/OpenLibrary), writes a manifest, and updates PDF metadata (Info + XMP/DC/Prism). It looks at the filename and the first few pages to avoid picking up references at the end.
-
-- Default manifest: `research/out/manifest.json`
-- Safe renaming: slugifies to `title[_YEAR].pdf` with collision handling
-
-Usage examples:
-
-```bash
-# Preview (no writes)
-python -m src.research.metadata_scan scan --dir data_raw
-
-# Write manifest, rename files, and update PDF metadata
-python -m src.research.metadata_scan scan \
-  --dir data_raw \
-  --write \
-  --rename yes \
-  --skip-existing
-
-# Via Makefile (equivalent)
-make scan-metadata DIR=data_raw WRITE=1 RENAME=yes SKIP_EXISTING=1
-```
-
-Options (subset):
-- `--dir`: Root to scan (default `data_raw`)
-- `--glob`: File pattern (default `**/*.pdf`)
-- `--write`: Write manifest and PDF metadata (default off)
-- `--manifest`: Manifest path (default `research/out/manifest.json`)
-- `--rename`: `yes|no` to rename files by slugified title/year
-- `--skip-existing`: Skip already processed files in manifest
 
 ### Image Structure and Faster Rebuilds
 
@@ -623,196 +864,8 @@ To use prebuilt base layers across machines/CI, you can tag and push the base st
 
 If you use Podman in CI, layer caching is local by default; pushing prebuilt base stage images to your registry can still improve cold-start builds.
 
-## 📜 Scripts Overview
 
-### lc_ask.py - Core LLM Interface
 
-**Purpose**: Direct interface to language models for single queries.
-
-**Key Features**:
-- Flexible prompt engineering
-- Multiple content types
-- JSON output support
-- Retrieval-augmented generation (RAG)
-
-**Usage**:
-```bash
-python src/langchain/lc_ask.py ask --content-type research --task "Your prompt here"
-```
-
-### lc_batch.py - Batch Processing
-
-**Purpose**: Process multiple content generation jobs in parallel.
-
-**Key Features**:
-- JSONL job file processing
-- Parallel execution
-- Result aggregation
-- Progress tracking
-
-**Usage**:
-```bash
-python src/langchain/lc_batch.py --jobs data_jobs/example.jsonl
-```
-
-### lc_build_index.py - Index Builder
-
-**Purpose**: Create vector indexes for retrieval-augmented generation.
-
-**Key Features**:
-- Document ingestion
-- Vector embeddings
-- Index optimization
-- Multiple data sources
-
-**Usage**:
-```bash
-python src/langchain/lc_build_index.py --source data/ --index my_index
-```
-
-Note on FAISS index paths:
-- The multi-model builder writes FAISS directories like `storage/faiss_<key>__<embed_model>`.
-- The Typer CLI (`python -m src.cli.commands`) looks for `storage/faiss_<key>` by default.
-- If you use the multi-model builder and the Typer CLI, copy or symlink your chosen embedding index to the generic path, e.g.:
-  - `ln -s storage/faiss_science__BAAI-bge-small-en-v1.5 storage/faiss_science`
-  - `lc_ask.py` will automatically use a `...__<embed_model>_repacked` directory if present.
-
-If you upgraded LangChain and your old FAISS index fails to load, repack it without re-embedding:
-
-```bash
-# Derive paths from KEY and EMBED_MODEL
-make repack-faiss KEY=science EMBED_MODEL=BAAI/bge-small-en-v1.5
-
-# Or specify explicit directories
-make repack-faiss FAISS_DIR=storage/faiss_science__BAAI-bge-small-en-v1.5 OUT=storage/faiss_science__BAAI-bge-small-en-v1.5_repacked
-```
-
-### lc_merge_runner.py - Advanced Merge System
-
-**Purpose**: Intelligent content merging with multi-stage editorial pipelines.
-
-**Key Features**:
-- Multi-stage processing (critique → merge → style → images)
-- AI-powered content scoring
-- Jaccard similarity de-duplication
-- YAML-driven configuration
-- Command-line and interactive modes
-
-**Usage**:
-```bash
-# Interactive mode
-python src/langchain/lc_merge_runner.py
-
-# Job file processing
-python src/langchain/lc_merge_runner.py --sub 1A1
-
-# Custom job file
-python src/langchain/lc_merge_runner.py --jobs /path/to/jobs.jsonl
-```
-
-### lc_book_runner.py - Book Orchestrator
-
-**Purpose**: High-level orchestration for entire books and chapters.
-
-**Key Features**:
-- Hierarchical book structure processing (4 levels deep)
-- Automatic job file generation
-- Batch and merge pipeline orchestration
-- Final document aggregation
-- Progress tracking and error recovery
-- Section dependency management
-
-**Usage**:
-```bash
-# Process complete book structure
-python src/langchain/lc_book_runner.py --book examples/book_structure_example.json
-
-# Custom output location
-python src/langchain/lc_book_runner.py --book book.json --output /path/to/final_book.md
-
-# Force regeneration
-python src/langchain/lc_book_runner.py --book book.json --force
-
-# Skip merge step (batch only)
-python src/langchain/lc_book_runner.py --book book.json --skip-merge
-```
-
-### lc_outline_generator.py - Interactive Outline Creator
-
-**Purpose**: Generate intelligent book outlines using LangChain's indexed knowledge.
-
-**Key Features**:
-- Interactive book detail collection
-- Outline depth selection (3-5 levels)
-- AI-powered outline generation using indexed content
-- Automatic conversion to book runner format
-- Comprehensive outline validation and summary
-
-**Usage**:
-```bash
-# Interactive outline generation
-python src/langchain/lc_outline_generator.py
-
-# Save to specific location
-python src/langchain/lc_outline_generator.py --output my_book_outline.json
-```
-
-### lc_outline_converter.py - Outline to Book Structure Converter
-
-**Purpose**: Convert existing outlines into book structure and job files.
-
-**Key Features**:
-- Multiple input format support (JSON, Markdown, Text)
-- Automatic hierarchical context generation
-- Job file generation for each subsection
-- Dependency relationship detection
-- Format validation and conversion
-
-**Supported Input Formats**:
-- **JSON**: Structured outline format (from lc_outline_generator.py)
-- **Markdown**: Header-based outline (# ## ### ####)
-- **Text**: Numbered/lettered outline (1. 2. A. B. etc.)
-
-**Usage**:
-```bash
-# Convert JSON outline
-python src/langchain/lc_outline_converter.py --outline my_outline.json
-
-# Convert markdown outline
-python src/langchain/lc_outline_converter.py --outline outline.md --output book_structure.json
-
-# Convert with metadata overrides
-python src/langchain/lc_outline_converter.py --outline outline.txt \
-  --title "My Book Title" \
-  --topic "Machine Learning" \
-  --audience "Data Scientists" \
-  --wordcount 75000
-```
-
-**Makefile Usage**:
-```bash
-# Interactive outline generation
-make lc-outline-generator
-
-# Convert outline with custom output
-make lc-outline-converter examples/sample_outline_markdown.md OUTPUT=my_book.json
-
-# Convert with metadata overrides
-make lc-outline-converter examples/sample_outline_text.txt \
-  TITLE="My Book" \
-  TOPIC="Machine Learning" \
-  AUDIENCE="Data Scientists" \
-  WORDCOUNT=75000
-
-# Run complete book generation
-make lc-book-runner examples/book_structure_example.json
-
-# Force regeneration of all content
-make lc-book-runner examples/book_structure_example.json FORCE=1
-
-# Skip merge step (batch only)
-make lc-book-runner examples/book_structure_example.json SKIP_MERGE=1
-```
 
 ## 📋 Book Structure Format
 
