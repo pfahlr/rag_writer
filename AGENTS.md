@@ -4,8 +4,6 @@
 
 ---
 
-
-
 ## 1) Project Overview
 
 **Name:** RAG Writer — Retrieval-Augmented Writing & Analysis
@@ -441,6 +439,9 @@ python -m research.collector
 ---
 
 > **Reminder for agents:** If you change any command or directory here, reflect that change in this file as part of the patch. This file is authoritative for future runs.
+
+## ADDITIONAL INSTRUCTIONS
+- When in doubt search the websites that are available to you. The answer to your question is probably there, and if not... ask for clarification before proceeding. 
 
 ## GLOSSARY
 MCP - MCP (Model Context Protocol) is an open-source standard for connecting AI applications to external systems.
