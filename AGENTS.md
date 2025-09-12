@@ -440,6 +440,43 @@ python -m research.collector
 
 > **Reminder for agents:** If you change any command or directory here, reflect that change in this file as part of the patch. This file is authoritative for future runs.
 
+## 17) Documentation Requirements
+
+1. When adding a new operation (e.g., `lc_ask.py --<option> --<option> <arg>`):
+  - create a corresponding target in `Makefile`
+  - update the `make help` output in `Makefile`
+  - update `README.md` documenting all means of invoking the script
+      - individual scripts: `CLI Usage > Scripts Overview` - follow format used on existing entries
+      - make operations not 1:1 with a scripts+options: `Makefile Usage >  Core Workflow Targets` and `Makefile Usage > Advanced Makefile Features`
+      - CLI commands: `CLI Commands (src/cli/commands.py) > [various sections]`
+  
+  - update `/docs/rag_writer.1` with all new commands
+
+2. When adding anything that defines a modular interface where additional components can be created that follow a specific pattern.
+  - document the details in `README.md` under `README.md`:`## 😵‍💫 Miscellaneous`
+
+3. When defining any classes, inheritance based code, or function libraries update `README.md`:`## 💾 Classes and Function Libraries`
+  - document the class interface and inheritance tree, member variables, methods, parameters, and return type
+  - document the list of functions, parameters, and return type
+
+4. When using any new libraries document them in `README.md`:`## 💽 External Libraries` with
+  - a link to the library documentation
+  - usage example demonstrtating one way it is used in this project
+
+5. When defining any docker containers document them in `README.md`:`## 🐳 Docker` with
+  - `docker-compose` commands 
+
+6. When adding any environment variables document them in `README.md`:`## ⚙️ Environment Variables` with
+  - name
+  - default value
+  - references to locations in source that access them
+
+7. When defining any new system that operates using yaml or any such configuration based operation document this in `README.md`
+  - document the structure of the yaml files `README.md`:`## 🛠️ YAML Configuration Files`
+  - document how they interact with the program operation
+
+8. When defining new Model Context Protocol (MCP) Tools update `README.ms`: `## 🧩 Tool Agent Schema` section
+
 ## ADDITIONAL INSTRUCTIONS
 - When in doubt search the websites that are available to you. The answer to your question is probably there, and if not... ask for clarification before proceeding. 
 
