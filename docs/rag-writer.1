@@ -659,7 +659,7 @@ Generated content and final artifacts
 .B outlines/, data_jobs/
 Outline definitions and job files for the book pipeline
 .SS Content Types Configuration
-Located in \fBsrc/tool/prompts/content_types/\fR
+Located in \fBsrc/config/content/prompts/content_types/\fR
 .sp
 Each content type defines writing styles and system prompts. Available types:
 .TP
@@ -707,7 +707,7 @@ Additional RAG context from knowledge base
 .B {{current_date}}
 Current date for temporal context
 .SS Merge Types Configuration
-Located in \fBsrc/tool/prompts/merge_types.yaml\fR
+Located in \fBsrc/config/content/prompts/merge_types.yaml\fR
 .sp
 Defines content merging and editing pipelines:
 .TP
@@ -734,7 +734,7 @@ Tone harmonization and language refinement
 .B images
 Visual content suggestions (optional)
 .SS Playbooks Configuration
-Located in \fBsrc/tool/prompts/playbooks.yaml\fR
+Located in \fBsrc/config/content/prompts/playbooks.yaml\fR
 .sp
 Defines interactive presets for complex workflows:
 .TP
@@ -765,7 +765,7 @@ inputs:
     type: int
 .fi
 .SS Output Templates
-Located in \fBsrc/tool/prompts/templates.md\fR
+Located in \fBsrc/config/content/prompts/templates.md\fR
 .sp
 Provides structural templates for different content types:
 .TP
@@ -779,17 +779,17 @@ Headline, dek, evidence, caveats, quotes with citations
 Narration scripts with image prompts for audio content
 .SS Customizing Configuration
 .SS Adding New Content Types
-1. Create new YAML file in \fBsrc/tool/prompts/content_types/\fR
+1. Create new YAML file in \fBsrc/config/content/prompts/content_types/\fR
 2. Define system prompt and job generation templates
 3. Use template variables for dynamic content
 4. Test with: \fBmake lc-batch CONTENT_TYPE=your_type\fR
 .SS Adding New Merge Types
-1. Add new entry to \fBsrc/tool/prompts/merge_types.yaml\fR
+1. Add new entry to \fBsrc/config/content/prompts/merge_types.yaml\fR
 2. Define stages with system prompts and output formats
 3. Configure parameters for advanced pipelines
 4. Test with: \fBpython src/langchain/lc_merge_runner.py\fR
 .SS Creating Custom Playbooks
-1. Add new entry to \fBsrc/tool/prompts/playbooks.yaml\fR
+1. Add new entry to \fBsrc/config/content/prompts/playbooks.yaml\fR
 2. Define interactive inputs and step workflows
 3. Use Jinja2 templating for dynamic content
 4. Test with: \fBpython src/cli/shell.py\fR → \fBpreset your_preset\fR

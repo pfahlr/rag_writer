@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from typing import Iterable, Mapping, Union, Any
 
-from ..base import ToolRegistry
+from src.tool.base import ToolRegistry
 
 
 def generate_tool_prompt(
-    registry_or_tools: Union[ToolRegistry, Iterable[Mapping[str, Any]]]
+    registry_or_tools: Union[ToolRegistry, Iterable[Mapping[str, Any]]],
 ) -> str:
     """Generate a system prompt describing available tools.
 
@@ -31,9 +31,7 @@ def generate_tool_prompt(
             tool.get("input_schema") or tool.get("inputSchema") or {},
             separators=(",", ":"),
         )
-        lines.append(
-            f"- {tool['name']}: {tool['description']} | args schema: {schema}"
-        )
+        lines.append(f"- {tool['name']}: {tool['description']} | args schema: {schema}")
 
     instructions = (
         "\nRespond ONLY with JSON. To call a tool, respond with\n"

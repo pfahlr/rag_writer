@@ -1,5 +1,3 @@
-import json
-
 from langchain_core.prompts import (
     ChatPromptTemplate,
     HumanMessagePromptTemplate,
@@ -7,7 +5,7 @@ from langchain_core.prompts import (
 )
 
 from src.tool import Tool, ToolSpec, ToolRegistry
-from src.tool.prompts.tool_prompt import generate_tool_prompt
+from src.config.content.prompts.tool_prompt import generate_tool_prompt
 
 
 def _build_registry() -> ToolRegistry:
@@ -77,5 +75,5 @@ def test_generate_tool_prompt_works_with_mcp_descriptors():
     )
 
     messages = prompt.format_messages(input="hello")
-    assert '- adder: add numbers' in messages[0].content
+    assert "- adder: add numbers" in messages[0].content
     assert '{"tool": "<tool_name>"' in messages[0].content

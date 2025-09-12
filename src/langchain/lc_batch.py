@@ -12,12 +12,10 @@ Features:
 - Source citation extraction and deduplication
 """
 
-import os
 import sys
 import json
 import time
 import re
-import subprocess
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -38,16 +36,14 @@ from rich.progress import (
     BarColumn,
     TimeElapsedColumn,
 )
-from rich.text import Text
-from rich.prompt import Confirm
 
 # Import our new core modules
 from src.core.retriever import RetrieverFactory, RetrieverConfig
 from src.core.llm import LLMFactory, LLMConfig
 from src.config.settings import get_config
-from src.utils.error_handler import handle_and_exit, validate_collection
+from src.utils.error_handler import validate_collection
 from src.tool import ToolRegistry
-from src.tool.prompts import generate_tool_prompt
+from src.config.content.prompts import generate_tool_prompt
 
 console = Console()
 
@@ -68,7 +64,9 @@ USER_PROMPT = (
 
 def load_content_types():
     """Load content types from YAML files using centralized config."""
-    content_types_dir = config.paths.root_dir / "src/tool/prompts/content_types"
+    content_types_dir = (
+        config.paths.root_dir / "src/config/content/prompts/content_types"
+    )
     content_types = {}
 
     try:
