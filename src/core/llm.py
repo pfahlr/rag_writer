@@ -11,6 +11,18 @@ import os
 from typing import Optional, Tuple, Any, Dict
 from dataclasses import dataclass
 
+# Ensure langchain globals are initialized for our environment
+import langchain
+
+try:
+    langchain.verbose = False  # type: ignore[attr-defined]
+except Exception:
+    pass
+try:
+    langchain.llm_cache = None  # type: ignore[attr-defined]
+except Exception:
+    pass
+
 
 @dataclass
 class LLMConfig:
@@ -62,24 +74,14 @@ class LLMFactory:
             raise ImportError("Ollama backend disabled")
 
         try:
-            # Try the new langchain-ollama package first
-            from langchain_ollama import ChatOllama
+            from langchain_community.chat_models import ChatOllama
             llm = ChatOllama(
                 model=self.config.ollama_model,
                 temperature=self.config.temperature
             )
             return ("ollama", llm)
         except ImportError:
-            try:
-                # Fallback to langchain-community
-                from langchain_community.chat_models import ChatOllama
-                llm = ChatOllama(
-                    model=self.config.ollama_model,
-                    temperature=self.config.temperature
-                )
-                return ("ollama", llm)
-            except ImportError:
-                raise ImportError("Ollama package not available. Install with: pip install langchain-ollama")
+            raise ImportError("Ollama package not available. Install with: pip install langchain-ollama")
         except Exception as e:
             raise RuntimeError(f"Failed to initialize Ollama client: {str(e)}")
 

@@ -6,11 +6,8 @@ This module contains the interactive shell functionality extracted from the
 monolithic cli.py file for better maintainability and separation of concerns.
 """
 
-import os
-import sys
 import json
-from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional
 
 from rich import print
 from rich.panel import Panel
@@ -28,7 +25,9 @@ from ..utils.error_handler import handle_and_exit, validate_collection
 
 # Global configuration
 config = get_config()
-env = Environment(loader=BaseLoader(), autoescape=False, trim_blocks=True, lstrip_blocks=True)
+env = Environment(
+    loader=BaseLoader(), autoescape=False, trim_blocks=True, lstrip_blocks=True
+)
 
 COMMON_SYSTEM = (
     "You are a careful research assistant. Use ONLY the provided context. "
@@ -40,7 +39,7 @@ COMMON_SYSTEM = (
 def _paths(key: str) -> tuple:
     """Get paths for a given collection key."""
     faiss_dir = config.paths.storage_dir / f"faiss_{key}"
-    playbooks = config.paths.root_dir / "src/tool/prompts/playbooks.yaml"
+    playbooks = config.paths.root_dir / "src/config/content/prompts/playbooks.yaml"
     return faiss_dir, playbooks
 
 
@@ -56,7 +55,7 @@ def _load_retriever(key: str, k: int = 10, multiquery: bool = True):
             openai_model=config.llm.openai_model,
             rerank_model=config.retriever.rerank_model,
             vector_weight=config.retriever.vector_weight,
-            bm25_weight=config.retriever.bm25_weight
+            bm25_weight=config.retriever.bm25_weight,
         )
         return factory.create_hybrid_retriever(retriever_config)
     except Exception as e:
@@ -71,7 +70,7 @@ def _llm():
             temperature=config.llm.temperature,
             max_tokens=config.llm.max_tokens,
             openai_api_key=config.openai_api_key,
-            ollama_model=config.llm.ollama_model
+            ollama_model=config.llm.ollama_model,
         )
         factory = LLMFactory(llm_config)
         return factory.create_llm()
@@ -79,7 +78,13 @@ def _llm():
         handle_and_exit(e, "initializing LLM")
 
 
-def _rag_answer(key: str, retrieval_query: str, system_prompt: str, final_question: Optional[str] = None, k: int = 10) -> dict:
+def _rag_answer(
+    key: str,
+    retrieval_query: str,
+    system_prompt: str,
+    final_question: Optional[str] = None,
+    k: int = 10,
+) -> dict:
     """Generate a RAG answer while allowing separation of retrieval_query and final_question."""
     try:
         retriever = _load_retriever(key, k=k)
@@ -87,13 +92,13 @@ def _rag_answer(key: str, retrieval_query: str, system_prompt: str, final_questi
         return {
             "error": f"Collection '{key}' not found. Run 'make lc-index {key}' to create it.",
             "answer": "Failed to load collection.",
-            "context": []
+            "context": [],
         }
     except Exception as e:
         return {
             "error": f"Failed to load retriever: {str(e)}",
             "answer": "Failed to load retriever.",
-            "context": []
+            "context": [],
         }
 
     # Fetch documents using ONLY the retrieval_query
@@ -107,25 +112,42 @@ def _rag_answer(key: str, retrieval_query: str, system_prompt: str, final_questi
         else:
             docs = retriever(retrieval_query)
     except Exception as e:
-        return {"error": f"Retriever failed: {str(e)}", "answer": "Failed to retrieve documents.", "context": []}
+        return {
+            "error": f"Retriever failed: {str(e)}",
+            "answer": "Failed to retrieve documents.",
+            "context": [],
+        }
 
     # Initialize LLM
     try:
         backend, llm = _llm()
     except Exception as e:
-        return {"error": f"LLM initialization failed: {str(e)}", "answer": "Failed to initialize LLM.", "context": docs}
+        return {
+            "error": f"LLM initialization failed: {str(e)}",
+            "answer": "Failed to initialize LLM.",
+            "context": docs,
+        }
 
     from langchain_core.prompts import ChatPromptTemplate
     from langchain.chains.combine_documents.stuff import create_stuff_documents_chain
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
-        ("human", "Question:\n{question}\n\nReturn a grounded, citation-rich answer."),
-    ])
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", system_prompt),
+            (
+                "human",
+                "Question:\n{question}\n\nReturn a grounded, citation-rich answer.",
+            ),
+        ]
+    )
     doc_chain = create_stuff_documents_chain(llm, prompt)
 
     # Final question passed to the LLM (task may be prepended)
-    q = final_question if final_question is not None and final_question != "" else retrieval_query
+    q = (
+        final_question
+        if final_question is not None and final_question != ""
+        else retrieval_query
+    )
 
     try:
         out = doc_chain.invoke({"input_documents": docs, "question": q})
@@ -144,7 +166,11 @@ def _rag_answer(key: str, retrieval_query: str, system_prompt: str, final_questi
             answer = str(out)
         return {"answer": answer, "context": docs}
     except Exception as e:
-        return {"error": f"RAG generation failed: {str(e)}", "answer": "An error occurred while generating the answer.", "context": docs}
+        return {
+            "error": f"RAG generation failed: {str(e)}",
+            "answer": "An error occurred while generating the answer.",
+            "context": docs,
+        }
 
 
 def _collect_inputs(inputs_spec, context):
@@ -170,7 +196,9 @@ def _collect_inputs(inputs_spec, context):
             prompt_text = label
 
         try:
-            ans = Prompt.ask(prompt_text, default=str(default) if default is not None else None)
+            ans = Prompt.ask(
+                prompt_text, default=str(default) if default is not None else None
+            )
 
             if multi and isinstance(ans, str):
                 vals = [a.strip() for a in ans.split(",") if a.strip()]
@@ -178,16 +206,28 @@ def _collect_inputs(inputs_spec, context):
                 vals = ans
 
             # Validate choices if specified
-            if choices and vals not in choices and (not multi or not all(v in choices for v in vals)):
-                print(f"[red]Invalid choice. Must be one of: {', '.join(map(str, choices))}[/]")
+            if (
+                choices
+                and vals not in choices
+                and (not multi or not all(v in choices for v in vals))
+            ):
+                print(
+                    f"[red]Invalid choice. Must be one of: {', '.join(map(str, choices))}[/]"
+                )
                 continue
 
             # cast type with better error handling
             try:
                 if type_ == "int":
-                    vals = [int(v) for v in vals] if isinstance(vals, list) else int(vals)
+                    vals = (
+                        [int(v) for v in vals] if isinstance(vals, list) else int(vals)
+                    )
                 elif type_ == "float":
-                    vals = [float(v) for v in vals] if isinstance(vals, list) else float(vals)
+                    vals = (
+                        [float(v) for v in vals]
+                        if isinstance(vals, list)
+                        else float(vals)
+                    )
             except (ValueError, TypeError) as e:
                 print(f"[red]Invalid {type_} value: {ans}. Error: {str(e)}[/]")
                 continue
@@ -211,7 +251,7 @@ def _render(template_str: str, context: dict) -> str:
     """Render a Jinja2 template with the given context."""
     try:
         return env.from_string(template_str).render(**context)
-    except Exception as e:
+    except Exception:
         return template_str  # fall back if templating fails
 
 
@@ -221,7 +261,9 @@ def _validate_collection(key: str) -> bool:
         validate_collection(key, config.paths.storage_dir)
         return True
     except Exception as e:
-        print(f"[red]Error: Collection '{key}' exists but cannot be loaded: {str(e)}[/]")
+        print(
+            f"[red]Error: Collection '{key}' exists but cannot be loaded: {str(e)}[/]"
+        )
         print(f"[yellow]Try rebuilding the index: make lc-index {key}[/]")
         return False
 
@@ -232,26 +274,26 @@ def _display_error_with_suggestions(error_msg: str, key: str = None):
 
     if "Collection" in error_msg or "FAISS" in error_msg:
         if key:
-            print(f"[yellow]Suggestions:[/]")
+            print("[yellow]Suggestions:[/]")
             print(f"  • Run 'make lc-index {key}' to create the collection")
-            print(f"  • Check if PDFs exist in data_raw/ directory")
+            print("  • Check if PDFs exist in data_raw/ directory")
             print(f"  • Verify the collection key '{key}' is correct")
         else:
-            print(f"[yellow]Suggestions:[/]")
-            print(f"  • Run 'make lc-index <key>' to create a collection")
-            print(f"  • Check if PDFs exist in data_raw/ directory")
+            print("[yellow]Suggestions:[/]")
+            print("  • Run 'make lc-index <key>' to create a collection")
+            print("  • Check if PDFs exist in data_raw/ directory")
 
     elif "OPENAI_API_KEY" in error_msg:
-        print(f"[yellow]Suggestions:[/]")
-        print(f"  • Set OPENAI_API_KEY environment variable")
-        print(f"  • Check your .env file or environment configuration")
-        print(f"  • Verify your OpenAI API key is valid")
+        print("[yellow]Suggestions:[/]")
+        print("  • Set OPENAI_API_KEY environment variable")
+        print("  • Check your .env file or environment configuration")
+        print("  • Verify your OpenAI API key is valid")
 
     elif "embedding model" in error_msg.lower():
-        print(f"[yellow]Suggestions:[/]")
-        print(f"  • Check your internet connection")
-        print(f"  • Verify the EMBED_MODEL setting")
-        print(f"  • Try a different embedding model")
+        print("[yellow]Suggestions:[/]")
+        print("  • Check your internet connection")
+        print("  • Verify the EMBED_MODEL setting")
+        print("  • Try a different embedding model")
 
     print()  # Add spacing
 
@@ -259,7 +301,7 @@ def _display_error_with_suggestions(error_msg: str, key: str = None):
 def _safe_metadata_access(obj, key: str, default: str = "Unknown"):
     """Safely access metadata with fallback."""
     try:
-        if hasattr(obj, 'metadata') and obj.metadata:
+        if hasattr(obj, "metadata") and obj.metadata:
             return obj.metadata.get(key, default)
         return default
     except Exception:
@@ -283,12 +325,15 @@ def shell(key: str = None):
 
         # Validate collection before starting
         if not _validate_collection(key):
-            print(f"\n[yellow]Shell will start but collection '{key}' may not work properly.[/]")
+            print(
+                f"\n[yellow]Shell will start but collection '{key}' may not work properly.[/]"
+            )
             print("[yellow]You can still use 'help' and 'presets' commands.[/]\n")
 
         # Load playbooks
         try:
             import yaml
+
             if playbooks_path.exists():
                 with playbooks_path.open("r", encoding="utf-8") as f:
                     playbooks = yaml.safe_load(f) or {}
@@ -298,17 +343,31 @@ def shell(key: str = None):
             print(f"[yellow]Warning: Could not load playbooks: {e}[/]")
             playbooks = {}
 
-        base_cmds = ["help", "ask", "compare", "summarize", "outline", "sources", "presets", "preset", "quit"]
+        base_cmds = [
+            "help",
+            "ask",
+            "compare",
+            "summarize",
+            "outline",
+            "sources",
+            "presets",
+            "preset",
+            "quit",
+        ]
         completer = WordCompleter(base_cmds + list(playbooks.keys()), ignore_case=True)
 
         session = PromptSession()
         last_result = None
 
-        banner = Panel(f"[bold cyan]RAG Tool Shell[/]\nROOT: {config.paths.root_dir}\nKEY: {key}\nIndex: {faiss_dir}")
+        banner = Panel(
+            f"[bold cyan]RAG Tool Shell[/]\nROOT: {config.paths.root_dir}\nKEY: {key}\nIndex: {faiss_dir}"
+        )
         print(banner)
 
         if not _validate_collection(key):
-            print(f"[yellow]⚠️  Collection '{key}' has issues. Some commands may fail.[/]\n")
+            print(
+                f"[yellow]⚠️  Collection '{key}' has issues. Some commands may fail.[/]\n"
+            )
 
         while True:
             try:
@@ -328,11 +387,19 @@ def shell(key: str = None):
             if cmd == "help":
                 tbl = Table(show_header=False)
                 tbl.add_row("ask <q>", "General RAG answer with citations")
-                tbl.add_row("compare <topic>", "Contrast positions/methods/results across sources")
+                tbl.add_row(
+                    "compare <topic>",
+                    "Contrast positions/methods/results across sources",
+                )
                 tbl.add_row("summarize <topic>", "High-level summary with quotes")
-                tbl.add_row("outline <topic>", "Book/essay outline with evidence bullets")
+                tbl.add_row(
+                    "outline <topic>", "Book/essay outline with evidence bullets"
+                )
                 tbl.add_row("presets", "List dynamic presets from playbooks.yaml")
-                tbl.add_row("preset <name> [topic]", "Run a guided multi-step preset (with interactive inputs)")
+                tbl.add_row(
+                    "preset <name> [topic]",
+                    "Run a guided multi-step preset (with interactive inputs)",
+                )
                 tbl.add_row("sources", "Show sources from last answer")
                 tbl.add_row("quit", "Exit")
                 print(tbl)
@@ -351,10 +418,14 @@ def shell(key: str = None):
                                 try:
                                     title = _safe_metadata_access(d, "title", "Unknown")
                                     page = _safe_metadata_access(d, "page", "?")
-                                    src = _safe_metadata_access(d, "source", "Unknown source")
+                                    src = _safe_metadata_access(
+                                        d, "source", "Unknown source"
+                                    )
                                     print(f"- {title} (p.{page}) :: {src}")
                                 except Exception as e:
-                                    print(f"- Source {i+1}: Error displaying metadata - {str(e)}")
+                                    print(
+                                        f"- Source {i+1}: Error displaying metadata - {str(e)}"
+                                    )
                 except Exception as e:
                     print(f"[red]Error displaying sources: {str(e)}[/]")
                 continue
@@ -365,7 +436,7 @@ def shell(key: str = None):
                 tbl.add_column("Label")
                 tbl.add_column("Description")
                 for name, pb in playbooks.items():
-                    tbl.add_row(name, pb.get("label",""), pb.get("description",""))
+                    tbl.add_row(name, pb.get("label", ""), pb.get("description", ""))
                 print(tbl)
                 continue
 
@@ -387,7 +458,9 @@ def shell(key: str = None):
                     steps = pb.get("steps", [])
 
                     if not steps:
-                        print(f"[yellow]Warning: Playbook '{name}' has no steps defined[/]")
+                        print(
+                            f"[yellow]Warning: Playbook '{name}' has no steps defined[/]"
+                        )
                         continue
 
                     context = {"topic": topic}
@@ -407,50 +480,87 @@ def shell(key: str = None):
 
                             # Step-level interactive inputs
                             try:
-                                context = _collect_inputs(step.get("inputs", []), context)
+                                context = _collect_inputs(
+                                    step.get("inputs", []), context
+                                )
                             except Exception as e:
-                                print(f"[yellow]Warning: Error collecting step inputs: {str(e)}[/]")
+                                print(
+                                    f"[yellow]Warning: Error collecting step inputs: {str(e)}[/]"
+                                )
 
                             step_prompt_raw = step.get("prompt", "")
                             if not step_prompt_raw:
-                                print(f"[yellow]Warning: Step '{step_name}' has no prompt, skipping[/]")
+                                print(
+                                    f"[yellow]Warning: Step '{step_name}' has no prompt, skipping[/]"
+                                )
                                 continue
 
-                            step_prompt = _render(step_prompt_raw, {**context, "previous": previous})
+                            step_prompt = _render(
+                                step_prompt_raw, {**context, "previous": previous}
+                            )
                             composed = f"{topic}\n\n{step_prompt}\n\nUse earlier results if helpful:\n{json.dumps(previous, ensure_ascii=False)[:2000]}"
 
                             result = _rag_answer(key, composed, system_prompt)
 
                             if "error" in result:
-                                print(f"[red]Error in step '{step_name}': {result['error']}[/]")
+                                print(
+                                    f"[red]Error in step '{step_name}': {result['error']}[/]"
+                                )
                                 break
 
                             text = result.get("answer", "No answer generated")
                             aggregate.append({"step": step_name, "output": text})
                             previous[step_name] = text
-                            print(Panel.fit(text, title=f"{name} :: {step_name}", border_style="green"))
+                            print(
+                                Panel.fit(
+                                    text,
+                                    title=f"{name} :: {step_name}",
+                                    border_style="green",
+                                )
+                            )
 
                         except Exception as e:
-                            print(f"[red]Error executing step '{step_name}': {str(e)}[/]")
+                            print(
+                                f"[red]Error executing step '{step_name}': {str(e)}[/]"
+                            )
                             break
 
                     if aggregate and pb.get("stitch_final", True):
                         try:
-                            final_prompt = pb.get("final_prompt", "Synthesize the step outputs into a single, well-structured deliverable with citations. Avoid duplication.")
-                            final_prompt = _render(final_prompt, {**context, "previous": previous})
+                            final_prompt = pb.get(
+                                "final_prompt",
+                                "Synthesize the step outputs into a single, well-structured deliverable with citations. Avoid duplication.",
+                            )
+                            final_prompt = _render(
+                                final_prompt, {**context, "previous": previous}
+                            )
                             composed = f"{topic}\n\n{final_prompt}\n\n{json.dumps(aggregate, ensure_ascii=False)[:4000]}"
 
                             last_result = _rag_answer(key, composed, system_prompt)
 
                             if "error" in last_result:
-                                _display_error_with_suggestions(last_result['error'], key)
-                                last_result = {"answer": aggregate[-1]["output"], "context": []}
+                                _display_error_with_suggestions(
+                                    last_result["error"], key
+                                )
+                                last_result = {
+                                    "answer": aggregate[-1]["output"],
+                                    "context": [],
+                                }
                             else:
-                                print(Panel.fit(last_result["answer"], title=f"{name} :: final", border_style="cyan"))
+                                print(
+                                    Panel.fit(
+                                        last_result["answer"],
+                                        title=f"{name} :: final",
+                                        border_style="cyan",
+                                    )
+                                )
 
                         except Exception as e:
                             print(f"[red]Error in final synthesis: {str(e)}[/]")
-                            last_result = {"answer": aggregate[-1]["output"], "context": []}
+                            last_result = {
+                                "answer": aggregate[-1]["output"],
+                                "context": [],
+                            }
                     elif aggregate:
                         last_result = {"answer": aggregate[-1]["output"], "context": []}
 
@@ -469,21 +579,25 @@ def shell(key: str = None):
 
                     user_suffix = ""
                     if cmd == "compare":
-                        user_suffix = ("\n\nDecompose into: claims, methods/evidence, limitations, agreements, disagreements. "
-                                      "Return a table where possible and include page-cited quotes.")
+                        user_suffix = (
+                            "\n\nDecompose into: claims, methods/evidence, limitations, agreements, disagreements. "
+                            "Return a table where possible and include page-cited quotes."
+                        )
                     elif cmd == "summarize":
                         user_suffix = "\n\nProvide a layered summary (1 paragraph → bullets → key quotes)."
                     elif cmd == "outline":
-                        user_suffix = ("\n\nDraft a 10–14 chapter outline with 2–3 bullets each, each bullet with page-cited evidence.")
+                        user_suffix = "\n\nDraft a 10–14 chapter outline with 2–3 bullets each, each bullet with page-cited evidence."
 
                     q = f"{question}{user_suffix}"
                     last_result = _rag_answer(key, q, COMMON_SYSTEM)
 
                     if "error" in last_result:
-                        _display_error_with_suggestions(last_result['error'], key)
+                        _display_error_with_suggestions(last_result["error"], key)
                     else:
                         print("\n" + last_result.get("answer", "No answer generated"))
-                        print("\n[dim]Type 'sources' to list retrieved source chunks.[/dim]")
+                        print(
+                            "\n[dim]Type 'sources' to list retrieved source chunks.[/dim]"
+                        )
 
                 except KeyboardInterrupt:
                     print("\n[yellow]Command cancelled by user[/]")

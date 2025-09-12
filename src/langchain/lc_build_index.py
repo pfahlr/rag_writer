@@ -186,7 +186,11 @@ def main():
         help="Number of chunks per shard",
     )
     parser.add_argument(
-        "--resume", action="store_true", help="Skip shards already built"
+        "--resume",
+        nargs="?",
+        const=True,
+        default=False,
+        help="Skip shards already built (accepts optional value for compatibility)",
     )
     parser.add_argument(
         "--keep-shards",
@@ -211,6 +215,8 @@ def main():
     chunks_out = Path(f"data_processed/lc_chunks_{key}.jsonl")
     write_chunks_jsonl(chunks, chunks_out)
 
+    resume_flag = bool(args.resume)
+
     build_faiss_for_models(
         chunks,
         key,
@@ -219,7 +225,7 @@ def main():
             "BAAI/bge-large-en-v1.5",
         ],
         shard_size=args.shard_size,
-        resume=args.resume,
+        resume=resume_flag,
         keep_shards=args.keep_shards,
     )
 

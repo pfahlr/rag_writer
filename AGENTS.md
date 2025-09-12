@@ -163,6 +163,8 @@ uvicorn src.api.main:app --reload --port 8000
 * **Errors:** raise typed exceptions with context.
 * **Directory discipline:** core logic in `src/`; side effects isolated in `services/`.
 
+**DO NOT MAKE CODING STYLE UPDATES TO LINES OTHER THAN THOSE CHANGING TO FULFILL THE REQUIREMENTS OF THE CURRENT TASK UNLESS THE CURRENT TASK SPECIFIES REFACTORING OVER ALL OR A SUBSET OF THE SOURCE FILES. UNNECESSARY CHANGES CAN RESULT IN UNNECESSARY MERGE CONFLICTS WHEN MULTIPLE CODING TASKS ARE HANDLED IN PARALLEL**
+
 Docstrings: Google or NumPy style.
 
 ---
@@ -439,3 +441,53 @@ python -m research.collector
 ---
 
 > **Reminder for agents:** If you change any command or directory here, reflect that change in this file as part of the patch. This file is authoritative for future runs.
+
+## 17) Documentation Requirements
+
+### When to add/update what and how
+
+#### When adding a new operation (e.g., `lc_ask.py --<option> --<option> <arg>`):
+  - create a corresponding target in `Makefile`
+  - update the `make help` output in `Makefile`
+  - update `README.md` documenting all means of invoking the script
+      - individual scripts: `CLI Usage > Scripts Overview` - follow format used on existing entries
+      - make operations not 1:1 with a scripts+options: `Makefile Usage >  Core Workflow Targets` and `Makefile Usage > Advanced Makefile Features`
+      - CLI commands: `CLI Commands (src/cli/commands.py) > [various sections]`
+  
+  - update `/docs/rag_writer.1` with all new commands
+
+#### When adding anything that defines a modular interface where additional components can be created that follow a specific pattern.
+  - document the details in `README.md` under `README.md`:`## 😵‍💫 Miscellaneous`
+
+#### When defining any classes, inheritance based code, or function libraries update `README.md`:`## 💾 Classes and Function Libraries`
+  - document the class interface and inheritance tree, member variables, methods, parameters, and return type
+  - document the list of functions, parameters, and return type
+
+#### When using any new libraries document them in `README.md`:`## 💽 External Libraries` with
+  - a link to the library documentation
+  - usage example demonstrtating one way it is used in this project
+
+#### When defining any docker containers document them in `README.md`:`## 🐳 Docker` with
+  - `docker-compose` commands 
+
+#### When adding any environment variables document them in `README.md`:`## ⚙️ Environment Variables` with
+  - name
+  - default value
+  - references to locations in source that access them
+
+#### When defining any new system that operates using yaml or any such configuration based operation document this in `README.md`
+  - document the structure of the yaml files `README.md`:`## 🛠️ YAML Configuration Files`
+  - document how they interact with the program operation
+
+#### When defining new Model Context Protocol (MCP) Tools update `README.ms`: `## 🧩 Tool Agent Schema` section
+
+
+
+## ADDITIONAL INSTRUCTIONS
+
+- When in doubt search the websites that are available to you. The answer to your question is probably there, and if not... ask for clarification before proceeding. 
+
+## GLOSSARY
+
+`MCP (Model Context Protocol)`: MCP is an open-source standard for connecting AI applications to external systems. Using MCP, AI applications like Claude or ChatGPT can connect to data sources (e.g. local files, databases), tools (e.g. search engines, calculators) and workflows (e.g. specialized prompts)—enabling them to access key information and perform tasks. Think of MCP like a USB-C port for AI applications. Just as USB-C provides a standardized way to connect electronic devices, MCP provides a standardized way to connect AI applications to external systems. [MODEL CONTEXT PROTOCOL WEBSITE](http://modelcontextprotocol.io/docs)[MODEL CONTEXT PROTOCOL WIKIPEDIA](https://en.wikipedia.org/wiki/Model_Context_Protocol) 
+

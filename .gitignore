@@ -11,11 +11,12 @@ venv/*
 .vscode/*
 tasks/*
 .kilocode/*
-output/*
 data_jobs/*
 outlines/*
 logs/*
 !logs/README.md
 exports/*
-dictionaries/*
 generated/*
+data_hold/*
+patches/*
+

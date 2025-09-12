@@ -12,30 +12,38 @@ Features:
 - Source citation extraction and deduplication
 """
 
-import os
 import sys
 import json
 import time
 import re
-import subprocess
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import (
+    ChatPromptTemplate,
+    HumanMessagePromptTemplate,
+    SystemMessagePromptTemplate,
+)
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
-from rich.text import Text
-from rich.prompt import Confirm
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TimeElapsedColumn,
+)
 
 # Import our new core modules
-from core.retriever import RetrieverFactory, RetrieverConfig
-from core.llm import LLMFactory, LLMConfig
-from config.settings import get_config
-from utils.error_handler import handle_and_exit, validate_collection
+from src.core.retriever import RetrieverFactory, RetrieverConfig
+from src.core.llm import LLMFactory, LLMConfig
+from src.config.settings import get_config
+from src.utils.error_handler import validate_collection
+from src.tool import ToolRegistry
+from src.config.content.prompts import generate_tool_prompt
 
 console = Console()
 
@@ -46,16 +54,19 @@ config = get_config()
 ROOT = config.paths.root_dir
 
 # Constants
-DOI_RE = re.compile(r'\b10\.\d{4,9}/[-._;()/:a-z0-9]*[a-z0-9]\b', re.I)
+DOI_RE = re.compile(r"\b10\.\d{4,9}/[-._;()/:a-z0-9]*[a-z0-9]\b", re.I)
 USER_PROMPT = (
     "Question:\n{question}\n\n"
     "Use the context below to answer. Include page-cited quotes for key claims.\n\n"
     "Context:\n{context}"
 )
 
+
 def load_content_types():
     """Load content types from YAML files using centralized config."""
-    content_types_dir = config.paths.root_dir / "src/tool/prompts/content_types"
+    content_types_dir = (
+        config.paths.root_dir / "src/config/content/prompts/content_types"
+    )
     content_types = {}
 
     try:
@@ -65,15 +76,19 @@ def load_content_types():
         if content_types_dir.exists():
             for yaml_file in content_types_dir.glob("*.yaml"):
                 try:
-                    with open(yaml_file, 'r', encoding='utf-8') as f:
+                    with open(yaml_file, "r", encoding="utf-8") as f:
                         data = yaml.safe_load(f) or {}
                         # Use filename without extension as the content type key
                         content_type_key = yaml_file.stem
                         content_types[content_type_key] = data
                 except Exception as e:
-                    console.print(f"[yellow]Warning: Could not load content type from {yaml_file}: {e}[/yellow]")
+                    console.print(
+                        f"[yellow]Warning: Could not load content type from {yaml_file}: {e}[/yellow]"
+                    )
         else:
-            console.print(f"[yellow]Warning: Content types directory not found: {content_types_dir}[/yellow]")
+            console.print(
+                f"[yellow]Warning: Content types directory not found: {content_types_dir}[/yellow]"
+            )
 
         return content_types
     except Exception as e:
@@ -87,7 +102,9 @@ def get_system_prompt(content_type: str) -> str:
 
     if content_type not in content_types:
         available_types = list(content_types.keys())
-        raise ValueError(f"Unknown content type '{content_type}'. Available types: {', '.join(available_types)}")
+        raise ValueError(
+            f"Unknown content type '{content_type}'. Available types: {', '.join(available_types)}"
+        )
 
     system_prompt_parts = content_types[content_type].get("system_prompt", [])
     if not system_prompt_parts:
@@ -98,7 +115,7 @@ def get_system_prompt(content_type: str) -> str:
 
 def _norm(s: str) -> str:
     """Normalize string for comparison."""
-    return re.sub(r'\W+', ' ', (s or '')).strip().lower()
+    return re.sub(r"\W+", " ", (s or "")).strip().lower()
 
 
 def _extract_cited(docs, answer: str):
@@ -121,7 +138,9 @@ def _extract_cited(docs, answer: str):
             hit = True
         # 2) DOI presence
         if not hit and doi:
-            if doi in ans or any(m.group(0).lower() == doi for m in DOI_RE.finditer(ans)):
+            if doi in ans or any(
+                m.group(0).lower() == doi for m in DOI_RE.finditer(ans)
+            ):
                 hit = True
 
         if hit:
@@ -145,8 +164,19 @@ def _format_context(docs):
     return "\n\n---\n\n".join(_fmt_doc_for_context(d) for d in docs)
 
 
-def run_rag_query(task: str, instruction: str, key: str = "default", content_type: str = "pure_research", topk: int = None):
-    """Run RAG query directly using core modules (no subprocess calls)."""
+def run_rag_query(
+    task: str,
+    instruction: str,
+    key: str = "default",
+    content_type: str = "pure_research",
+    topk: int = None,
+    tool_registry: Optional[ToolRegistry] = None,
+) -> Dict[str, Any]:
+    """Run RAG query directly using core modules (no subprocess calls).
+
+    If a ``ToolRegistry`` is provided, its descriptions are appended to the
+    system prompt so the model knows how to format tool calls.
+    """
     try:
         # Validate collection exists
         validate_collection(key, config.paths.storage_dir)
@@ -161,7 +191,7 @@ def run_rag_query(task: str, instruction: str, key: str = "default", content_typ
             rerank_model=config.retriever.rerank_model,
             vector_weight=config.retriever.vector_weight,
             bm25_weight=config.retriever.bm25_weight,
-            use_reranking=config.retriever.use_reranking
+            use_reranking=config.retriever.use_reranking,
         )
         retriever = factory.create_hybrid_retriever(retriever_config)
 
@@ -171,7 +201,7 @@ def run_rag_query(task: str, instruction: str, key: str = "default", content_typ
             temperature=config.llm.temperature,
             max_tokens=config.llm.max_tokens,
             openai_api_key=config.openai_api_key,
-            ollama_model=config.llm.ollama_model
+            ollama_model=config.llm.ollama_model,
         )
         llm_factory = LLMFactory(llm_config)
         backend, llm = llm_factory.create_llm()
@@ -190,16 +220,25 @@ def run_rag_query(task: str, instruction: str, key: str = "default", content_typ
         context_text = _format_context(docs) if docs else ""
 
         # Build final question
-        final_question = f"{task} {instruction}".strip() if task and task.strip() else instruction
+        final_question = (
+            f"{task} {instruction}".strip() if task and task.strip() else instruction
+        )
 
-        # Get system prompt
+        # Get system prompt and append tool descriptions if provided
         system_prompt = get_system_prompt(content_type)
+        if tool_registry is not None:
+            tool_prompt = generate_tool_prompt(tool_registry)
+            system_prompt = f"{system_prompt}\n\n{tool_prompt}"
 
         # Create prompt and generate response
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", system_prompt),
-            ("human", USER_PROMPT),
-        ])
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessagePromptTemplate.from_template(
+                    system_prompt, template_format="jinja2"
+                ),
+                HumanMessagePromptTemplate.from_template(USER_PROMPT),
+            ]
+        )
 
         messages = prompt.format_messages(question=final_question, context=context_text)
 
@@ -208,13 +247,22 @@ def run_rag_query(task: str, instruction: str, key: str = "default", content_typ
             resp = llm.invoke(messages)
             generated_content = resp.content
         elif backend == "raw_openai":
-            msgs = [{"role": "system" if m.type == "system" else "user", "content": m.content}
-                    for m in messages]
-            content = llm.chat.completions.create(
-                model=config.llm.openai_model,
-                messages=msgs,
-                temperature=config.llm.temperature,
-            ).choices[0].message.content
+            msgs = [
+                {
+                    "role": "system" if m.type == "system" else "user",
+                    "content": m.content,
+                }
+                for m in messages
+            ]
+            content = (
+                llm.chat.completions.create(
+                    model=config.llm.openai_model,
+                    messages=msgs,
+                    temperature=config.llm.temperature,
+                )
+                .choices[0]
+                .message.content
+            )
             generated_content = content
         else:
             raise ValueError(f"Unsupported backend: {backend}")
@@ -232,28 +280,19 @@ def run_rag_query(task: str, instruction: str, key: str = "default", content_typ
             article_id = title if title else source_path
             if article_id and article_id not in seen_articles:
                 seen_articles.add(article_id)
-                sources.append({
-                    "title": title,
-                    "source": source_path
-                })
+                sources.append({"title": title, "source": source_path})
 
-        return {
-            "generated_content": generated_content,
-            "sources": sources
-        }
+        return {"generated_content": generated_content, "sources": sources}
 
     except Exception as e:
-        return {
-            "error": str(e),
-            "generated_content": "",
-            "sources": []
-        }
+        return {"error": str(e), "generated_content": "", "sources": []}
+
 
 def load_jsonl_file(file_path: str) -> List[Dict[str, Any]]:
     """Load data from a JSONL file (one JSON object per line)."""
     data = []
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, "r", encoding="utf-8") as f:
             for line_num, line in enumerate(f, 1):
                 line = line.strip()
                 if line:
@@ -261,7 +300,9 @@ def load_jsonl_file(file_path: str) -> List[Dict[str, Any]]:
                         item = json.loads(line)
                         data.append(item)
                     except json.JSONDecodeError as e:
-                        console.print(f"[yellow]Warning: Invalid JSON on line {line_num}: {e}[/yellow]")
+                        console.print(
+                            f"[yellow]Warning: Invalid JSON on line {line_num}: {e}[/yellow]"
+                        )
     except Exception as e:
         console.print(f"[red]Error reading file {file_path}: {e}[/red]")
         sys.exit(1)
@@ -281,38 +322,40 @@ def process_items_sequential(valid_items: List[Dict[str, Any]], args, console: C
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
         TimeElapsedColumn(),
         console=console,
-        transient=False
+        transient=False,
     ) as progress:
         task = progress.add_task("Processing items...", total=len(valid_items))
 
         for item in valid_items:
-            section = item.get('section', 'unknown')
+            section = item.get("section", "unknown")
             progress.update(task, description=f"Processing section: {section}")
 
-            task_text = item.get('task', '')
-            instruction = item.get('instruction', '')
+            task_text = item.get("task", "")
+            instruction = item.get("instruction", "")
 
             try:
                 # Run RAG query directly
-                result = run_rag_query(task_text, instruction, args.key, args.content_type, args.k)
+                result = run_rag_query(
+                    task_text, instruction, args.key, args.content_type, args.k
+                )
 
                 # Add metadata to result
-                result['section'] = section
-                result['task'] = task_text
-                result['instruction'] = instruction
-                result['status'] = 'success'
+                result["section"] = section
+                result["task"] = task_text
+                result["instruction"] = instruction
+                result["status"] = "success"
 
                 results.append(result)
 
             except Exception as e:
                 error_result = {
-                    'section': section,
-                    'task': task_text,
-                    'instruction': instruction,
-                    'status': 'error',
-                    'error': str(e),
-                    'generated_content': '',
-                    'sources': []
+                    "section": section,
+                    "task": task_text,
+                    "instruction": instruction,
+                    "status": "error",
+                    "error": str(e),
+                    "generated_content": "",
+                    "sources": [],
                 }
                 results.append(error_result)
                 errors.append(f"Section '{section}': {e}")
@@ -334,7 +377,7 @@ def process_items_parallel(valid_items: List[Dict[str, Any]], args, console: Con
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
         TimeElapsedColumn(),
         console=console,
-        transient=False
+        transient=False,
     ) as progress:
         task = progress.add_task("Processing items...", total=len(valid_items))
 
@@ -342,41 +385,43 @@ def process_items_parallel(valid_items: List[Dict[str, Any]], args, console: Con
         with ThreadPoolExecutor(max_workers=args.parallel) as executor:
             # Submit all tasks
             future_to_item = {
-                executor.submit(run_rag_query,
-                              item.get('task', ''),
-                              item.get('instruction', ''),
-                              args.key,
-                              args.content_type,
-                              args.k): item
+                executor.submit(
+                    run_rag_query,
+                    item.get("task", ""),
+                    item.get("instruction", ""),
+                    args.key,
+                    args.content_type,
+                    args.k,
+                ): item
                 for item in valid_items
             }
 
             # Process completed tasks
             for future in as_completed(future_to_item):
                 item = future_to_item[future]
-                section = item.get('section', 'unknown')
+                section = item.get("section", "unknown")
                 progress.update(task, description=f"Processing section: {section}")
 
                 try:
                     result = future.result()
 
                     # Add metadata to result
-                    result['section'] = section
-                    result['task'] = item.get('task', '')
-                    result['instruction'] = item.get('instruction', '')
-                    result['status'] = 'success'
+                    result["section"] = section
+                    result["task"] = item.get("task", "")
+                    result["instruction"] = item.get("instruction", "")
+                    result["status"] = "success"
 
                     results.append(result)
 
                 except Exception as e:
                     error_result = {
-                        'section': section,
-                        'task': item.get('task', ''),
-                        'instruction': item.get('instruction', ''),
-                        'status': 'error',
-                        'error': str(e),
-                        'generated_content': '',
-                        'sources': []
+                        "section": section,
+                        "task": item.get("task", ""),
+                        "instruction": item.get("instruction", ""),
+                        "status": "error",
+                        "error": str(e),
+                        "generated_content": "",
+                        "sources": [],
                     }
                     results.append(error_result)
                     errors.append(f"Section '{section}': {e}")
@@ -385,20 +430,35 @@ def process_items_parallel(valid_items: List[Dict[str, Any]], args, console: Con
 
     return results, errors
 
+
 def main():
     """Main batch processing function with improved configuration and parallel processing."""
     # Parse command line arguments
     import argparse
-    ap = argparse.ArgumentParser(description="Process multiple RAG queries and save results to timestamped files")
+
+    ap = argparse.ArgumentParser(
+        description="Process multiple RAG queries and save results to timestamped files"
+    )
     ap.add_argument("--jobs", help="JSON or JSONL file containing job definitions")
-    ap.add_argument("--key", default=config.rag_key, help="Collection key for RAG queries")
-    ap.add_argument("--content-type", default="pure_research", help="Content type for queries")
-    ap.add_argument("--k", type=int, default=config.retriever.default_k, help="Retriever top-k")
-    ap.add_argument("--parallel", type=int, default=1, help="Number of parallel workers (1 = sequential)")
+    ap.add_argument(
+        "--key", default=config.rag_key, help="Collection key for RAG queries"
+    )
+    ap.add_argument(
+        "--content-type", default="pure_research", help="Content type for queries"
+    )
+    ap.add_argument(
+        "--k", type=int, default=config.retriever.default_k, help="Retriever top-k"
+    )
+    ap.add_argument(
+        "--parallel",
+        type=int,
+        default=1,
+        help="Number of parallel workers (1 = sequential)",
+    )
     ap.add_argument("--output-dir", help="Custom output directory")
 
     # For backward compatibility, also accept positional arguments
-    if len(sys.argv) > 1 and not sys.argv[1].startswith('--'):
+    if len(sys.argv) > 1 and not sys.argv[1].startswith("--"):
         # Legacy mode: positional arguments
         args = ap.parse_args([])
         input_file = sys.argv[1]
@@ -416,11 +476,13 @@ def main():
 
     # Display header
     console.print()
-    console.print(Panel.fit(
-        "[bold cyan]LangChain Batch Processor[/bold cyan]\n"
-        "[dim]Process multiple queries and save results to timestamped files[/dim]",
-        border_style="cyan"
-    ))
+    console.print(
+        Panel.fit(
+            "[bold cyan]LangChain Batch Processor[/bold cyan]\n"
+            "[dim]Process multiple queries and save results to timestamped files[/dim]",
+            border_style="cyan",
+        )
+    )
     console.print()
 
     # Input handling
@@ -429,7 +491,7 @@ def main():
     # Try JSON first, then JSONL
     data = None
     try:
-        with open(input_file, 'r', encoding='utf-8') as f:
+        with open(input_file, "r", encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, list):
             console.print("[red]Error: JSON file must contain an array[/red]")
@@ -454,12 +516,16 @@ def main():
     valid_items = []
     for i, item in enumerate(data):
         if not isinstance(item, dict):
-            console.print(f"[yellow]Warning: Skipping non-object item at index {i}[/yellow]")
+            console.print(
+                f"[yellow]Warning: Skipping non-object item at index {i}[/yellow]"
+            )
             continue
 
-        instruction = item.get('instruction', '')
+        instruction = item.get("instruction", "")
         if not instruction:
-            console.print(f"[yellow]Warning: Skipping item without instruction at index {i}[/yellow]")
+            console.print(
+                f"[yellow]Warning: Skipping item without instruction at index {i}[/yellow]"
+            )
             continue
 
         valid_items.append(item)
@@ -484,8 +550,8 @@ def main():
 
     # Display results summary
     console.print()
-    success_count = len([r for r in results if r.get('status') == 'success'])
-    error_count = len([r for r in results if r.get('status') == 'error'])
+    success_count = len([r for r in results if r.get("status") == "success"])
+    error_count = len([r for r in results if r.get("status") == "error"])
 
     # Create summary table
     summary_table = Table(title="Batch Processing Summary")
@@ -510,7 +576,7 @@ def main():
     console.print("[dim]Saving results...[/dim]")
 
     # Use custom output directory if specified, otherwise use default
-    if hasattr(args, 'output_dir') and args.output_dir:
+    if hasattr(args, "output_dir") and args.output_dir:
         output_dir = Path(args.output_dir)
     else:
         output_dir = config.paths.output_dir / "batch"
@@ -520,30 +586,35 @@ def main():
     output_file = output_dir / f"batch_results_{timestamp}.json"
 
     try:
-        with open(output_file, 'w', encoding='utf-8') as f:
+        with open(output_file, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=2, ensure_ascii=False)
 
         # Success message with file info
         file_size = output_file.stat().st_size
         console.print()
-        console.print(Panel(
-            f"[green]✓ Batch processing complete![/green]\n"
-            f"[dim]Results saved to: {output_file}[/dim]\n"
-            f"[dim]File size: {file_size:,} bytes[/dim]\n"
-            f"[dim]Timestamp: {timestamp}[/dim]\n"
-            f"[dim]Processing mode: {'Parallel' if args.parallel > 1 else 'Sequential'}[/dim]",
-            title="[bold green]Success[/bold green]",
-            border_style="green"
-        ))
+        console.print(
+            Panel(
+                f"[green]✓ Batch processing complete![/green]\n"
+                f"[dim]Results saved to: {output_file}[/dim]\n"
+                f"[dim]File size: {file_size:,} bytes[/dim]\n"
+                f"[dim]Timestamp: {timestamp}[/dim]\n"
+                f"[dim]Processing mode: {'Parallel' if args.parallel > 1 else 'Sequential'}[/dim]",
+                title="[bold green]Success[/bold green]",
+                border_style="green",
+            )
+        )
 
     except Exception as e:
         console.print()
-        console.print(Panel(
-            f"[red]✗ Failed to save results: {e}[/red]",
-            title="[bold red]Error[/bold red]",
-            border_style="red"
-        ))
+        console.print(
+            Panel(
+                f"[red]✗ Failed to save results: {e}[/red]",
+                title="[bold red]Error[/bold red]",
+                border_style="red",
+            )
+        )
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

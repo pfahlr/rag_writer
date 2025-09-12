@@ -2,7 +2,7 @@
 
 ## High Priority Features
 
-### [ ] 1. Improved Metadata Collection (Supplement or Even Replacement to collector.py):
+### [x] 1. Improved Metadata Collection (Supplement or Even Replacement to collector.py):
 Step through a directory of pdfs; and for each file: 
   - scan content for DOI or ISBN 
   - if found 
@@ -140,11 +140,170 @@ contains listings display the edit form just like the original collector.py, wit
 - `lc_build_index.py` includes manifest fields in chunk metadata when available.
 
 ### [ ] 2. Multi-Shot / Iterative / Agentic / Self-Ask/ Chain-of Query Interaction with LLMs:
-  - Let model ask Vector Database for information it needs
-  - command line argument for max_iterations (default 3?)
-  - command line argument for max query expansion (default 1:expansion off)
-  - command line argument for allow searching the web (true|false|'*.example.com,*.wikipedia.com')
-  - command line settings also possible from in playbook.yaml for automated complex multi-step operations.
+
+Goal: enable an agentic “self-ask” loop where the model can iteratively: (a) decompose a task into sub‑questions, (b) fetch/expand evidence via RAG or other tools, (c) evaluate sufficiency, and (d) either continue or finalize a grounded answer with citations — while keeping internal scratchpads private.
+
+#### Objectives
+- Iterative retrieval and reasoning with strict grounding and citations.
+- Configurable stop criteria (iterations, token/cost budget, confidence threshold).
+- Pluggable tool interface (RAG, web search, calculator, data loaders), with domain allowlists and sandboxing.
+- Deterministic/resumable runs via transcript logging and seeds.
+- Playbook integration so any step can opt into agentic iteration with per‑step controls.
+
+#### High-Level Architecture
+- Components:
+  - Planner: proposes sub‑questions, tool calls, and stop conditions (internal scratchpad not exposed).
+  - Tool Runner: executes declared tools with validated inputs and returns structured outputs.
+  - Evidence Store: merges contexts from tools (RAG docs, web snippets, calc results) with provenance.
+  - Decision Loop: state machine that repeats (analyze → act → observe) until stop.
+  - Finalizer: composes a user-facing answer with citations, no chain-of-thought.
+- State Machine (v1):
+  1) init → 2) analyze_task → 3) plan_or_refine → 4) run_tool(s) → 5) assess_sufficiency →
+     6a) continue (go to 3) or 6b) finalize → 7) emit_result.
+
+#### Message & Trace Model (internal)
+- Transcript item schema (JSONL per run):
+  - {"ts": iso8601, "iter": n, "role": "planner|tool|system", "event": "plan|tool_call|tool_result|finalize|error", "content": {...}}
+- Planner content:
+  - plan: { subquestions: [..], rationale: <string, optional>, requested_tools: [ {name, input} ], stop_if: {confidence>=x | iter>=n | tokens>=m} }
+  - Note: rationale is internal; never emitted in user outputs.
+- Tool result content:
+  - { name, ok: bool, output, provenance: {source_ids|urls|calc}, usage: {latency_ms, tokens}, error?: string }
+- Finalizer content:
+  - { answer_text, citations: [ {label, source_id|url, pages?} ], limitations: [..] }
+
+#### Tool Interface (spec)
+- Tool registration: Python entrypoints under `src/tools/` or registry mapping.
+- Tool spec (YAML or code):
+  ```yaml
+  name: web_search
+  version: 1
+  description: Restricted domain web search and snippet fetcher
+  input_schema:
+    type: object
+    properties:
+      query: {type: string}
+      allow: {type: array, items: {type: string}, description: domain allowlist patterns}
+      top_k: {type: integer, minimum: 1, maximum: 20, default: 5}
+    required: [query]
+  output_schema:
+    type: object
+    properties:
+      results: {
+        type: array,
+        items: {type: object, properties: {title: {type: string}, url: {type: string}, snippet: {type: string}, source_id: {type: string}}}
+      }
+  sandbox: {network: true}
+  side_effects: false
+  auth: none
+  rate_limits: {rpm: 30}
+  ```
+- Runtime contract:
+  - Input validation against `input_schema`; reject unknown fields.
+  - Return strictly `output_schema` on success; include `ok=false` and `error` on failure.
+  - Capture `provenance` per item (e.g., `source_id`, `url`, `pages`).
+  - Enforce allowlists: `allow` from CLI/config/playbook is intersected with tool defaults.
+
+#### RAG Tool (built-in)
+- Name: `rag_retrieve`
+- Input: {query: string, k: int, retriever_profile?: enum(vector|hybrid|bm25), rerank?: bool}
+- Output: {docs: [ {source_id, title, text, pages?, score, metadata} ]}
+- Implementation: wraps `RetrieverFactory.create_hybrid_retriever()` with options aligned to `src/core/retriever.py`.
+
+#### CLI Additions (v1)
+- `ask` command flags:
+  - `--agent on|off` (default: off)
+  - `--iterations N` (default: 3)
+  - `--expand N` (query expansions per iter; default: 0)
+  - `--tools name1,name2` (default: rag_retrieve)
+  - `--domains pattern1,pattern2` (for tools that access network; default: none)
+  - `--budget.tokens N` and `--budget.cost USD` (default: disabled)
+  - `--confidence float` (0–1 threshold to stop; optional)
+  - `--transcript PATH` (write JSONL trace; `--resume PATH` to continue)
+  - `--seed INT` (optional deterministic behavior where supported)
+  - `--k INT` (top‑k per `rag_retrieve`)
+  - `--profile vector|hybrid|bm25` (retriever profile)
+
+#### Config Schema (YAML)
+```yaml
+agent:
+  enabled: false
+  iterations: 3
+  expand: 0
+  confidence: null
+  budgets:
+    tokens: null
+    cost: null
+  tools:
+    allow: [rag_retrieve]
+    domains: []   # e.g., ['*.wikipedia.org', 'arxiv.org']
+  retriever:
+    profile: hybrid   # vector|hybrid|bm25
+    k: 15
+    rerank: true
+  transcripts:
+    dir: logs/agent_runs
+    keep: true
+```
+
+#### Iteration Flow (concrete)
+1) Initialize context with user `question` and optional `task` (kept distinct from retrieval query as in `src/cli/commands.py`).
+2) Planner proposes sub‑questions and tool calls. If `expand>0`, also yields `expanded_queries` variants.
+3) Run tools in sequence or parallel (configurable later; serial in v1). Always include `rag_retrieve` unless disabled.
+4) Evidence Store merges results, deduplicates by `source_id`, tracks pages/metadata.
+5) Assess sufficiency:
+   - Heuristics: at least X distinct sources; coverage of sub‑questions; confidence threshold via LLM scoring prompt.
+   - Stop if: `iter>=iterations` OR `tokens/cost` budgets exceeded OR `confidence>=threshold`.
+6) Finalizer composes answer:
+   - Include inline citations and a source list; no chain-of-thought.
+   - Add a “limitations/next steps” section if evidence sparse.
+7) Emit result, write transcript JSONL, include summary metrics (iters, tokens, tools used).
+
+#### Playbook Integration (v1)
+- Any step may opt into agentic mode:
+  ```yaml
+  steps:
+    - name: themes
+      agent:
+        enabled: true
+        iterations: 4
+        tools: [rag_retrieve, web_search]
+        domains: ['*.nih.gov', '*.wikipedia.org']
+        retriever: {profile: hybrid, k: 20, rerank: true}
+        expand: 1
+      prompt: |
+        Extract major themes/claims with evidence. Return a table:
+        | Source | Claim | Evidence (quote) | Pages | Notes |
+  ```
+- If a playbook sets `agent.enabled`, CLI flags can override or complement (CLI has precedence when provided).
+
+#### Persistence, Resume, and Metrics
+- Write transcripts to `logs/agent_runs/<timestamp>_<slug>.jsonl` with the trace schema above.
+- `--resume` loads the last transcript line, restores Evidence Store and iteration counters, continues until stop.
+- Metrics per iteration: tokens in/out, tool latency, docs added, confidence score; summarized to a final `metrics.json`.
+
+#### Safety, Privacy, and Sandboxing
+- Never emit planner rationales or chain-of-thought in user outputs.
+- Domain allowlist enforced for network tools; no file system side‑effects by default.
+- Configurable max pages/bytes per fetch; redact secrets from logs; honor `OPENAI_API_KEY` only for LLM calls.
+
+#### Acceptance Criteria (v1)
+- `ask --agent --iterations 2 --tools rag_retrieve` performs two iterations of retrieval + assessment and returns a citation‑rich answer.
+- Transcript file contains planner steps, tool calls, and results per iteration; final output omits internal rationales.
+- Playbook step with `agent.enabled: true` runs iteratively and respects tool/domain/retriever settings.
+- Stop conditions trigger correctly (iterations, budgets, confidence).
+- Unit tests include: state transition logic, tool input validation, and finalizer citation formatting.
+
+#### Implementation Notes
+- Reuse `RetrieverFactory` and `LLMFactory` for consistent setup.
+- Prefer OpenAI tool/function-calling via LangChain when available; otherwise implement a thin local tool runner enforcing the spec.
+- Start with `rag_retrieve` only; add `web_search` behind a domain allowlist in a later PR.
+
+#### Open Questions / Future Work
+- Parallel tool execution and evidence ranking fusion across tools.
+- Advanced query planning (learning to stop, reward models) and multi‑agent roles (planner vs. solver).
+- Web archiving of fetched pages and PDF citation extraction.
+
 
 ### [ ] 3. Revisit Playbooks Functionality
   - Operation of system should be abstracted enough such that a yaml file can represent a multi-stage processess resulting in a finished product. Something like
@@ -268,6 +427,5 @@ So we have 3 sorts of tools we should handle 1) external data sources 2) existin
   c) Advanced Text Formatting tools like TEX/LaTEX
     -TeX
     
-
 
 
