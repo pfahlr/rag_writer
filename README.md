@@ -160,6 +160,9 @@ make batch-workflow FILE="jobs.jsonl" KEY="biology" PARALLEL=4
 - **Quality Tools**: Integrated testing, formatting, and linting
 - **Example Discovery**: Easy access to sample files and usage patterns
 
+---
+---
+
 ## 🖥️ CLI Usage
 
 The project provides multiple CLI interfaces for different use cases:
@@ -656,8 +659,6 @@ rag> sources
 rag> quit
 ```
 
-
-
 ### Comparison of Interfaces
 
 | Interface | Best For | Features |
@@ -685,16 +686,6 @@ All CLI interfaces use the same configuration system:
 }
 ```
 
-### Environment Variables
-
-- OPENAI_API_KEY: API key for OpenAI backends.
-- RAG_KEY: Default collection key (e.g., science, default).
-- OPENAI_MODEL: Override OpenAI chat model (default: gpt-4o-mini).
-- OLLAMA_MODEL: Override local Ollama model (default: llama3.1:8b).
-- EMBED_MODEL: Override embedding model used when building/loading indices.
-- EMBED_BATCH: Batch size for embedding operations.
-- DEBUG: Set to 1/true to enable debug mode in config.
-
 ### Models & Backends
 
 - OpenAI via LangChain (preferred): requires `OPENAI_API_KEY` and `langchain-openai`.
@@ -713,6 +704,603 @@ This project targets LangChain 0.2.x with the split provider packages:
 - Optional: `langchain-huggingface>=0.0.3`, `langchain-ollama>=0.1.0`
 
 These versions ensure stable imports for retrievers (e.g., EnsembleRetriever) and LLM integrations. If you upgrade beyond these ranges, prefer the Typer CLI (`python -m src.cli.commands`) which already includes robust fallbacks.
+
+---
+---
+
+## 🧩 Tool Agent Schema
+
+Defines the JSON contract for tool-enabled agents. Each assistant message must be either a tool invocation:
+
+```json
+{"tool": "<tool_name>", "args": { /* ... */ }}
+```
+
+or a final response:
+
+```json
+{"final": "<answer text>"}
+```
+
+See [docs/tool_agent_schema.md](docs/tool_agent_schema.md) for the full specification and transcript example.
+
+### MCP Tool Server
+
+Start the tool server to expose registered tools via the Model Context Protocol:
+
+```bash
+python -m src.tool.mcp_server  # or: make tool-shell
+```
+
+---
+---
+
+## 💾 Classes and Function Libraries
+
+### `research/functions/pdf-io.py`: Handles writing PDF files with metadata in dublin core and prism formats. 
+
+#### write_pdf_info(src_pdf: Path, dest_pdf: Path, metadata: Dict[str, str]) -> Path
+Write standard PDF metadata fields with pypdf
+
+#### write_pdf_xmp(path: Path, dc: Dict[str, str], prism: Dict[str, str]) -> None:
+
+Write XMP (Dublin Core + Prism) metadata in-place using pikepdf. If pikepdf is not installed, this function silently returns
+
+### `research/functions/filelogger.py`: Provides debout log output to a file for cases where it is not possible to access the standard error and standard out streams directly.
+
+#### _fllog(s: str) -> void:
+log str to file
+
+---
+---
+
+## 💽 External Libraries
+### Python Argparse 
+[Documentation](https://docs.python.org/3/library/argparse.html): The argparse module makes it easy to write user-friendly command-line interfaces. The program defines what arguments it requires, and argparse will figure out how to parse those out of sys.argv. The argparse module also automatically generates help and usage messages. The module will also issue errors when users give the program invalid arguments.
+
+**Example Usage**:
+```python
+parser = argparse.ArgumentParser()
+parser.add_argument("--json", dest="json_path", help="JSON job file containing 'question'")
+parser.add_argument("--k", type=int, default=10)
+args = parser.parse_args()
+```
+
+### Python Magic
+[Documentation](https://pypi.org/project/python-magic/): python-magic is a Python interface to the libmagic file type identification library. libmagic identifies file types by checking their headers according to a predefined list of file types. This functionality is exposed to the command line by the Unix command file. 
+**Example Usage**:
+```python
+# returns a value such as image/png, application/pdf, text/html
+mime_type = magic.from_file(filepath, mime=True)
+```
+
+
+---
+---
+
+## 😵‍💫 Miscellaneous
+
+
+---
+---
+
+
+## ⚙️ Environment Variables
+
+| name | description | secret | default | 
+| --- | --- | --- | --- |
+| `OPENAI_API_KEY` | API key for OpenAI backends | 🔐 | N/A | 
+| `RAG_KEY` | Default collection key | 📖 | None | 
+| `OPENAI_MODEL` | Override OpenAI chat model | 📖 | gpt-4o-mini |
+| `OLLAMA_MODEL` | Override local Ollama model | 📖 | llama3.1:8b |
+| `DEBUG` |  Set to 1/true to enable debug mode in config | 📖 | `0/False` |
+
+use `sops-edit env.json` to add/edit new environment variables... append `_pt` (for plaintext) to names of non-secret values. Load sops values into environment using `eval(make sops-env-export) or ``make sops-env-export`` ` operation as this handles removing the suffix and loading them properly 
+
+---
+---
+
+## 🛠️ YAML Configuration Files
+
+The system uses several YAML configuration files located in `src/tool/prompts/` to define content types, merge pipelines, and interactive presets.
+
+### Content Types Configuration
+
+**File**: `src/tool/prompts/content_types.yaml` (main index)
+**Individual Files**: `src/tool/prompts/content_types/*.yaml`
+
+Content types define different writing styles and system prompts for content generation. Each content type is stored in its own YAML file.
+
+**Available Content Types:**
+- `pure_research` - Academic research with citations
+- `technical_manual_writer` - Technical documentation
+- `science_journalism_article_writer` - Science journalism
+- `folklore_adaptation_and_anthology_editor` - Creative writing adaptations
+
+**Example Content Type Structure** (`pure_research.yaml`):
+```yaml
+description: "Pure research assistant focused on citations and evidence"
+system_prompt:
+  - "You are a careful research assistant.\n"
+  - "Use ONLY the provided context\n."
+  - "Every claim MUST include inline citations like ([filename], p.X) or ([filename], pp.X–Y)."
+  - "If the context is insufficient or conflicting, state what is missing and stop."
+  - "Current date: {{current_date}} (for temporal context if needed)\n"
+job_generation_prompt: |
+  You are a research-focused content strategist. Generate {{num_prompts}} research-oriented writing prompts...
+job_generation_rag_context: |
+  **Additional Research Context from RAG:**
+  Use the following relevant research information from the knowledge base...
+```
+
+**Template Variables Available:**
+- `{{book_title}}` - Full book title
+- `{{chapter_title}}` - Chapter title
+- `{{section_title_hierarchy}}` - Hierarchical section path
+- `{{subsection_title}}` - Subsection title
+- `{{subsection_id}}` - Hierarchical ID (e.g., "1A1")
+- `{{target_audience}}` - Target audience
+- `{{topic}}` - Book topic
+- `{{num_prompts}}` - Number of prompts to generate
+- `{{rag_context}}` - Additional RAG context
+- `{{current_date}}` - Current date
+
+**RAG Context Query Templates:**
+Each content type now includes a `rag_context_query` template for retrieving relevant context:
+
+```yaml
+rag_context_query: |
+  Find relevant information about: {{section_title}}
+
+  Context: This is for creating educational content for a book titled "{{book_title}}"
+  for {{target_audience}}.
+
+  Please provide any relevant background information, examples, or context that would be
+  helpful for writing educational content about this topic.
+```
+
+**Template Fallback System:**
+The template engine now supports a robust fallback system:
+1. **First**: Try to load template from the specific content type file (e.g., `pure_research.yaml`)
+2. **Fallback**: If not found, try to load from `default.yaml`
+3. **Error**: If still not found, raise an informative error message
+
+This ensures that new content types can inherit templates from the default configuration while still allowing for customization when needed.
+
+### Merge Types Configuration
+
+**File**: `src/tool/prompts/merge_types.yaml`
+
+Defines different merge pipeline configurations for content consolidation and editing.
+
+**Available Merge Types:**
+- `generic_editor` - Basic single-stage merging
+- `advanced_pipeline` - Multi-stage critique → merge → style → images
+- `educator_handbook` - Specialized for educational content
+
+**Example Merge Type Structure**:
+```yaml
+generic_editor:
+  system_prompt:
+    - "You are a senior editor for a publisher..."
+    - "It is your job to merge these together so that the final resulting text..."
+
+advanced_pipeline:
+  description: "Multi-stage pipeline with critique, merge, and style harmonization"
+  parameters:
+    top_n_variations: 3
+    similarity_threshold: 0.85
+  stages:
+    critique:
+      system_prompt:
+        - "You are a senior editor evaluating content quality..."
+      output_format: "json"
+      scoring_instruction: "Return only JSON: {\"score\": <0-10>, ...}"
+    merge:
+      system_prompt:
+        - "You are a consolidating editor..."
+      output_format: "markdown"
+    style:
+      system_prompt:
+        - "You are a line editor harmonizing tone..."
+      output_format: "markdown"
+```
+
+**Stage Configuration Options:**
+- `system_prompt` - Array of prompt strings
+- `output_format` - "json" or "markdown"
+- `scoring_instruction` - For critique stages
+- `parameters` - Pipeline-level settings (top_n_variations, similarity_threshold)
+
+### Playbooks Configuration
+
+**File**: `src/tool/prompts/playbooks.yaml`
+
+Defines interactive presets for complex multi-step workflows used in the CLI shell.
+
+**Example Playbook Structure**:
+```yaml
+literature_review:
+  label: Literature Review
+  description: Structured synthesis with methods appraisal and evidence-backed themes
+  inputs: []  # preset-level interactive inputs
+  system_prompt: |
+    You are a meticulous literature-review assistant...
+  stitch_final: true  # Combine step outputs
+  final_prompt: |
+    Combine the step outputs into a cohesive literature review...
+  steps:
+    - name: scope
+      prompt: |
+        Clarify the research question(s) and implicit inclusion/exclusion criteria...
+    - name: themes
+      prompt: |
+        Extract major themes/claims with evidence...
+    - name: methods
+      prompt: |
+        Critically appraise methods for each study...
+    - name: synthesis
+      prompt: |
+        Summarize agreements and disagreements...
+```
+
+**Playbook Features:**
+- **Interactive Inputs**: User prompts for dynamic content
+- **Multi-step Workflows**: Sequential processing stages
+- **Template Variables**: Jinja2 templating support
+- **Flexible Output**: JSON arrays or final synthesis
+
+**Input Types:**
+```yaml
+inputs:
+  - name: audience
+    prompt: Primary audience?
+    default: general
+    choices: [general, policy, practitioners]
+  - name: styles
+    prompt: List 3 styles (comma-separated)
+    default: modern retelling, mythic high-fantasy
+    multi: true  # Allow multiple values
+  - name: target_length
+    prompt: Target length (words)
+    default: 450
+    type: int  # Type validation
+```
+
+### Output Templates
+
+**File**: `src/tool/prompts/templates.md`
+
+Provides structural templates for different output formats:
+
+**Literature Review Template:**
+```
+- **Research Question**: ...
+- **Scope/Inclusion**: ...
+- **Themes**
+  - Theme A — evidence (pages)
+  - Theme B — evidence (pages)
+- **Methods Appraisal**
+  - Source — strengths/limitations
+- **Synthesis**
+  - Agreements / Disagreements
+  - Gaps & Future Work
+```
+
+**Science Journalism Template:**
+```
+- **Headline**: ...
+- **Dek**: ...
+- **What's New**
+- **Why It Matters**
+- **Evidence (plain-language)**
+- **Caveats**
+- **Quote(s)** (with page cites)
+- **How Solid Is The Evidence?** (1–5)
+```
+
+### Customizing Configuration
+
+#### Adding New Content Types
+
+1. Create new YAML file in `src/tool/prompts/content_types/`
+2. Define system prompt and job generation templates
+3. Use template variables for dynamic content
+4. Test with `make lc-batch CONTENT_TYPE=your_type`
+
+#### Adding New Merge Types
+
+1. Add new entry to `src/tool/prompts/merge_types.yaml`
+2. Define stages with system prompts and output formats
+3. Configure parameters for advanced pipelines
+4. Test with `python src/langchain/lc_merge_runner.py`
+
+#### Creating Custom Playbooks
+
+1. Add new entry to `src/tool/prompts/playbooks.yaml`
+2. Define interactive inputs and step workflows
+3. Use Jinja2 templating for dynamic content
+4. Test with `python -m src.cli.shell` → `preset your_preset`
+
+---
+---
+
+
+## 📋 Book Structure Format
+
+### JSON Schema
+
+```json
+{
+  "title": "Book Title",
+  "metadata": {
+    "author": "Author Name",
+    "version": "1.0",
+    "target_audience": "Target audience",
+    "word_count_target": 100000,
+    "created_date": "2025-08-28",
+    "description": "Book description"
+  },
+  "sections": [
+    {
+      "subsection_id": "1A1",
+      "title": "Section Title",
+      "job_file": "data_jobs/1A1.jsonl",
+      "batch_params": {
+        "key": "collection_name",
+        "k": 5
+      },
+      "merge_params": {
+        "key": "collection_name",
+        "k": 3
+      },
+      "dependencies": ["parent_section_id"]
+    }
+  ]
+}
+```
+
+### Section ID Convention
+
+Use hierarchical naming for 4-level deep structure:
+- **Level 1**: Chapter (1, 2, 3...)
+- **Level 2**: Major section (A, B, C...)
+- **Level 3**: Subsection (1, 2, 3...)
+- **Level 4**: Sub-subsection (a, b, c...)
+
+Examples: `1A1`, `2B3`, `3C2a`
+
+### Job File Format
+
+Each line is a JSON object with hierarchical context:
+```json
+{
+  "task": "system prompt with book context",
+  "instruction": "specific instruction with hierarchical positioning",
+  "context": {
+    "book_title": "Book Title",
+    "chapter": "Chapter X",
+    "section": "Section Y",
+    "subsection": "Subsection Z",
+    "subsection_id": "XYZ",
+    "target_audience": "target audience"
+  }
+}
+```
+
+**Context Fields:**
+- `book_title`: Full book title for context
+- `chapter`: Chapter identifier (e.g., "Chapter 1")
+- `section`: Section identifier (e.g., "Section A")
+- `subsection`: Subsection identifier (e.g., "Subsection 1")
+- `subsection_id`: Hierarchical ID (e.g., "1A1")
+- `target_audience`: Who the content is for
+
+See `examples/sample_jobs_1A1.jsonl`, `examples/sample_jobs_1B1.jsonl`, and `examples/sample_jobs_2A1.jsonl` for complete examples showing different hierarchical contexts.
+
+### content_viewer.py - Content Viewer
+
+**Purpose**: View and analyze generated content.
+
+**Key Features**:
+- Content browsing
+- Quality assessment
+- Export functionality
+
+### cleanup_sources.py - Source Cleanup
+
+**Purpose**: Clean and preprocess source documents.
+
+**Key Features**:
+- Document normalization
+- Metadata extraction
+- Quality filtering
+
+---
+---
+
+## 📝 Usage Examples
+
+### Example 1: Simple Content Generation
+
+```bash
+# Generate a single piece of content
+python src/langchain/lc_ask.py ask \
+  --content-type pure_research \
+  --task "Explain quantum computing to a beginner"
+```
+
+### Example 2: Batch Processing
+
+Create `jobs.jsonl`:
+```json
+{"task": "system prompt", "instruction": "Generate introduction"}
+{"task": "system prompt", "instruction": "Generate examples"}
+{"task": "system prompt", "instruction": "Generate conclusion"}
+```
+
+```bash
+python src/langchain/lc_batch.py --jobs jobs.jsonl
+```
+
+### Example 3: Advanced Merging
+
+```bash
+# Use advanced pipeline for educational content
+python src/langchain/lc_merge_runner.py --sub 1A1
+```
+
+### Example 4: Custom Pipeline
+
+Add to `merge_types.yaml`:
+```yaml
+technical_docs:
+  description: "Optimized for technical documentation"
+  stages:
+    critique:
+      system_prompt: "You are a technical editor..."
+    merge:
+      system_prompt: "You are a technical writer consolidating docs..."
+```
+
+### Example 5: Complete Book Generation Workflow
+
+#### Option A: AI-Generated Outline
+**Step 1: Generate Intelligent Outline**
+```bash
+python src/langchain/lc_outline_generator.py
+```
+*Interactively collects book details and generates AI-powered outline*
+
+**Step 2: Generate Complete Book**
+```bash
+python src/langchain/lc_book_runner.py --book outlines/book_structures/my_book_outline.json
+```
+*Orchestrates the complete content generation pipeline*
+
+#### Option B: Convert Existing Outline
+**Step 1: Convert Outline to Book Structure**
+```bash
+# Convert markdown outline
+python src/langchain/lc_outline_converter.py --outline examples/sample_outline_markdown.md
+
+# Convert text outline
+python src/langchain/lc_outline_converter.py --outline examples/sample_outline_text.txt
+
+# Convert with custom metadata
+python src/langchain/lc_outline_converter.py --outline my_outline.md \
+  --title "My Custom Book Title" \
+  --topic "Data Science" \
+  --audience "Data Scientists" \
+  --wordcount 75000
+```
+
+**Step 2: Generate Complete Book**
+```bash
+python src/langchain/lc_book_runner.py --book outlines/converted_structures/converted_book_structure.json
+```
+
+#### Option C: Manual Book Structure
+Create a book structure file:
+```json
+{
+  "title": "Professional Development Handbook",
+  "metadata": {
+    "author": "AI Content Generator",
+    "target_audience": "Primary school teachers",
+    "word_count_target": 100000
+  },
+  "sections": [
+    {
+      "subsection_id": "1A1",
+      "title": "Understanding Modern Learning Theories",
+      "job_file": "data_jobs/1A1.jsonl",
+      "batch_params": {"key": "education", "k": 5},
+      "merge_params": {"key": "education", "k": 3},
+      "dependencies": []
+    }
+  ]
+}
+```
+
+Generate the complete book:
+```bash
+python src/langchain/lc_book_runner.py --book book_structure.json
+```
+
+---
+---
+
+## 🔗 Hierarchical Context System
+
+### Automatic Context Embedding
+
+The book runner automatically embeds hierarchical context into every job file, eliminating the need for manual context entry in merge scripts:
+
+**Generated Job Structure:**
+```json
+{
+  "task": "Contextual system prompt with book title and audience",
+  "instruction": "Instruction with hierarchical positioning",
+  "context": {
+    "book_title": "Professional Development Handbook",
+    "chapter": "Chapter 1",
+    "section": "Section A",
+    "subsection": "Subsection 1",
+    "subsection_id": "1A1",
+    "target_audience": "primary school teachers"
+  }
+}
+```
+
+### Benefits:
+
+- **No Manual Input**: Merge scripts get context automatically
+- **Consistent Positioning**: All content knows its place in the hierarchy
+- **Audience Awareness**: Content tailored to target readers
+- **Scalable**: Works for books of any size and complexity
+- **Automated**: Context generation happens during job file creation
+
+### Context Flow:
+
+1. **Book Runner** parses subsection ID (e.g., "1A1")
+2. **Automatically generates** hierarchical context
+3. **Embeds context** in job file during generation
+4. **Batch processing** uses contextualized jobs
+5. **Merge processing** receives properly positioned content
+6. **Final aggregation** maintains hierarchical structure
+
+---
+---
+
+## 🔧 Pipeline Types
+
+### 1. Generic Editor
+- Simple single-stage merging
+- Basic content consolidation
+- Fast processing
+
+### 2. Advanced Pipeline
+- Multi-stage processing
+- AI-powered critique and scoring
+- Intelligent de-duplication
+- Style harmonization
+- Optional image suggestions
+
+### 3. Educator Handbook
+- Specialized for educational content
+- Teacher-focused language
+- Classroom utility emphasis
+- PD handbook optimization
+
+### 4. Custom Pipelines
+- YAML-driven configuration
+- Domain-specific prompts
+- Custom processing stages
+- Flexible parameters
+
+---
+---
 
 ## 🐳 Docker
 
@@ -861,7 +1449,6 @@ make collector-ui
 ```
 
 
-
 ### Image Structure and Faster Rebuilds
 
 The Docker image uses a multi-stage build to speed up development rebuilds:
@@ -898,587 +1485,9 @@ To use prebuilt base layers across machines/CI, you can tag and push the base st
 
 If you use Podman in CI, layer caching is local by default; pushing prebuilt base stage images to your registry can still improve cold-start builds.
 
+---
+---
 
-
-
-## 📋 Book Structure Format
-
-### JSON Schema
-
-```json
-{
-  "title": "Book Title",
-  "metadata": {
-    "author": "Author Name",
-    "version": "1.0",
-    "target_audience": "Target audience",
-    "word_count_target": 100000,
-    "created_date": "2025-08-28",
-    "description": "Book description"
-  },
-  "sections": [
-    {
-      "subsection_id": "1A1",
-      "title": "Section Title",
-      "job_file": "data_jobs/1A1.jsonl",
-      "batch_params": {
-        "key": "collection_name",
-        "k": 5
-      },
-      "merge_params": {
-        "key": "collection_name",
-        "k": 3
-      },
-      "dependencies": ["parent_section_id"]
-    }
-  ]
-}
-```
-
-### Section ID Convention
-
-Use hierarchical naming for 4-level deep structure:
-- **Level 1**: Chapter (1, 2, 3...)
-- **Level 2**: Major section (A, B, C...)
-- **Level 3**: Subsection (1, 2, 3...)
-- **Level 4**: Sub-subsection (a, b, c...)
-
-Examples: `1A1`, `2B3`, `3C2a`
-
-### Job File Format
-
-Each line is a JSON object with hierarchical context:
-```json
-{
-  "task": "system prompt with book context",
-  "instruction": "specific instruction with hierarchical positioning",
-  "context": {
-    "book_title": "Book Title",
-    "chapter": "Chapter X",
-    "section": "Section Y",
-    "subsection": "Subsection Z",
-    "subsection_id": "XYZ",
-    "target_audience": "target audience"
-  }
-}
-```
-
-**Context Fields:**
-- `book_title`: Full book title for context
-- `chapter`: Chapter identifier (e.g., "Chapter 1")
-- `section`: Section identifier (e.g., "Section A")
-- `subsection`: Subsection identifier (e.g., "Subsection 1")
-- `subsection_id`: Hierarchical ID (e.g., "1A1")
-- `target_audience`: Who the content is for
-
-See `examples/sample_jobs_1A1.jsonl`, `examples/sample_jobs_1B1.jsonl`, and `examples/sample_jobs_2A1.jsonl` for complete examples showing different hierarchical contexts.
-
-### content_viewer.py - Content Viewer
-
-**Purpose**: View and analyze generated content.
-
-**Key Features**:
-- Content browsing
-- Quality assessment
-- Export functionality
-
-### cleanup_sources.py - Source Cleanup
-
-**Purpose**: Clean and preprocess source documents.
-
-**Key Features**:
-- Document normalization
-- Metadata extraction
-- Quality filtering
-
-## ⚙️ Configuration
-
-### Environment Configuration
-
-Create `env.json` with your API keys and settings:
-
-```json
-{
-  "openai_api_key": "your-key-here",
-  "anthropic_api_key": "your-key-here",
-  "default_model": "gpt-4",
-  "embedding_model": "text-embedding-ada-002"
-}
-```
-
-### YAML Configuration Files
-
-The system uses several YAML configuration files located in `src/tool/prompts/` to define content types, merge pipelines, and interactive presets.
-
-#### Content Types Configuration
-
-**File**: `src/tool/prompts/content_types.yaml` (main index)
-**Individual Files**: `src/tool/prompts/content_types/*.yaml`
-
-Content types define different writing styles and system prompts for content generation. Each content type is stored in its own YAML file.
-
-**Available Content Types:**
-- `pure_research` - Academic research with citations
-- `technical_manual_writer` - Technical documentation
-- `science_journalism_article_writer` - Science journalism
-- `folklore_adaptation_and_anthology_editor` - Creative writing adaptations
-
-**Example Content Type Structure** (`pure_research.yaml`):
-```yaml
-description: "Pure research assistant focused on citations and evidence"
-system_prompt:
-  - "You are a careful research assistant.\n"
-  - "Use ONLY the provided context\n."
-  - "Every claim MUST include inline citations like ([filename], p.X) or ([filename], pp.X–Y)."
-  - "If the context is insufficient or conflicting, state what is missing and stop."
-  - "Current date: {{current_date}} (for temporal context if needed)\n"
-job_generation_prompt: |
-  You are a research-focused content strategist. Generate {{num_prompts}} research-oriented writing prompts...
-job_generation_rag_context: |
-  **Additional Research Context from RAG:**
-  Use the following relevant research information from the knowledge base...
-```
-
-**Template Variables Available:**
-- `{{book_title}}` - Full book title
-- `{{chapter_title}}` - Chapter title
-- `{{section_title_hierarchy}}` - Hierarchical section path
-- `{{subsection_title}}` - Subsection title
-- `{{subsection_id}}` - Hierarchical ID (e.g., "1A1")
-- `{{target_audience}}` - Target audience
-- `{{topic}}` - Book topic
-- `{{num_prompts}}` - Number of prompts to generate
-- `{{rag_context}}` - Additional RAG context
-- `{{current_date}}` - Current date
-
-**RAG Context Query Templates:**
-Each content type now includes a `rag_context_query` template for retrieving relevant context:
-
-```yaml
-rag_context_query: |
-  Find relevant information about: {{section_title}}
-
-  Context: This is for creating educational content for a book titled "{{book_title}}"
-  for {{target_audience}}.
-
-  Please provide any relevant background information, examples, or context that would be
-  helpful for writing educational content about this topic.
-```
-
-**Template Fallback System:**
-The template engine now supports a robust fallback system:
-1. **First**: Try to load template from the specific content type file (e.g., `pure_research.yaml`)
-2. **Fallback**: If not found, try to load from `default.yaml`
-3. **Error**: If still not found, raise an informative error message
-
-This ensures that new content types can inherit templates from the default configuration while still allowing for customization when needed.
-
-#### Merge Types Configuration
-
-**File**: `src/tool/prompts/merge_types.yaml`
-
-Defines different merge pipeline configurations for content consolidation and editing.
-
-**Available Merge Types:**
-- `generic_editor` - Basic single-stage merging
-- `advanced_pipeline` - Multi-stage critique → merge → style → images
-- `educator_handbook` - Specialized for educational content
-
-**Example Merge Type Structure**:
-```yaml
-generic_editor:
-  system_prompt:
-    - "You are a senior editor for a publisher..."
-    - "It is your job to merge these together so that the final resulting text..."
-
-advanced_pipeline:
-  description: "Multi-stage pipeline with critique, merge, and style harmonization"
-  parameters:
-    top_n_variations: 3
-    similarity_threshold: 0.85
-  stages:
-    critique:
-      system_prompt:
-        - "You are a senior editor evaluating content quality..."
-      output_format: "json"
-      scoring_instruction: "Return only JSON: {\"score\": <0-10>, ...}"
-    merge:
-      system_prompt:
-        - "You are a consolidating editor..."
-      output_format: "markdown"
-    style:
-      system_prompt:
-        - "You are a line editor harmonizing tone..."
-      output_format: "markdown"
-```
-
-**Stage Configuration Options:**
-- `system_prompt` - Array of prompt strings
-- `output_format` - "json" or "markdown"
-- `scoring_instruction` - For critique stages
-- `parameters` - Pipeline-level settings (top_n_variations, similarity_threshold)
-
-#### Playbooks Configuration
-
-**File**: `src/tool/prompts/playbooks.yaml`
-
-Defines interactive presets for complex multi-step workflows used in the CLI shell.
-
-**Example Playbook Structure**:
-```yaml
-literature_review:
-  label: Literature Review
-  description: Structured synthesis with methods appraisal and evidence-backed themes
-  inputs: []  # preset-level interactive inputs
-  system_prompt: |
-    You are a meticulous literature-review assistant...
-  stitch_final: true  # Combine step outputs
-  final_prompt: |
-    Combine the step outputs into a cohesive literature review...
-  steps:
-    - name: scope
-      prompt: |
-        Clarify the research question(s) and implicit inclusion/exclusion criteria...
-    - name: themes
-      prompt: |
-        Extract major themes/claims with evidence...
-    - name: methods
-      prompt: |
-        Critically appraise methods for each study...
-    - name: synthesis
-      prompt: |
-        Summarize agreements and disagreements...
-```
-
-**Playbook Features:**
-- **Interactive Inputs**: User prompts for dynamic content
-- **Multi-step Workflows**: Sequential processing stages
-- **Template Variables**: Jinja2 templating support
-- **Flexible Output**: JSON arrays or final synthesis
-
-**Input Types:**
-```yaml
-inputs:
-  - name: audience
-    prompt: Primary audience?
-    default: general
-    choices: [general, policy, practitioners]
-  - name: styles
-    prompt: List 3 styles (comma-separated)
-    default: modern retelling, mythic high-fantasy
-    multi: true  # Allow multiple values
-  - name: target_length
-    prompt: Target length (words)
-    default: 450
-    type: int  # Type validation
-```
-
-#### Output Templates
-
-**File**: `src/tool/prompts/templates.md`
-
-Provides structural templates for different output formats:
-
-**Literature Review Template:**
-```
-- **Research Question**: ...
-- **Scope/Inclusion**: ...
-- **Themes**
-  - Theme A — evidence (pages)
-  - Theme B — evidence (pages)
-- **Methods Appraisal**
-  - Source — strengths/limitations
-- **Synthesis**
-  - Agreements / Disagreements
-  - Gaps & Future Work
-```
-
-**Science Journalism Template:**
-```
-- **Headline**: ...
-- **Dek**: ...
-- **What's New**
-- **Why It Matters**
-- **Evidence (plain-language)**
-- **Caveats**
-- **Quote(s)** (with page cites)
-- **How Solid Is The Evidence?** (1–5)
-```
-
-### Customizing Configuration
-
-#### Adding New Content Types
-
-1. Create new YAML file in `src/tool/prompts/content_types/`
-2. Define system prompt and job generation templates
-3. Use template variables for dynamic content
-4. Test with `make lc-batch CONTENT_TYPE=your_type`
-
-#### Adding New Merge Types
-
-1. Add new entry to `src/tool/prompts/merge_types.yaml`
-2. Define stages with system prompts and output formats
-3. Configure parameters for advanced pipelines
-4. Test with `python src/langchain/lc_merge_runner.py`
-
-#### Creating Custom Playbooks
-
-1. Add new entry to `src/tool/prompts/playbooks.yaml`
-2. Define interactive inputs and step workflows
-3. Use Jinja2 templating for dynamic content
-4. Test with `python -m src.cli.shell` → `preset your_preset`
-
-## 📝 Usage Examples
-
-### Example 1: Simple Content Generation
-
-```bash
-# Generate a single piece of content
-python src/langchain/lc_ask.py ask \
-  --content-type pure_research \
-  --task "Explain quantum computing to a beginner"
-```
-
-### Example 2: Batch Processing
-
-Create `jobs.jsonl`:
-```json
-{"task": "system prompt", "instruction": "Generate introduction"}
-{"task": "system prompt", "instruction": "Generate examples"}
-{"task": "system prompt", "instruction": "Generate conclusion"}
-```
-
-```bash
-python src/langchain/lc_batch.py --jobs jobs.jsonl
-```
-
-### Example 3: Advanced Merging
-
-```bash
-# Use advanced pipeline for educational content
-python src/langchain/lc_merge_runner.py --sub 1A1
-```
-
-### Example 4: Custom Pipeline
-
-Add to `merge_types.yaml`:
-```yaml
-technical_docs:
-  description: "Optimized for technical documentation"
-  stages:
-    critique:
-      system_prompt: "You are a technical editor..."
-    merge:
-      system_prompt: "You are a technical writer consolidating docs..."
-```
-
-### Example 5: Complete Book Generation Workflow
-
-#### Option A: AI-Generated Outline
-**Step 1: Generate Intelligent Outline**
-```bash
-python src/langchain/lc_outline_generator.py
-```
-*Interactively collects book details and generates AI-powered outline*
-
-**Step 2: Generate Complete Book**
-```bash
-python src/langchain/lc_book_runner.py --book outlines/book_structures/my_book_outline.json
-```
-*Orchestrates the complete content generation pipeline*
-
-#### Option B: Convert Existing Outline
-**Step 1: Convert Outline to Book Structure**
-```bash
-# Convert markdown outline
-python src/langchain/lc_outline_converter.py --outline examples/sample_outline_markdown.md
-
-# Convert text outline
-python src/langchain/lc_outline_converter.py --outline examples/sample_outline_text.txt
-
-# Convert with custom metadata
-python src/langchain/lc_outline_converter.py --outline my_outline.md \
-  --title "My Custom Book Title" \
-  --topic "Data Science" \
-  --audience "Data Scientists" \
-  --wordcount 75000
-```
-
-**Step 2: Generate Complete Book**
-```bash
-python src/langchain/lc_book_runner.py --book outlines/converted_structures/converted_book_structure.json
-```
-
-#### Option C: Manual Book Structure
-Create a book structure file:
-```json
-{
-  "title": "Professional Development Handbook",
-  "metadata": {
-    "author": "AI Content Generator",
-    "target_audience": "Primary school teachers",
-    "word_count_target": 100000
-  },
-  "sections": [
-    {
-      "subsection_id": "1A1",
-      "title": "Understanding Modern Learning Theories",
-      "job_file": "data_jobs/1A1.jsonl",
-      "batch_params": {"key": "education", "k": 5},
-      "merge_params": {"key": "education", "k": 3},
-      "dependencies": []
-    }
-  ]
-}
-```
-
-Generate the complete book:
-```bash
-python src/langchain/lc_book_runner.py --book book_structure.json
-```
-
-## 🔗 Hierarchical Context System
-
-### Automatic Context Embedding
-
-The book runner automatically embeds hierarchical context into every job file, eliminating the need for manual context entry in merge scripts:
-
-**Generated Job Structure:**
-```json
-{
-  "task": "Contextual system prompt with book title and audience",
-  "instruction": "Instruction with hierarchical positioning",
-  "context": {
-    "book_title": "Professional Development Handbook",
-    "chapter": "Chapter 1",
-    "section": "Section A",
-    "subsection": "Subsection 1",
-    "subsection_id": "1A1",
-    "target_audience": "primary school teachers"
-  }
-}
-```
-
-### Benefits:
-
-- **No Manual Input**: Merge scripts get context automatically
-- **Consistent Positioning**: All content knows its place in the hierarchy
-- **Audience Awareness**: Content tailored to target readers
-- **Scalable**: Works for books of any size and complexity
-- **Automated**: Context generation happens during job file creation
-
-### Context Flow:
-
-1. **Book Runner** parses subsection ID (e.g., "1A1")
-2. **Automatically generates** hierarchical context
-3. **Embeds context** in job file during generation
-4. **Batch processing** uses contextualized jobs
-5. **Merge processing** receives properly positioned content
-6. **Final aggregation** maintains hierarchical structure
-
-## 🔧 Pipeline Types
-
-### 1. Generic Editor
-- Simple single-stage merging
-- Basic content consolidation
-- Fast processing
-
-### 2. Advanced Pipeline
-- Multi-stage processing
-- AI-powered critique and scoring
-- Intelligent de-duplication
-- Style harmonization
-- Optional image suggestions
-
-### 3. Educator Handbook
-- Specialized for educational content
-- Teacher-focused language
-- Classroom utility emphasis
-- PD handbook optimization
-
-### 4. Custom Pipelines
-- YAML-driven configuration
-- Domain-specific prompts
-- Custom processing stages
-- Flexible parameters
-
-## 📚 API Reference
-
-### lc_ask.py
-
-```bash
-python src/langchain/lc_ask.py ask [OPTIONS]
-
-Options:
-  --content-type TEXT    Content type from content_types.yaml
-  --task TEXT           The task/prompt for the LLM
-  --json FILE          JSON file with job specification
-  --key TEXT           Collection key for RAG
-  --k INT             Top-k results for retrieval
-  --output FILE        Output file path
-```
-
-### lc_batch.py
-
-```bash
-python src/langchain/lc_batch.py [OPTIONS]
-
-Options:
-  --jobs FILE          JSONL file with jobs
-  --output DIR         Output directory
-  --parallel INT       Number of parallel processes
-  --key TEXT          Collection key for RAG
-  --k INT            Top-k results for retrieval
-```
-
-### lc_merge_runner.py
-
-```bash
-python src/langchain/lc_merge_runner.py [OPTIONS]
-
-Options:
-  --sub TEXT          Subsection ID for job file
-  --jobs FILE         Custom job file path
-  --key TEXT         Collection key for RAG
-  --k INT           Top-k results for retrieval
-  --batch-only       Force batch results only
-```
-
-### lc_book_runner.py
-
-```bash
-python src/langchain/lc_book_runner.py [OPTIONS]
-
-Options:
-  --book FILE         JSON file defining book structure (required)
-  --output FILE       Output markdown file path
-  --force             Force regeneration of all content
-  --skip-merge        Skip merge processing, only run batch
-```
-
-## 🧩 Tool Agent Schema
-
-Defines the JSON contract for tool-enabled agents. Each assistant message must be either a tool invocation:
-
-```json
-{"tool": "<tool_name>", "args": { /* ... */ }}
-```
-
-or a final response:
-
-```json
-{"final": "<answer text>"}
-```
-
-See [docs/tool_agent_schema.md](docs/tool_agent_schema.md) for the full specification and transcript example.
-
-### MCP Tool Server
-
-Start the tool server to expose registered tools via the Model Context Protocol:
-
-```bash
-python -m src.tool.mcp_server  # or: make tool-shell
-```
 
 ## 🔍 Troubleshooting
 
@@ -1537,6 +1546,9 @@ python src/langchain/lc_merge_runner.py --sub 1A1
 - Adjust `similarity_threshold` in pipeline config for different de-duplication levels
 - Configure appropriate `top_n_variations` based on content complexity
 
+---
+---
+
 ## 🤝 Contributing
 
 ### Adding New Pipeline Types
@@ -1558,9 +1570,15 @@ python src/langchain/lc_merge_runner.py --sub 1A1
 - Include error handling
 - Update tests for new functionality
 
+---
+---
+
 ## 📄 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+---
+---
 
 ## 🙏 Acknowledgments
 
