@@ -12,12 +12,13 @@ The RAG Writer provides multiple interfaces for different use cases:
 Comprehensive command center with workflow automation:
 .sp
 .nf
-make help                    # Show all targets
-make examples               # List example files
-make lc-ask "question"      # RAG query
-make ask QUESTION="question" # Alternative form
+make help                     # Show all targets
+make examples                # List example files
+make lc-index KEY=default    # Build FAISS index
+make cli-ask "question"      # RAG query via Typer CLI
 make lc-batch FILE=jobs.jsonl  # Batch processing
 make book-from-outline OUTLINE=file.txt  # Complete workflow
+make cli-shell               # Interactive shell
 .fi
 .SS 2. Direct Script Execution
 Full control with all command-line options:
@@ -349,17 +350,14 @@ Convert with custom metadata:
 .B make init
 Initialize environment and install dependencies
 .TP
-.B make ingest
-Parse PDFs into documents (LlamaIndex)
-.TP
-.B make index
+.B make lc-index KEY=foo
 Build FAISS index for retrieval
 .TP
-.B make ask "question"
-Ask questions using RAG (LlamaIndex)
+.B make cli-ask "question"
+Ask questions using RAG via Typer CLI
 .TP
-.B make ask QUESTION="question"
-Alternative form using a named variable instead of a positional argument
+.B make cli-shell
+Launch interactive shell for RAG operations
 .SS LangChain Targets
 .TP
 .B make lc-index KEY=foo SHARD_SIZE=2000 RESUME=1
