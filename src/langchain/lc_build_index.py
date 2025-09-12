@@ -61,7 +61,7 @@ def build_faiss_for_models(
         shards_dir = base_dir / "shards"
         shards_dir.mkdir(parents=True, exist_ok=True)
         embedder = HuggingFaceEmbeddings(model_name=emb)
-        completed_index_file = base_dir+"index.faiss"
+        completed_index_file = base_dir / "index.faiss"
         
         if resume and completed_index_file.exits():
             continue
