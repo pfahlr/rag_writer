@@ -724,6 +724,20 @@ or a final response:
 
 See [docs/tool_agent_schema.md](docs/tool_agent_schema.md) for the full specification and transcript example.
 
+### Multi-agent CLI
+
+Run a tool-enabled agent that combines local RAG retrieval with tools served
+over MCP:
+
+```bash
+python -m src.cli.multi_agent "Find papers on transformers and call the time tool" \
+  --key default --mcp ./tools/mcp_server.py
+```
+
+The command registers the `rag_retrieve` tool for vector search and loads any
+tools exposed by the MCP server so the agent can invoke them during the
+conversation.
+
 ### MCP Tool Server
 
 Start the tool server to expose registered tools via the Model Context Protocol:
@@ -1491,19 +1505,7 @@ If you use Podman in CI, layer caching is local by default; pushing prebuilt bas
 ---
 
 
-### Multi-agent CLI
 
-Run a tool-enabled agent that combines local RAG retrieval with tools served
-over MCP:
-
-```bash
-python -m src.cli.multi_agent "Find papers on transformers and call the time tool" \
-  --key default --mcp ./tools/mcp_server.py
-```
-
-The command registers the `rag_retrieve` tool for vector search and loads any
-tools exposed by the MCP server so the agent can invoke them during the
-conversation.
 
 ## 🔍 Troubleshooting
 
