@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-
+import os
 import json
 import re
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Tuple
+import webbrowser
+import magic
 
 import typer
 
@@ -113,6 +115,35 @@ def _gather_pdf_info(pdf_path: Path) -> Tuple[Dict[str, Any], bool]:
             record_found = True
     return meta, record_found
 
+def match_title_and_filename(title, filename, match_threshold=2):
+    """`match_threshold` works like the magic wand in photoshop, higher threshold requires a less exact match"""     
+    pattern = re.compile(r"[\s_-]+")
+    filename_parts = re.split(pattern, filename.lower())
+    filename_length = len(filename_parts)
+    title_parts = re.split(pattern, title.lower())
+    title_length = len(title_parts)
+    no = 0
+    yes = 0
+    if title_length >= filename_length: 
+        for word in filename_parts:
+            if word in title_parts:    
+                yes = yes+1
+            else: 
+                no = no+1
+        if (yes) >= (filename_length - match_threshold):
+            return True
+        return False
+    else: 
+        for word in title_parts:
+            if word in filename_parts:
+                yes = yes+1
+            else:
+                no = no+1
+        if (yes) >= (title_length - match_threshold):
+            return True
+        return False
+    
+
 def main(
     dir: Path = typer.Option(Path("data_raw"), "--dir", help="Directory to scan for PDFs"),
     glob: str = typer.Option("**/*.pdf", "--glob", help="Glob pattern for PDFs"),
@@ -125,6 +156,8 @@ def main(
 ):
     """Scan PDFs for DOI/ISBN, fetch metadata, and record to manifest (v1)."""
     pdfs: List[Path] = sorted(Path(dir).glob(glob))
+    #print(pdfs)
+    #exit(0)
     data = load_manifest(manifest)
     entries: List[Dict[str, Any]] = data.get("entries", [])
     known_ids = {e.get("id"): e for e in entries if e.get("id")}
@@ -132,6 +165,23 @@ def main(
     for pdf in pdfs:
         if not pdf.is_file():
             continue
+        try:
+            # Determine the MIME type
+            print("checking mime type of "+str(pdf))
+            mime_type = magic.from_file(pdf, mime=True)            
+            print("mime type is: "+mime_type)
+            if mime_type != 'application/pdf':
+                print("not application/pdf - attempt to delete:")
+                try: 
+                    pdf.unlink()
+                    typer.echo(f"[remove] deleted {pdf}")
+                except Exception as exc:
+                    typer.echo(f"[remove] failed to delete {pdf}: {exc}")
+                continue
+
+        except Exception as e:
+            typer.echo(f"could not reliably determine mime type of {pdf}. assuming it is pdf.")
+
         checksum = file_checksum(pdf)
         if (
             skip_existing
@@ -153,13 +203,27 @@ def main(
         while True:
             typer.echo(f"\nFile: {pdf}")
             typer.echo(json.dumps(entry, ensure_ascii=False, indent=2))
+            
+            match = False
+            
+            # only need to compare if a match was found, otherwise this information is not relevant
             if found:
-                prompt = "[W]rite/[D]OI/[I]SBN/[S]kip/[R]emove"
-            else:
-                prompt = "No metadata found. [D]OI/[I]SBN/[S]kip/[R]emove"
-            choice = typer.prompt(prompt).strip().lower()
+                match = match_title_and_filename(entry.get("title"), os.path.basename(entry['filename']))
+            # if found AND match - we want to go directly to writing the metadata
+            if (found and not match):
+                prompt = "✅ Metadata Found: [W]rite /⦿/ [D]OI /⦿/ [I]SBN /⦿/ [V]iew /⦿/ [S]kip /⦿/ [R]emove"
+                        # if not found - we know there's no match as we never checked
+            elif not found:
+                prompt = "⛔ No Metadata Found: [D]OI |⦾| [I]SBN |⦾| [V]iew |⦾| [S]kip |⦾| [R]emove"
+            
+            # show this prompt if not matched because if IS matched,we skip waiting for user input
+            if not match:
+              choice = typer.prompt(prompt).strip().lower()
 
-            if choice == "w" and found:
+            # and we'll write the metadata if either 1) the info was found and the title matches closely enough or 2) the user confirms from manual inspection
+            # todo: improve search in content for info to automatically get the doi and confirm match.
+            # whatever we do in that respect will save lots of user effort.
+            if (found and match) or (choice == "w" and found):
                 if write:
                     title = entry.get("title") or Path(entry["filename"]).stem
                     year = entry.get("year")
@@ -236,6 +300,9 @@ def main(
                 else:
                     typer.echo("[dry-run] metadata would be written")
                 break
+            elif choice == "v":
+                print('opening: '+entry['filename']) 
+                webbrowser.open(entry['filename'])
             elif choice == "d":
                 new_doi = typer.prompt("Enter DOI").strip()
                 if new_doi:
@@ -275,6 +342,7 @@ def main(
             elif choice == "r":
                 if allow_delete:
                     try:
+                        
                         pdf.unlink()
                         typer.echo(f"[remove] deleted {pdf}")
                     except Exception as exc:
