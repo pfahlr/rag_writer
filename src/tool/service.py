@@ -82,20 +82,24 @@ TOOLPACKS: Dict[str, ToolPack] = load_toolpacks()
 
 def _run_tool(tool: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     if tool in STUB_OUTPUTS:
-        result = STUB_OUTPUTS[tool]
-        validate_tool_output(tool, result)
-        return result
+        return STUB_OUTPUTS[tool]
     return {"tool": tool, "payload": payload}
 
 
-def invoke_tool(tool: str, payload: Dict[str, Any], *, timeout: float = 30.0) -> Dict[str, Any]:
+def invoke_tool(
+    tool: str, payload: Dict[str, Any], *, timeout: float = 30.0
+) -> Dict[str, Any]:
     tp = TOOLPACKS.get(tool)
     limit_in = tp.limits.input if tp and tp.limits.input is not None else MAX_IN
     encoded = json.dumps(payload).encode("utf-8")
     if len(encoded) > limit_in:
         raise HTTPException(
             status_code=400,
-            detail={"error": "INVALID_INPUT", "message": "payload too large", "details": {"size": len(encoded)}},
+            detail={
+                "error": "INVALID_INPUT",
+                "message": "payload too large",
+                "details": {"size": len(encoded)},
+            },
         )
     do_cache = tp.deterministic if tp else True
     key = (tool, json.dumps(payload, sort_keys=True))
@@ -114,7 +118,11 @@ def invoke_tool(tool: str, payload: Dict[str, Any], *, timeout: float = 30.0) ->
                 detail={"error": "schema_validation_failed", "message": exc.message},
             )
 
-    runner = (lambda: run_toolpack(tp, payload)) if tp else (lambda: _run_tool(tool, payload))
+    runner = (
+        (lambda: run_toolpack(tp, payload))
+        if tp
+        else (lambda: _run_tool(tool, payload))
+    )
     run_timeout = tp.timeoutMs / 1000 if tp and tp.timeoutMs else timeout
 
     with ThreadPoolExecutor(max_workers=1) as ex:
@@ -141,12 +149,26 @@ def invoke_tool(tool: str, payload: Dict[str, Any], *, timeout: float = 30.0) ->
                 detail={"error": "schema_validation_failed", "message": exc.message},
             )
 
+    try:
+        validate_tool_output(tool, result)
+    except KeyError:
+        pass
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "schema_validation_failed", "message": exc.message},
+        )
+
     out_encoded = json.dumps(result).encode("utf-8")
     limit_out = tp.limits.output if tp and tp.limits.output is not None else MAX_OUT
     if len(out_encoded) > limit_out:
         raise HTTPException(
             status_code=500,
-            detail={"error": "INTERNAL", "message": "output too large", "details": {"size": len(out_encoded)}},
+            detail={
+                "error": "INTERNAL",
+                "message": "output too large",
+                "details": {"size": len(out_encoded)},
+            },
         )
 
     response = {"ok": True, "data": result}
