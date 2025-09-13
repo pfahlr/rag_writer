@@ -46,7 +46,10 @@ def test_tool_endpoint_envelope():
     assert res.status_code == 200
     out = res.json()
     assert "meta" in out and "traceId" in out["meta"] and "durationMs" in out["meta"]
-    assert out["body"] == {"tool": "echo", "payload": {"hello": "world"}}
+    assert out["body"] == {
+        "ok": True,
+        "data": {"tool": "echo", "payload": {"hello": "world"}},
+    }
     assert out["warnings"] == []
 
 

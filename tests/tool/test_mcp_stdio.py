@@ -40,7 +40,10 @@ def test_stdio_discover_and_invoke():
                 "params": {"tool": "echo", "payload": {"hello": "world"}},
             },
         )
-        assert resp2["result"] == {"tool": "echo", "payload": {"hello": "world"}}
+        assert resp2["result"] == {
+            "ok": True,
+            "data": {"tool": "echo", "payload": {"hello": "world"}},
+        }
     finally:
         proc.terminate()
         proc.wait(timeout=3)
