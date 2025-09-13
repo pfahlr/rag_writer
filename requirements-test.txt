@@ -19,3 +19,6 @@ faker>=15.0.0        # Generate fake test data
 
 # Coverage reporting
 coverage>=7.0.0
+httpx
+anyio
+pytest-asyncio

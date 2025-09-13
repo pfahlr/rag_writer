@@ -1,0 +1,4 @@
+{
+  "tool": "web_search_query",
+  "payload": {"query": "pytest"}
+}
