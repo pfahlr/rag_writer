@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, List
 
 import json
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
@@ -11,6 +11,7 @@ import yaml
 from fastapi import HTTPException
 from jsonschema import ValidationError, validate
 
+from .. import __version__ as SERVER_VERSION
 from .schemas import validate_tool_output
 from .toolpack_loader import load_toolpacks
 from .executor import run_toolpack, _render_template
@@ -18,6 +19,7 @@ from .toolpack_models import ToolPack
 
 REGISTRY_PATH = Path("prompts/REGISTRY.yaml")
 PACKS_DIR = Path("prompts/packs")
+START_TIME = time()
 
 
 def _load_registry() -> Dict[str, Dict[str, list[int]]]:
@@ -27,23 +29,62 @@ def _load_registry() -> Dict[str, Dict[str, list[int]]]:
     return data or {}
 
 
+def _load_toolpack_meta(root: Path = Path("tools")) -> List[Dict[str, Any]]:
+    meta: List[Dict[str, Any]] = []
+    if not root.exists():
+        return meta
+    for path in root.rglob("*.tool.yaml"):
+        data = yaml.safe_load(path.read_text()) or {}
+        tp_id = data.get("id")
+        if not tp_id:
+            continue
+        schema = data.get("schema", {})
+        meta.append(
+            {
+                "name": tp_id,
+                "version": data.get("version", "0.0.0"),
+                "inputSchemaRef": schema.get("input", {}).get("$ref"),
+                "outputSchemaRef": schema.get("output", {}).get("$ref"),
+                "caps": {
+                    "timeoutMs": data.get("timeoutMs"),
+                    "maxInputBytes": data.get("limits", {}).get("input"),
+                    "maxOutputBytes": data.get("limits", {}).get("output"),
+                    "network": data.get("caps", {}).get("network", []),
+                },
+            }
+        )
+    return meta
+
+
+TOOLPACK_META = _load_toolpack_meta()
+
+
 def discover() -> Dict[str, Any]:
     registry = _load_registry()
-    tools = {
-        tp.id: {
-            "schema": {
-                "input": tp.schema.input,
-                "output": tp.schema.output,
-            },
-            "caps": {"kind": tp.kind},
-        }
-        for tp in TOOLPACKS.values()
-    }
+    prompts: List[Dict[str, Any]] = []
+    for domain, names in registry.items():
+        for name, majors in names.items():
+            versions = []
+            for major in majors:
+                spec_path = PACKS_DIR / domain / f"{name}.spec.yaml"
+                spec = (
+                    yaml.safe_load(spec_path.read_text()) if spec_path.exists() else {}
+                )
+                versions.append(
+                    {
+                        "major": major,
+                        "description": spec.get("description", ""),
+                        "specRef": str(spec_path),
+                    }
+                )
+            prompts.append({"id": f"{domain}/{name}", "versions": versions})
+
+    uptime_sec = int(time() - START_TIME)
     return {
-        "mcp": "stub",
-        "endpoints": ["discover", "prompt", "tool"],
-        "prompts": registry,
-        "tools": tools,
+        "server": {"name": "rag-writer", "version": SERVER_VERSION},
+        "tools": TOOLPACK_META,
+        "prompts": prompts,
+        "health": {"status": "ok", "uptimeSec": uptime_sec},
     }
 
 

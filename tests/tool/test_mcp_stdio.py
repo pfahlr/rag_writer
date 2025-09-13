@@ -30,7 +30,7 @@ def test_stdio_discover_and_invoke():
     )
     try:
         resp1 = _send(proc, {"jsonrpc": "2.0", "id": 1, "method": "mcp.discover"})
-        assert resp1["result"]["mcp"] == "stub"
+        assert resp1["result"]["server"]["name"] == "rag-writer"
         resp2 = _send(
             proc,
             {
