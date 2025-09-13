@@ -731,6 +731,13 @@ such as `web_search_query` or `vector_query_search`, has corresponding
 `*.input.schema.json` and `*.output.schema.json` files that define the expected
 Model Context Protocol contracts.
 
+### YAML Toolpacks
+
+Additional tools can be declared by dropping `*.tool.yaml` files under the
+`tools/` directory. Each YAML file defines a *toolpack* with an `id`, `kind`
+(`python` or `cli`), an entry point, and JSON schemas for input and output. On
+startup these files are loaded and exposed over `/mcp/tool/<id>`.
+
 ### Multi-agent CLI
 
 Run a tool-enabled agent that combines local RAG retrieval with tools served
@@ -769,11 +776,31 @@ Write standard PDF metadata fields with pypdf
 
 Write XMP (Dublin Core + Prism) metadata in-place using pikepdf. If pikepdf is not installed, this function silently returns
 
-### 📄 `research/functions/filelogger.py` 
+### 📄 `research/functions/filelogger.py`
 Provides debout log output to a file for cases where it is not possible to access the standard error and standard out streams directly.
 
 #### `_fllog(s: str) -> void:`
 log str to file
+
+---
+### 📄 `src/tool/toolpack_models.py`
+Pydantic models describing YAML-defined toolpacks.
+
+#### `class ToolPack(BaseModel)`
+- `id: str` – canonical tool identifier
+- `kind: Literal['python','cli']`
+- `entry: str | List[str]` – module path or CLI argv
+- `schema: ToolSchema` – input and output JSON schemas
+- `timeoutMs: Optional[int]`
+- `limits: ToolLimits` – input/output byte caps
+- `env: List[str]` – environment variables to pass through
+- `deterministic: bool` – enable idempotent caching
+
+### 📄 `src/tool/executor.py`
+Executes a loaded `ToolPack`.
+
+#### `run_toolpack(tp: ToolPack, payload: Dict[str, Any]) -> Dict[str, Any]`
+Run the toolpack either in-process or via subprocess and return its JSON output.
 
 ---
 ---
@@ -878,6 +905,22 @@ use `sops-edit env.json` to add/edit new environment variables... append `_pt` (
 ## 🛠️ YAML Configuration Files
 
 The system uses several YAML configuration files located in `src/config/content/prompts/` to define content types, merge pipelines, and interactive presets.
+
+### Toolpack Definitions
+
+`tools/**/*.tool.yaml` files describe executable tools. Core keys:
+
+```yaml
+id: <unique tool id>
+kind: python | cli
+entry: package.module:func  # or argv for CLI tools
+schema:
+  input: $ref to input schema
+  output: $ref to output schema
+```
+
+Dropping a new file in this tree automatically registers the tool at
+`/mcp/tool/<id>`.
 
 ### Content Types Configuration
 
