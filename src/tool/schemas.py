@@ -24,6 +24,13 @@ for path in SCHEMAS_DIR.glob("*.output.schema.json"):
     OUTPUT_VALIDATORS[tool] = Draft7Validator(schema)
 
 
+def validate_tool_input(tool: str, data: Dict[str, Any]) -> None:
+    validator = INPUT_VALIDATORS.get(tool)
+    if validator is None:
+        raise KeyError(f"No input schema for tool: {tool}")
+    validator.validate(data)
+
+
 def validate_tool_output(tool: str, data: Dict[str, Any]) -> None:
     validator = OUTPUT_VALIDATORS.get(tool)
     if validator is None:
