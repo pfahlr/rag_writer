@@ -739,6 +739,8 @@ Additional tools can be declared by dropping `*.tool.yaml` files under the
 path), and JSON schemas for input and output. On startup these files are loaded
 and exposed over `/mcp/tool/<id>`. Jinja2 templating is supported for argv, URL,
 and headers, and a `templating.cacheKey` value can override caching behavior.
+See [docs/MCP.md](docs/MCP.md) for full field definitions, env passthrough, and
+JSON contracts.
 
 ### Multi-agent CLI
 
