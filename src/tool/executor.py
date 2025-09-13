@@ -78,6 +78,14 @@ def run_toolpack(tp: ToolPack, payload: Dict[str, Any]) -> Dict[str, Any]:
         else:
             cmd = ["node", _render_template(tp.entry, payload)]
         return _run_subprocess(cmd, payload, env, timeout)
+    if tp.kind == "php":
+        entry = tp.php if tp.php is not None else tp.entry
+        php_bin = tp.phpBinary or "php"
+        if isinstance(entry, list):
+            cmd = [php_bin] + _render_list(entry, payload)
+        else:
+            cmd = [php_bin, _render_template(entry, payload)]
+        return _run_subprocess(cmd, payload, env, timeout)
     # http
     url = _render_template(tp.entry, payload)
     headers = {k: _render_template(v, payload) for k, v in tp.headers.items()}
