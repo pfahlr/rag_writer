@@ -744,6 +744,7 @@ Start the tool server to expose registered tools via the Model Context Protocol:
 
 ```bash
 python -m src.tool.mcp_server  # or: make tool-shell
+uvicorn src.tool.mcp_app:app --host 127.0.0.1 --port 3333
 ```
 
 ---
@@ -788,6 +789,35 @@ args = parser.parse_args()
 ```python
 # returns a value such as image/png, application/pdf, text/html
 mime_type = magic.from_file(filepath, mime=True)
+```
+
+### FastAPI
+[Documentation](https://fastapi.tiangolo.com/): FastAPI is a modern, high-performance web framework for building APIs with Python.
+
+**Example Usage**:
+```python
+from fastapi import FastAPI
+
+app = FastAPI()
+```
+
+### Uvicorn
+[Documentation](https://www.uvicorn.org/): Uvicorn is a lightning-fast ASGI server implementation, perfect for serving FastAPI apps.
+
+**Example Usage**:
+```bash
+uvicorn src.tool.mcp_app:app --host 127.0.0.1 --port 3333
+```
+
+### Pydantic
+[Documentation](https://docs.pydantic.dev/): Pydantic provides data validation and settings management using Python type annotations.
+
+**Example Usage**:
+```python
+from pydantic import BaseModel
+
+class Meta(BaseModel):
+    traceId: str
 ```
 
 

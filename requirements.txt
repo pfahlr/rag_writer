@@ -48,3 +48,6 @@ langchain-ollama>=0.1.0
 langchain-openai>=0.1.7
 
 mcp
+fastapi
+uvicorn[standard]
+pydantic
