@@ -93,6 +93,7 @@ ruff check --fix . || true
 black .
 pytest -q
 uvicorn src.api.main:app --reload --port 8000
+python -m src.tool.mcp_stdio
 ```
 
 ---
