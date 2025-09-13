@@ -49,4 +49,5 @@ async def test_stdio_rpc_tool_determinism(tool_payload):
         first = await _send_request(process, msg)
         msg["id"] = 2
         second = await _send_request(process, msg)
-        assert first["result"] == second["result"] == STUB_OUTPUTS[tool_payload["tool"]]
+        expected = {"ok": True, "data": STUB_OUTPUTS[tool_payload["tool"]]}
+        assert first["result"] == second["result"] == expected
