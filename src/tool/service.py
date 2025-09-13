@@ -13,7 +13,7 @@ from jsonschema import ValidationError, validate
 
 from .schemas import validate_tool_output
 from .toolpack_loader import load_toolpacks
-from .executor import run_toolpack
+from .executor import run_toolpack, _render_template
 from .toolpack_models import ToolPack
 
 REGISTRY_PATH = Path("prompts/REGISTRY.yaml")
@@ -102,7 +102,11 @@ def invoke_tool(
             },
         )
     do_cache = tp.deterministic if tp else True
-    key = (tool, json.dumps(payload, sort_keys=True))
+    if tp and tp.templating and tp.templating.cacheKey:
+        key_payload = _render_template(tp.templating.cacheKey, payload)
+    else:
+        key_payload = json.dumps(payload, sort_keys=True)
+    key = (tool, key_payload)
     now_ts = time()
     if do_cache:
         cached = _CACHE.get(key)

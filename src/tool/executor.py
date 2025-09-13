@@ -7,10 +7,26 @@ import sys
 from importlib import import_module
 from typing import Any, Dict, List
 
+import requests
+from jinja2 import Environment, BaseLoader
+
 from .toolpack_models import ToolPack
 
 
-def _run_subprocess(cmd: List[str], payload: Dict[str, Any], env: Dict[str, str], timeout: float | None) -> Dict[str, Any]:
+_JINJA_ENV = Environment(loader=BaseLoader())
+
+
+def _render_template(text: str, payload: Dict[str, Any]) -> str:
+    return _JINJA_ENV.from_string(text).render(input=payload)
+
+
+def _render_list(items: List[str], payload: Dict[str, Any]) -> List[str]:
+    return [_render_template(i, payload) for i in items]
+
+
+def _run_subprocess(
+    cmd: List[str], payload: Dict[str, Any], env: Dict[str, str], timeout: float | None
+) -> Dict[str, Any]:
     proc = subprocess.run(
         cmd,
         input=json.dumps(payload).encode("utf-8"),
@@ -35,8 +51,9 @@ def run_toolpack(tp: ToolPack, payload: Dict[str, Any]) -> Dict[str, Any]:
     if tp.kind == "python":
         entry = tp.entry
         if isinstance(entry, list):
-            cmd = entry
+            cmd = _render_list(entry, payload)
             return _run_subprocess(cmd, payload, env, timeout)
+        entry = _render_template(entry, payload)
         if ":" in entry:
             mod, func = entry.split(":", 1)
             try:
@@ -49,9 +66,23 @@ def run_toolpack(tp: ToolPack, payload: Dict[str, Any]) -> Dict[str, Any]:
         else:
             cmd = [sys.executable, entry]
             return _run_subprocess(cmd, payload, env, timeout)
-    else:  # cli
+    if tp.kind == "cli":
         if isinstance(tp.entry, list):
-            cmd = tp.entry
+            cmd = _render_list(tp.entry, payload)
         else:
-            cmd = [tp.entry]
+            cmd = [_render_template(tp.entry, payload)]
         return _run_subprocess(cmd, payload, env, timeout)
+    if tp.kind == "node":
+        if isinstance(tp.entry, list):
+            cmd = ["node"] + _render_list(tp.entry, payload)
+        else:
+            cmd = ["node", _render_template(tp.entry, payload)]
+        return _run_subprocess(cmd, payload, env, timeout)
+    # http
+    url = _render_template(tp.entry, payload)
+    headers = {k: _render_template(v, payload) for k, v in tp.headers.items()}
+    resp = requests.post(url, json={"input": payload}, headers=headers, timeout=timeout)
+    data = resp.json()
+    if isinstance(data, dict) and "data" in data:
+        return data["data"]
+    return data

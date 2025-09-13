@@ -1,0 +1,16 @@
+id: node_echo
+kind: node
+entry:
+  - tools/example/node_echo.mjs
+  - "{{input.prefix}}"
+deterministic: true
+timeoutMs: 1000
+limits:
+  input: 4096
+  output: 4096
+env: []
+schema:
+  input:
+    $ref: ./node_echo.input.schema.json
+  output:
+    $ref: ./node_echo.output.schema.json

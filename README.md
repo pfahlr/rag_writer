@@ -735,8 +735,10 @@ Model Context Protocol contracts.
 
 Additional tools can be declared by dropping `*.tool.yaml` files under the
 `tools/` directory. Each YAML file defines a *toolpack* with an `id`, `kind`
-(`python` or `cli`), an entry point, and JSON schemas for input and output. On
-startup these files are loaded and exposed over `/mcp/tool/<id>`.
+(`python`, `cli`, `node`, or `http`), an entry point, and JSON schemas for input
+and output. On startup these files are loaded and exposed over `/mcp/tool/<id>`.
+Jinja2 templating is supported for argv, URL, and headers, and a
+`templating.cacheKey` value can override caching behavior.
 
 ### Multi-agent CLI
 
@@ -788,19 +790,24 @@ Pydantic models describing YAML-defined toolpacks.
 
 #### `class ToolPack(BaseModel)`
 - `id: str` – canonical tool identifier
-- `kind: Literal['python','cli']`
-- `entry: str | List[str]` – module path or CLI argv
+- `kind: Literal['python','cli','node','http']`
+- `entry: str | List[str]` – module path, CLI/Node argv, or HTTP URL
 - `schema: ToolSchema` – input and output JSON schemas
 - `timeoutMs: Optional[int]`
 - `limits: ToolLimits` – input/output byte caps
 - `env: List[str]` – environment variables to pass through
+- `headers: Dict[str, str]` – HTTP headers (templated)
+- `templating: Optional[Templating]` – Jinja2 settings
 - `deterministic: bool` – enable idempotent caching
+
+#### `class Templating(BaseModel)`
+- `cacheKey: Optional[str]` – Jinja2 template for cache key
 
 ### 📄 `src/tool/executor.py`
 Executes a loaded `ToolPack`.
 
 #### `run_toolpack(tp: ToolPack, payload: Dict[str, Any]) -> Dict[str, Any]`
-Run the toolpack either in-process or via subprocess and return its JSON output.
+Run the toolpack either in-process or via subprocess/HTTP and return its JSON output.
 
 ---
 ---
@@ -852,6 +859,18 @@ from pydantic import BaseModel
 
 class Meta(BaseModel):
     traceId: str
+```
+
+### Jinja2
+[Documentation](https://jinja.palletsprojects.com/): Jinja2 is a modern templating engine for Python used to render strings with
+dynamic values.
+
+**Example Usage**:
+```python
+from jinja2 import Environment, BaseLoader
+
+env = Environment(loader=BaseLoader())
+env.from_string("Hello {{ name }}").render(name="World")
 ```
 
 ### httpx
@@ -912,8 +931,12 @@ The system uses several YAML configuration files located in `src/config/content/
 
 ```yaml
 id: <unique tool id>
-kind: python | cli
-entry: package.module:func  # or argv for CLI tools
+kind: python | cli | node | http
+entry: package.module:func  # argv for CLI/Node or URL for HTTP tools
+headers:
+  X-Token: "{{input.token}}"  # optional HTTP headers
+templating:
+  cacheKey: "{{input.path}}"  # override caching
 schema:
   input: $ref to input schema
   output: $ref to output schema
