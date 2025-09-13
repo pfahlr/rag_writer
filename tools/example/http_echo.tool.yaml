@@ -1,0 +1,14 @@
+id: http_echo
+kind: http
+entry: https://example.com/{{input.path}}
+headers:
+  X-Token: "{{input.token}}"
+deterministic: true
+timeoutMs: 1000
+templating:
+  cacheKey: "{{input.path}}"
+schema:
+  input:
+    $ref: ./http_echo.input.schema.json
+  output:
+    $ref: ./http_echo.output.schema.json
