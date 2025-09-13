@@ -1,15 +1,11 @@
 """Simple manifest management for the research collector."""
 
 from __future__ import annotations
-
 import json
 from pathlib import Path
 from typing import Dict, List, Optional
-
 import requests
-
 from .article_metadata import ArticleMetadata
-
 
 class ResearchCollector:
     """Core functions for collecting, storing, and parsing article metadata."""

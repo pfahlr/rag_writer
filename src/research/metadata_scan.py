@@ -43,7 +43,6 @@ def _decode_doi_from_filename(filename: str) -> str:
     else:
         return ""
 
-
 def _detect_ids(text: str) -> Dict[str, str]:
     ids: Dict[str, str] = {}
     m = DOI_RE.search(text)
@@ -58,7 +57,6 @@ def _detect_ids(text: str) -> Dict[str, str]:
 
 def _default_manifest_path() -> Path:
     return Path("research/out/tmp/manifest.json")
-
  
 def _relpath(path: Path, base: Path) -> str:
     try:
@@ -76,7 +74,6 @@ def _extract_text_first_pages(pdf_path: Path, max_pages: int = 5) -> str:
         return "\n".join(text)
     except Exception:
         return ""
-
 
 def _gather_pdf_info(pdf_path: Path) -> Tuple[Dict[str, Any], bool]:
     """Gather initial metadata for a PDF file.
