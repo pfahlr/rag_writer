@@ -51,3 +51,4 @@ mcp
 fastapi
 uvicorn[standard]
 pydantic
+jsonschema

@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "citations_audit_check.input",
+  "type": "object",
+  "properties": {
+    "citations": {
+      "type": "array",
+      "items": {"type": "string"},
+      "minItems": 1
+    }
+  },
+  "required": ["citations"],
+  "additionalProperties": false
+}

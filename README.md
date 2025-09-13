@@ -724,6 +724,13 @@ or a final response:
 
 See [docs/tool_agent_schema.md](docs/tool_agent_schema.md) for the full specification and transcript example.
 
+### Canonical Tool Schemas
+
+Canonical tool input and output JSON schemas live under `schemas/tools/`. Each tool,
+such as `web_search_query` or `vector_query_search`, has corresponding
+`*.input.schema.json` and `*.output.schema.json` files that define the expected
+Model Context Protocol contracts.
+
 ### Multi-agent CLI
 
 Run a tool-enabled agent that combines local RAG retrieval with tools served
