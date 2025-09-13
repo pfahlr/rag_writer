@@ -21,15 +21,24 @@ client = TestClient(app)
 def test_discover_endpoint():
     res = client.get("/mcp/discover")
     assert res.status_code == 200
-    assert res.json()["mcp"] == "stub"
+    data = res.json()
+    assert data["mcp"] == "stub"
+    assert data["prompts"] == {"writing": {"sectioned_draft": [3]}}
 
 
 def test_prompt_endpoint():
-    res = client.get("/mcp/prompt/foo/bar/1")
+    res = client.get("/mcp/prompt/writing/sectioned_draft/3")
     assert res.status_code == 200
     data = res.json()
-    assert data["spec"] == {"domain": "foo", "name": "bar", "major": "1"}
-    assert data["body"] == "foo-bar-1"
+    assert "Write a sectioned draft" in data["body"]
+    assert (
+        data["spec"]["inputs"]["properties"]["topic"]["type"] == "string"
+    )
+
+
+def test_prompt_not_found():
+    res = client.get("/mcp/prompt/writing/does_not_exist/1")
+    assert res.status_code == 404
 
 
 def test_tool_endpoint_envelope():
