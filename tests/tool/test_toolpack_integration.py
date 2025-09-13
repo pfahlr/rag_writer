@@ -7,7 +7,8 @@ from src.tool import service
 def test_toolpack_discovery_includes_example():
     info = service.discover()
     assert "tools" in info
-    assert "markdown" in info["tools"]
+    names = [t["name"] for t in info["tools"]]
+    assert "markdown" in names
 
 
 def test_toolpack_invocation_and_schema_validation(monkeypatch):

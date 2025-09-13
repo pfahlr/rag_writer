@@ -22,8 +22,31 @@ def test_discover_endpoint():
     res = client.get("/mcp/discover")
     assert res.status_code == 200
     data = res.json()
-    assert data["mcp"] == "stub"
-    assert data["prompts"] == {"writing": {"sectioned_draft": [3]}}
+    # server metadata
+    assert data["server"]["name"] == "rag-writer"
+    assert "version" in data["server"]
+
+    # tool metadata includes example markdown tool
+    tools = {t["name"]: t for t in data["tools"]}
+    assert "markdown" in tools
+    md = tools["markdown"]
+    assert md["inputSchemaRef"].endswith("markdown.input.schema.json")
+    assert md["caps"] == {
+        "timeoutMs": 1000,
+        "maxInputBytes": 4096,
+        "maxOutputBytes": 4096,
+        "network": [],
+    }
+
+    # prompts are exposed with versions
+    prompts = {p["id"]: p for p in data["prompts"]}
+    assert "writing/sectioned_draft" in prompts
+    versions = prompts["writing/sectioned_draft"]["versions"]
+    assert any(v["major"] == 3 for v in versions)
+
+    # health block present
+    assert data["health"]["status"] == "ok"
+    assert isinstance(data["health"]["uptimeSec"], int)
 
 
 def test_prompt_endpoint():
@@ -31,9 +54,7 @@ def test_prompt_endpoint():
     assert res.status_code == 200
     data = res.json()
     assert "Write a sectioned draft" in data["body"]
-    assert (
-        data["spec"]["inputs"]["properties"]["topic"]["type"] == "string"
-    )
+    assert data["spec"]["inputs"]["properties"]["topic"]["type"] == "string"
 
 
 def test_prompt_not_found():
