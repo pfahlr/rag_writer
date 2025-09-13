@@ -482,6 +482,12 @@ python -m research.collector
 
 #### When defining new Model Context Protocol (MCP) Tools update `README.ms`: `## 🧩 Tool Agent Schema` section
 
+### MCP Tools & Prompt Packs
+
+See [docs/MCP.md](docs/MCP.md) for how to run HTTP/STDIO servers, the full
+`*.tool.yaml` reference, JSON contracts for subprocess tools, prompt
+registry format, determinism guarantees, and copy‑paste examples.
+
 
 
 ## ADDITIONAL INSTRUCTIONS
