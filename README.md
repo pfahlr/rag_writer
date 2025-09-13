@@ -827,6 +827,28 @@ class Meta(BaseModel):
     traceId: str
 ```
 
+### httpx
+[Documentation](https://www.python-httpx.org/): httpx is a fully featured HTTP client for Python.
+
+**Example Usage**:
+```python
+from httpx import ASGITransport, AsyncClient
+
+transport = ASGITransport(app=app)
+async with AsyncClient(transport=transport, base_url="http://test") as client:
+    await client.get("/")
+```
+
+### AnyIO
+[Documentation](https://anyio.readthedocs.io/): AnyIO provides a unified asynchronous I/O API across event loops.
+
+**Example Usage**:
+```python
+import anyio
+
+process = await anyio.open_process(["python", "-m", "src.tool.mcp_stdio"])
+```
+
 
 ---
 ---
