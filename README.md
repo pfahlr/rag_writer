@@ -919,6 +919,36 @@ This ensures that new content types can inherit templates from the default confi
 
 Defines different merge pipeline configurations for content consolidation and editing.
 
+### Prompt Packs and Registry
+
+**File**: `prompts/REGISTRY.yaml`
+
+Prompt packs are stored on disk and registered via `prompts/REGISTRY.yaml`. Each prompt family contains one or more versions. Bodies live in Markdown files named `prompts/packs/<domain>/<name>.v<major>.md` and share a spec defined in `prompts/packs/<domain>/<name>.spec.yaml`.
+
+**Example Registry Structure**:
+
+```yaml
+writing:
+  sectioned_draft:
+    - 3
+```
+
+**Example Spec Structure** (`sectioned_draft.spec.yaml`):
+
+```yaml
+inputs:
+  type: object
+  properties:
+    topic:
+      type: string
+  required:
+    - topic
+  additionalProperties: false
+constraints:
+  length:
+    max_tokens: 1000
+```
+
 **Available Merge Types:**
 - `generic_editor` - Basic single-stage merging
 - `advanced_pipeline` - Multi-stage critique → merge → style → images
