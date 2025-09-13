@@ -1,0 +1,29 @@
+name: MCP Conformance
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install -U pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f requirements-test.txt ]; then pip install -r requirements-test.txt; fi
+      - name: Start MCP server
+        run: |
+          uvicorn src.tool.mcp_app:app --port 3333 > server.log 2>&1 &
+          sleep 3
+      - name: Run tests
+        run: pytest -q
+      - name: Print server logs on failure
+        if: failure()
+        run: cat server.log

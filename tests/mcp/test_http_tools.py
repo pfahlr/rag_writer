@@ -26,6 +26,7 @@ async def test_http_tool_determinism(tool_payload):
             assert resp.status_code == 200
             data = resp.json()
             assert "meta" in data and "body" in data
-            assert data["body"] == STUB_OUTPUTS[tool_payload["tool"]]
+            expected = {"ok": True, "data": STUB_OUTPUTS[tool_payload["tool"]]}
+            assert data["body"] == expected
             bodies.append(data["body"])
         assert bodies[0] == bodies[1]
