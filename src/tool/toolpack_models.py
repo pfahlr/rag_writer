@@ -18,8 +18,10 @@ class ToolLimits(BaseModel):
 
 class ToolPack(BaseModel):
     id: str
-    kind: Literal["python", "cli", "node", "http"]
-    entry: str | List[str]
+    kind: Literal["python", "cli", "node", "http", "php"]
+    entry: str | List[str] | None = None
+    php: str | List[str] | None = None
+    phpBinary: Optional[str] = None
     schema: ToolSchema
     timeoutMs: Optional[int] = None
     limits: ToolLimits = Field(default_factory=ToolLimits)

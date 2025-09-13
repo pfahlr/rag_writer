@@ -735,10 +735,10 @@ Model Context Protocol contracts.
 
 Additional tools can be declared by dropping `*.tool.yaml` files under the
 `tools/` directory. Each YAML file defines a *toolpack* with an `id`, `kind`
-(`python`, `cli`, `node`, or `http`), an entry point, and JSON schemas for input
-and output. On startup these files are loaded and exposed over `/mcp/tool/<id>`.
-Jinja2 templating is supported for argv, URL, and headers, and a
-`templating.cacheKey` value can override caching behavior.
+(`python`, `cli`, `node`, `php`, or `http`), an entry point (or `php` script
+path), and JSON schemas for input and output. On startup these files are loaded
+and exposed over `/mcp/tool/<id>`. Jinja2 templating is supported for argv, URL,
+and headers, and a `templating.cacheKey` value can override caching behavior.
 
 ### Multi-agent CLI
 
@@ -790,8 +790,10 @@ Pydantic models describing YAML-defined toolpacks.
 
 #### `class ToolPack(BaseModel)`
 - `id: str` – canonical tool identifier
-- `kind: Literal['python','cli','node','http']`
-- `entry: str | List[str]` – module path, CLI/Node argv, or HTTP URL
+- `kind: Literal['python','cli','node','http','php']`
+- `entry: str | List[str] | None` – module path, CLI/Node argv, or HTTP URL
+- `php: str | List[str] | None` – PHP script path
+- `phpBinary: Optional[str]` – PHP interpreter override
 - `schema: ToolSchema` – input and output JSON schemas
 - `timeoutMs: Optional[int]`
 - `limits: ToolLimits` – input/output byte caps
