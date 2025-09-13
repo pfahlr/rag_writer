@@ -1,5 +1,4 @@
 *__pycache__*
-.sops.yaml
 data_processed/*
 !data_processed/README.md
 data_raw/*

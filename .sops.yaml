@@ -1,0 +1,18 @@
+creation_rules:
+  # Example: prefer KMS for env.json in cloud, while keeping PGP for local
+  # Uncomment and replace ARNs/resource_ids to enable
+  # - path_regex: env\.json$
+  #   kms:
+  #     - arn: arn:aws:kms:us-east-1:123456789012:key/your-key-id
+  #   gcp_kms:
+  #     projects/your-proj/locations/global/keyRings/sops/cryptoKeys/rag-writer
+  #   pgp: 'CB3B963C0AB97B34BAF22D68F9D46501F1146F9F'
+  #   encrypted_regex: '^(.*)$'
+
+  # Default: PGP recipient for all files (kept for local development)
+  - path_regex: ./*
+    unencrypted_suffix: "_unencrypted"
+    gcp_kms:
+      projects/second-form-471412-c5/locations/global/keyRings/newlit-keyring/cryptoKeys/newlit-sops-key
+    pgp: 'CB3B963C0AB97B34BAF22D68F9D46501F1146F9F'
+
