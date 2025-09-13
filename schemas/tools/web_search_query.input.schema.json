@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "web_search_query.input",
+  "type": "object",
+  "properties": {
+    "query": {"type": "string"},
+    "max_results": {"type": "integer", "minimum": 1}
+  },
+  "required": ["query"],
+  "additionalProperties": false
+}
