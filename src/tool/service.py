@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
+
+import json
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from time import time
 
 import yaml
 from fastapi import HTTPException
@@ -55,16 +59,55 @@ STUB_OUTPUTS: Dict[str, Dict[str, Any]] = {
     "exports_render_markdown": {"markdown": ""},
 }
 
+MAX_IN = 64 * 1024
+MAX_OUT = 256 * 1024
+_CACHE: Dict[Tuple[str, str], Tuple[float, Dict[str, Any]]] = {}
 
-def invoke_tool(tool: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+
+def _run_tool(tool: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     if tool in STUB_OUTPUTS:
         result = STUB_OUTPUTS[tool]
+        validate_tool_output(tool, result)
+        return result
+    return {"tool": tool, "payload": payload}
+
+
+def invoke_tool(tool: str, payload: Dict[str, Any], *, timeout: float = 30.0) -> Dict[str, Any]:
+    encoded = json.dumps(payload).encode("utf-8")
+    if len(encoded) > MAX_IN:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "INVALID_INPUT", "message": "payload too large", "details": {"size": len(encoded)}},
+        )
+
+    key = (tool, json.dumps(payload, sort_keys=True))
+    now_ts = time()
+    cached = _CACHE.get(key)
+    if cached and now_ts - cached[0] < 600:
+        return cached[1]
+
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        future = ex.submit(_run_tool, tool, payload)
         try:
-            validate_tool_output(tool, result)
-        except ValidationError as exc:  # pragma: no cover - error path
+            result = future.result(timeout=timeout)
+        except TimeoutError:
+            raise HTTPException(
+                status_code=504,
+                detail={"error": "TIMEOUT", "message": f"Tool {tool} timed out"},
+            )
+        except ValidationError as exc:  # pragma: no cover - _run_tool validation
             raise HTTPException(
                 status_code=400,
                 detail={"error": "schema_validation_failed", "message": exc.message},
             )
-        return result
-    return {"tool": tool, "payload": payload}
+
+    out_encoded = json.dumps(result).encode("utf-8")
+    if len(out_encoded) > MAX_OUT:
+        raise HTTPException(
+            status_code=500,
+            detail={"error": "INTERNAL", "message": "output too large", "details": {"size": len(out_encoded)}},
+        )
+
+    response = {"ok": True, "data": result}
+    _CACHE[key] = (now_ts, response)
+    return response
