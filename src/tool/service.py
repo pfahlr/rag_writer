@@ -5,6 +5,9 @@ from typing import Any, Dict
 
 import yaml
 from fastapi import HTTPException
+from jsonschema import ValidationError
+
+from .schemas import validate_tool_output
 
 REGISTRY_PATH = Path("prompts/REGISTRY.yaml")
 PACKS_DIR = Path("prompts/packs")
@@ -44,5 +47,24 @@ def get_prompt(domain: str, name: str, major: str) -> Dict[str, Any]:
     return {"body": body, "spec": spec}
 
 
+STUB_OUTPUTS: Dict[str, Dict[str, Any]] = {
+    "web_search_query": {"results": []},
+    "docs_load_fetch": {"docs": []},
+    "vector_query_search": {"results": []},
+    "citations_audit_check": {"reports": []},
+    "exports_render_markdown": {"markdown": ""},
+}
+
+
 def invoke_tool(tool: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    if tool in STUB_OUTPUTS:
+        result = STUB_OUTPUTS[tool]
+        try:
+            validate_tool_output(tool, result)
+        except ValidationError as exc:  # pragma: no cover - error path
+            raise HTTPException(
+                status_code=400,
+                detail={"error": "schema_validation_failed", "message": exc.message},
+            )
+        return result
     return {"tool": tool, "payload": payload}
