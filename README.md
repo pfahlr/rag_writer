@@ -46,12 +46,42 @@ This suite provides a complete workflow for content creation and processing usin
 ### Prerequisites
 
 ```bash
-# Install dependencies
+#### Install Python dependencies globally
 pip install -r requirements.txt
+pip install -r requirements-test.txt
+```
 
-# Set up environment (if needed)
+#### or in a virtualenv (reccommended)
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+pip install -r requirements-test.txt
+
+```
+
+#### Install SOPS
+
+```bash
+curl -LO https://github.com/getsops/sops/releases/download/v3.10.2/sops-v3.10.2.linux.amd64
+sudo mv sops-v3.10.2.linux.amd64 /usr/local/bin/sops
+chmod +x /usr/local/bin/sops
+```
+
+#### Set up environment (if needed)
+```
 cp env.json.template env.json
-# Edit env.json with your API keys and settings
+
+# Edit env.json with your API keys and settings (add _pt for plaintext after non-secret environment variables)
+nano env.json
+
+# encrypt values in env.json 
+sops -e env.json > env.json
+
+# load environment variables of both secret or otherwise, you may need to eval or run inside backticks, as the output of this command is the specific shell commands to export the environment variables.(workaround for having the _pt suffix)
+
+`make sops-env-export`
+
 ```
 
 ### Basic Usage
