@@ -62,8 +62,10 @@ def search_crossref(title: str, author: str = "", timeout: float = 10.0) -> Opti
     params = {"query.title": title, "rows": 1}
     if author:
         params["query.author"] = author
+
     r = requests.get("https://api.crossref.org/works", params=params,
                      headers={"User-Agent": USER_AGENT}, timeout=timeout)
+
     if not r.ok:
         return None
     items = r.json().get("message", {}).get("items", [])
@@ -72,7 +74,7 @@ def search_crossref(title: str, author: str = "", timeout: float = 10.0) -> Opti
     return _message_to_meta(items[0])
 
 def enrich_via_crossref(doi: Optional[str] = None, title: Optional[str] = None,
-                        author: str = "", timeout: float = 10.0) -> Optional[Dict[str, Any]]:
+                        author: str = "", timeout: float = 10.0, headers={}) -> Optional[Dict[str, Any]]:
     """
     If DOI available: fetch by DOI.
     Else: search by title (+optional author).

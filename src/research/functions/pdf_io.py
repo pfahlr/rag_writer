@@ -109,8 +109,8 @@ def write_pdf_xmp(path: Path, dc: Dict[str, Union[str, List[str]]], prism: Dict[
         return
     with pikepdf.Pdf.open(str(path)) as pdf:
         with pdf.open_metadata() as meta:
-            meta.register_namespace('dc', 'http://purl.org/dc/elements/1.1/')
-            meta.register_namespace('prism', 'http://prismstandard.org/namespaces/basic/2.0/')
+            #meta.register_namespace('dc', 'http://purl.org/dc/elements/1.1/')
+            #meta.register_namespace('prism', 'http://prismstandard.org/namespaces/basic/2.0/')
 
             # Dublin Core
             if dc.get('title'):
@@ -260,13 +260,13 @@ def write_pdf_metadata(
     if pikepdf is None:
         return
 
-    with pikepdf.Pdf.open(str(path)) as pdf:
+    with pikepdf.Pdf.open(str(path), allow_overwriting_input=True) as pdf:
         with pdf.open_metadata() as meta:
             # Namespaces
-            meta.register_namespace("dc", "http://purl.org/dc/elements/1.1/")
-            meta.register_namespace("dcterms", "http://purl.org/dc/terms/")
-            meta.register_namespace("prism", "http://prismstandard.org/namespaces/basic/2.0/")
-            meta.register_namespace("arxiv", "http://arxiv.org/schemas/atom")
+            #meta.register_namespace("dc", "http://purl.org/dc/elements/1.1/")
+            #meta.register_namespace("dcterms", "http://purl.org/dc/terms/")
+            #meta.register_namespace("prism", "http://prismstandard.org/namespaces/basic/2.0/")
+            #meta.register_namespace("arxiv", "http://arxiv.org/schemas/atom")
 
             # Dublin Core
             if dc:
@@ -321,7 +321,6 @@ def write_pdf_metadata(
                     meta["arxiv:pdfUrl"] = str(arxiv["pdfUrl"])
                 if arxiv.get("arxivDoi"):
                     meta["arxiv:doi"] = str(arxiv["arxivDoi"])
-
         pdf.save(str(path))
 
 

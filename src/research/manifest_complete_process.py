@@ -209,10 +209,10 @@ def write_pdf_metadata(pdf_path: Path, meta: Dict) -> None:
         if doi:
             meta["doi_url"] = f"https://doi.org/{doi}"
         core = {
-            "Title": meta.get("title") or "",
-            "Author": authors_str,
-            "Subject": json.dumps(meta, ensure_ascii=False),
-            "Keywords": ", ".join(filter(None, [meta.get("doi"), meta.get("isbn"), meta.get("publication")])),
+            "/Title": meta.get("title") or "",
+            "/Author": authors_str,
+            "/Subject": json.dumps(meta, ensure_ascii=False),
+            "/Keywords": ", ".join(filter(None, [meta.get("doi"), meta.get("isbn"), meta.get("publication")])),
         }
         dc = {
             "title": meta.get("title") or "",
@@ -237,7 +237,9 @@ def write_pdf_metadata(pdf_path: Path, meta: Dict) -> None:
                 dcterms=dcterms,
                 full_meta_for_subject=meta,
             )
-            return
+            # we want it to also write the standard fields
+            # this isn;'t working yet
+           # return
         except Exception as e:
             print(f"[WARN] pdf_io.write_pdf_metadata failed, falling back to pypdf: {e}")
 
