@@ -83,7 +83,7 @@ except Exception as e:
 # --- enrichment clients (your new/updated modules) ---
 # Crossref + Google Books live in src/research/clients; arXiv client is optional
 try:
-    from src.research.clients.crossref_client import (
+    from clients.crossref_client import (
         fetch_crossref_by_doi,
         search_crossref,
         enrich_via_crossref,
@@ -92,19 +92,19 @@ except Exception as e:
     sys.exit("Missing src/research/clients/crossref_client.py with the required functions.\n" + str(e))
 
 try:
-    from src.research.clients.google_books_client import enrich_via_google_books
+    from clients.google_books_client import enrich_via_google_books
 except Exception as e:
     sys.exit("Missing src/research/clients/google_books_client.py.\n" + str(e))
 
 try:
-    from src.research.clients.arxiv_client import enrich_via_arxiv  # your existing client
+    from clients.arxiv_client import enrich_via_arxiv  # your existing client
     HAVE_ARXIV = True
 except Exception:
     HAVE_ARXIV = False
 
 # PDF XMP/core metadata writer
 try:
-    from src.research.functions import pdf_io as pdfio
+    from functions import pdf_io as pdfio
     HAVE_PDFIO = True
 except Exception:
     HAVE_PDFIO = False
@@ -539,6 +539,7 @@ def main():
 
     try:
         entries = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
+        entries = entries['entries']
     except Exception as e:
         sys.exit(f"Failed to read manifest: {e}")
     if not isinstance(entries, list):
