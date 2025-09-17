@@ -1,113 +1,98 @@
 #!/usr/bin/env python3
 """
----
-Headless-download PDFs from a manifest, verify/enrich metadata, rename, and persist results.
----
-Rick Pfahl <pfahlr@gmail.com>
-September 2025
----
+manifest_complete_process.py
+Two-phase PDF pipeline without Selenium.
 
-Usage:
-  python fetch_and_enrich_pdfs.py --manifest /path/to/manifest.json --output /path/to/output_dir
+USAGE
+------
+# 1) Prepare download scripts and update manifest with temp filenames:
+python manifest_complete_process.py preprocess \
+  --manifest data/manifest.json \
+  --downloader aria2c \
+  --script-out data/downloads.aria2c.txt \
+  --downloads-dir data/pdfs_inbox \
+  [--probe-size]
 
-Manifest entry example (list of objects):
-{
-  "title": "An integrated model of consumers' intention to buy second-hand clothing",
-  "authors": ["KY Koay", "CW Cheah", "HS Lom"],
-  "date": "2022",
-  "publication": "International Journal of Retail & …",
-  "doi": "10.1108/IJRDM-10-2021-0470",
-  "isbn": "",
-  "pdf_url": "https://example.com/file.pdf",
-  "scholar_url": "https://publisher/page"
-}
+# (OR for JDownloader)
+python manifest_complete_process.py preprocess \
+  --manifest data/manifest.json \
+  --downloader jdownloader \
+  --script-out data/downloads.crawljob \
+  --downloads-dir data/pdfs_inbox \
+  [--probe-size]
 
-What this script does for each entry:
-  1) Download the file at pdf_url (headless Chrome) into a per-entry temp dir.
-  2) Verify with python-magic that mimetype == application/pdf; otherwise delete + skip.
-  3) Prefer manifest metadata; fill missing fields by scanning the PDF (title/doi/isbn).
-  4) Enrich/verify via Crossref (for DOI) and Google Books (for ISBN).
-  5) Rename file per your rules, avoiding collisions (append --<unix_ts> if needed).
-  6) Save sidecar metadata JSON and append to output/metadata.jsonl.
-      Successes → --output/download-success.manifest.<unixtime>.jsonl
-  7) Failures  → --output/download-failed.manifest.<unixtime>.jsonl (and per-entry sidecars)
-  8) Embed core, DC, and PRISM metadata into the PDF via src/research/functions/pdf_io.py,
-     - stash a json.dumps(meta) into PDF Subject.
-     - Crossref/GB enrichment moved into src/research/clients/* with improved logic.
-     - arXiv URLs auto-enriched via your arxiv client if present.
-  9) Filenames: [title-slug]-[year].pdf (DOI/ISBN go into metadata instead).
+# 2) After the user runs the downloader and places PDFs into --inbox,
+#    complete enrichment, embedding, and canonical rename:
+python manifest_complete_process.py process \
+  --manifest data/manifest.json \
+  --inbox data/pdfs_inbox \
+  --output data/pdfs_final
 
-Usage:
-  python fetch_and_enrich_pdfs.py --manifest /path/to/manifest.json --output /path/to/output_dir
+NOTES
+-----
+- preprocess:
+  - Adds: download_id, temp_filename, expected_size (if --probe-size), download_status="pending"
+  - Emits: downloads_map.json (next to script), plus aria2c.txt OR .crawljob
+
+- process:
+  - Validates PDFs, enriches (Crossref/GB/arXiv if your clients are available),
+    embeds metadata (via pdf_io if available; falls back to pypdf),
+    renames to [title-slug]-[year].pdf, updates manifest with final fields.
 
 Dependencies:
-  pip install selenium webdriver-manager python-magic-bin pypdf requests
-  # Linux libmagic (Fedora): sudo dnf install file-libs
-  # Linux libmagic (Deb/Ubuntu): sudo apt-get install libmagic1
+  pip install requests pypdf python-magic
+  # libmagic: Fedora: sudo dnf install file-libs ; Debian/Ubuntu: sudo apt-get install libmagic1
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
-import shutil
-import sys
 import time
 import unicodedata
 import uuid
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
-# --- selenium / driver ---
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.common.exceptions import WebDriverException
-try:
-    from webdriver_manager.chrome import ChromeDriverManager
-    HAVE_WDM = True
-except Exception:
-    HAVE_WDM = False
+import requests
 
 # --- MIME + PDF text ---
 try:
     import magic  # python-magic
 except Exception as e:
-    sys.exit("python-magic is required. Try: pip install python-magic-bin\n" + str(e))
+    raise SystemExit("python-magic is required. Try: pip install python-magic\n" + str(e))
 
 try:
     from pypdf import PdfReader, PdfWriter
 except Exception as e:
-    sys.exit("pypdf is required. Install with: pip install pypdf\n" + str(e))
+    raise SystemExit("pypdf is required. Install with: pip install pypdf\n" + str(e))
 
-# --- enrichment clients (your new/updated modules) ---
-# Crossref + Google Books live in src/research/clients; arXiv client is optional
+# --- enrichment clients (optional but expected in your tree) ---
+HAVE_ARXIV = False
+HAVE_PDFIO = False
 try:
-    from clients.crossref_client import (
-        fetch_crossref_by_doi,
-        search_crossref,
-        enrich_via_crossref,
-    )
-except Exception as e:
-    sys.exit("Missing src/research/clients/crossref_client.py with the required functions.\n" + str(e))
-
-try:
-    from clients.google_books_client import enrich_via_google_books
-except Exception as e:
-    sys.exit("Missing src/research/clients/google_books_client.py.\n" + str(e))
-
-try:
-    from clients.arxiv_client import enrich_via_arxiv  # your existing client
+    from clients.arxiv_client import enrich_via_arxiv
     HAVE_ARXIV = True
 except Exception:
-    HAVE_ARXIV = False
+    pass
 
-# PDF XMP/core metadata writer
+try:
+    from clients.crossref_client import enrich_via_crossref
+except Exception:
+    def enrich_via_crossref(**kwargs):
+        return {}
+try:
+    from clients.google_books_client import enrich_via_google_books
+except Exception:
+    def enrich_via_google_books(*args, **kwargs):
+        return {}
+
 try:
     from functions import pdf_io as pdfio
     HAVE_PDFIO = True
 except Exception:
-    HAVE_PDFIO = False
+    pass
 
 
 DOI_RE = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+\b", re.IGNORECASE)
@@ -115,92 +100,36 @@ ISBN_LABELED_RE = re.compile(r"\bISBN(?:-1[03])?:?\s*([0-9Xx][0-9Xx\s\-]{8,})\b"
 ISBN_CHUNK_RE = re.compile(r"\b[0-9Xx][0-9Xx\s\-]{9,18}[0-9Xx]\b")
 
 
+# ----------------------- utils -----------------------
+def load_manifest(path: Path) -> Tuple[List[Dict], bool]:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(raw, dict) and "entries" in raw:
+        return raw["entries"], True
+    if isinstance(raw, list):
+        return raw, False
+    raise SystemExit("Manifest must be a list of entries or an object with 'entries'.")
+
+
+def save_manifest(path: Path, entries: List[Dict], wrapped: bool) -> None:
+    out = {"entries": entries} if wrapped else entries
+    path.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def slugify(text: str) -> str:
-    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    text = unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode("ascii")
     text = text.lower()
     text = re.sub(r"[^\w\s-]", "", text)
     text = re.sub(r"[\s_]+", "-", text).strip("-")
     text = re.sub(r"-{2,}", "-", text)
     return text or "untitled"
-
-
-def parse_doi_from_url(url: str) -> Optional[str]:
-    if not url:
-        return None
-    m = DOI_RE.search(url)
-    if m:
-        doi = m.group(0)
-        doi = doi.strip().rstrip(".,;)")
-        doi = doi.replace("\\", "/")
-        doi = re.sub(r"\s+", "", doi)
-        return doi.lower()
-    return None
-
-
-def isbn10_is_valid(isbn10: str) -> bool:
-    if len(isbn10) != 10:
-        return False
-    s = 0
-    for i, ch in enumerate(isbn10):
-        v = 10 if ch.upper() == "X" else (int(ch) if ch.isdigit() else None)
-        if v is None:
-            return False
-        s += (10 - i) * v
-    return s % 11 == 0
-
-
-def isbn13_is_valid(isbn13: str) -> bool:
-    if len(isbn13) != 13 or not isbn13.isdigit():
-        return False
-    s = sum((int(d) * (1 if i % 2 == 0 else 3)) for i, d in enumerate(isbn13))
-    return s % 10 == 0
-
-
-def normalize_isbn(raw: str) -> Optional[str]:
-    if not raw:
-        return None
-    digits = re.sub(r"(?i)isbn(?:-1[03])?:?", "", raw)
-    digits = re.sub(r"[\s\-]", "", digits).strip()
-    if len(digits) == 10:
-        return digits.upper() if isbn10_is_valid(digits.upper()) else None
-    if len(digits) == 13:
-        return digits if isbn13_is_valid(digits) else None
-    return None
-
-
-def parse_isbn_from_text(text: str) -> Optional[str]:
-    for rx in (ISBN_LABELED_RE, ISBN_CHUNK_RE):
-        for m in rx.finditer(text or ""):
-            cand = normalize_isbn(m.group(1) if m.groups() else m.group(0))
-            if cand:
-                return cand
-    return None
-
-
-def guess_title(reader: PdfReader) -> Optional[str]:
-    try:
-        t = (reader.metadata.title or "").strip() if reader.metadata else ""
-    except Exception:
-        t = ""
-    if t and t.lower() not in {"", "untitled", "unknown"}:
-        return t
-
-    try:
-        for i in range(min(3, len(reader.pages))):
-            txt = (reader.pages[i].extract_text() or "")
-            lines = [ln.strip() for ln in txt.splitlines() if ln.strip()]
-            for ln in lines[:15]:
-                ln_clean = re.sub(r"\s+", " ", ln)
-                if 5 <= len(ln_clean) <= 120:
-                    low = ln_clean.lower()
-                    if any(b in low for b in ("doi:", "doi.org/", "http", "www.", "issn", "abstract", "introduction", "copyright")):
-                        continue
-                    if re.search(r"\b[A-Z]\.\s*[A-Z]\.", ln_clean):
-                        continue
-                    return ln_clean
-    except Exception:
-        pass
-    return None
 
 
 def extract_year(date_str: Optional[str]) -> Optional[str]:
@@ -210,93 +139,83 @@ def extract_year(date_str: Optional[str]) -> Optional[str]:
     return m.group(0) if m else None
 
 
-def ensure_unique(path: Path) -> Path:
-    if not path.exists():
-        return path
-    stem, ext = path.stem, path.suffix
-    while True:
-        cand = path.with_name(f"{stem}--{int(time.time())}{ext}")
-        if not cand.exists():
-            return cand
-        time.sleep(1)
-
-
 def propose_filename(title: Optional[str], date_str: Optional[str]) -> str:
     title_slug = slugify(title or "untitled")
     year = extract_year(date_str) or "undated"
     return f"{title_slug}-{year}.pdf"
 
 
-def build_driver(base_download_dir: Path) -> webdriver.Chrome:
-    opts = Options()
-    opts.add_argument("--headless=new")
-    opts.add_argument("--no-sandbox")
-    opts.add_argument("--disable-gpu")
-    opts.add_argument("--disable-dev-shm-usage")
-    opts.add_argument("--window-size=1920,1080")
-    opts.add_experimental_option("prefs", {
-        "download.default_directory": str(base_download_dir),
-        "download.prompt_for_download": False,
-        "download.directory_upgrade": True,
-        "plugins.always_open_pdf_externally": True
-    })
-    service = Service(ChromeDriverManager().install()) if HAVE_WDM else Service()
-    driver = webdriver.Chrome(service=service, options=opts)
-    try:
-        driver.execute_cdp_cmd("Page.setDownloadBehavior", {
-            "behavior": "allow",
-            "downloadPath": str(base_download_dir)
-        })
-    except Exception:
-        pass
-    return driver
+def parse_doi_from_url(url: Optional[str]) -> Optional[str]:
+    if not url:
+        return None
+    m = DOI_RE.search(url)
+    if not m:
+        return None
+    doi = m.group(0).strip().rstrip(".,;)")
+    doi = doi.replace("\\", "/")
+    doi = re.sub(r"\s+", "", doi)
+    return doi.lower()
 
 
-def wait_for_download(dir_path: Path, before: set, timeout_s: int = 180) -> Optional[Path]:
-    start = time.time()
-    while time.time() - start < timeout_s:
-        time.sleep(0.5)
-        current = set(os.listdir(dir_path))
-        new = [Path(dir_path, f) for f in (current - before) if not f.endswith(".crdownload")]
-        if new:
-            new.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-            return new[0]
-        # in-progress still?
-        if any(str(p).endswith(".crdownload") for p in Path(dir_path).glob("*.crdownload")):
-            continue
+def parse_isbn_from_text(text: str) -> Optional[str]:
+    for rx in (ISBN_LABELED_RE, ISBN_CHUNK_RE):
+        for m in rx.finditer(text or ""):
+            cand = m.group(1) if m.groups() else m.group(0)
+            digits = re.sub(r"(?i)isbn(?:-1[03])?:?", "", cand)
+            digits = re.sub(r"[\s\-]", "", digits).strip()
+            if len(digits) == 10 or len(digits) == 13:
+                return digits.upper()
     return None
 
 
+def guess_title(reader: PdfReader) -> Optional[str]:
+    try:
+        t = (reader.metadata.title or "").strip() if reader.metadata else ""
+        if t and t.lower() not in {"", "untitled", "unknown"}:
+            return t
+    except Exception:
+        pass
+    # crude first-page heuristic
+    try:
+        for i in range(min(3, len(reader.pages))):
+            txt = (reader.pages[i].extract_text() or "")
+            lines = [ln.strip() for ln in txt.splitlines() if ln.strip()]
+            for ln in lines[:15]:
+                ln_clean = re.sub(r"\s+", " ", ln)
+                if 5 <= len(ln_clean) <= 120:
+                    low = ln_clean.lower()
+                    if any(b in low for b in ("doi:", "doi.org/", "http", "www.", "issn", "abstract", "copyright", "introduction")):
+                        continue
+                    if re.search(r"\b[A-Z]\.\s*[A-Z]\.", ln_clean):
+                        continue
+                    return ln_clean
+    except Exception:
+        pass
+    return None
+
+
+def is_arxiv_source(url: Optional[str]) -> bool:
+    return bool(url) and ("arxiv.org" in url.lower())
+
+
 def write_pdf_metadata(pdf_path: Path, meta: Dict) -> None:
-    """
-    Embed metadata into the PDF. Prefer your pdf_io helpers if available; else fall back to core info with pypdf.
-    - Core: Title, Author(s), Subject=json.dumps(meta), (optionally) ModDate
-    - DC/PRISM: doi/isbn placed via pdf_io if available
-    """
     if HAVE_PDFIO and hasattr(pdfio, "write_pdf_metadata"):
-        # Expected flexible signature:
-        # write_pdf_metadata(pdf_path, core:dict, dc:dict=None, prism:dict=None)
         authors = meta.get("authors") or []
         authors_str = "; ".join(authors) if isinstance(authors, list) else str(authors or "")
-
-        filename = os.path.basename(pdf_path)
-
         doi = meta.get("doi") or ""
-
-        if doi != "":
-           meta['doi_url'] = f"https://doi.org/{doi}"
-
+        if doi:
+            meta["doi_url"] = f"https://doi.org/{doi}"
         core = {
             "Title": meta.get("title") or "",
             "Author": authors_str,
             "Subject": json.dumps(meta, ensure_ascii=False),
-            "Keywords": ", ".join(filter(None, [meta.get("doi"), meta.get("isbn"), meta.get("publication")]))
+            "Keywords": ", ".join(filter(None, [meta.get("doi"), meta.get("isbn"), meta.get("publication")])),
         }
         dc = {
             "title": meta.get("title") or "",
-            "creator": authors if isinstance(authors, list) else [authors_str] if authors_str else [],
+            "creator": authors if isinstance(authors, list) else ([authors_str] if authors_str else []),
             "date": meta.get("date") or "",
-            "identifier": list(filter(None, [meta.get("doi_url"), meta.get("isbn")]))
+            "identifier": list(filter(None, [meta.get("doi_url"), meta.get("isbn")])),
         }
         prism = {
             "doi": meta.get("doi") or "",
@@ -305,18 +224,16 @@ def write_pdf_metadata(pdf_path: Path, meta: Dict) -> None:
             "publicationDate": meta.get("date") or "",
             "url": meta.get("pdf_url") or "",
         }
-
-        dcterms={"issued": meta.get("date")}
-
-        full_meta_for_subject = meta
-
+        dcterms = {"issued": meta.get("date")}
         try:
-            pdfio.write_pdf_metadata(str(filename), core=core, dc=dc, prism=prism, dcterms=dcterms, full_meta_for_subject=full_meta_for_subject)
+            if not isinstance(pdf_path, Path):
+                pdf_path = Path(pdf_path)
+            pdfio.write_pdf_metadata(str(pdf_path), core=core, dc=dc, prism=prism, dcterms=dcterms, full_meta_for_subject=meta)
             return
         except Exception as e:
             print(f"[WARN] pdf_io.write_pdf_metadata failed, falling back to pypdf: {e}")
 
-    # Fallback: basic Info dictionary via pypdf
+    # Fallback: pypdf Info dictionary
     try:
         reader = PdfReader(str(pdf_path))
         writer = PdfWriter()
@@ -336,241 +253,293 @@ def write_pdf_metadata(pdf_path: Path, meta: Dict) -> None:
         print(f"[WARN] pypdf metadata write failed: {e}")
 
 
-def prefer_manifest(meta: Dict) -> Dict:
-    """Trim empty strings to None for cleaner merging."""
-    out = {}
-    for k, v in meta.items():
-        if isinstance(v, str):
-            out[k] = v.strip() or None
-        else:
-            out[k] = v if v else None
-    return out
+# ----------------------- preprocess -----------------------
+def preprocess(
+    manifest_path: Path,
+    downloader: str,
+    script_out: Path,
+    downloads_dir: Path,
+    probe_size: bool,
+) -> None:
+    entries, wrapped = load_manifest(manifest_path)
+    downloads_dir.mkdir(parents=True, exist_ok=True)
 
+    # Ensure stable download_id/temp_filename for any entries that already have them
+    def ensure_id(i: int, e: Dict) -> str:
+        if e.get("download_id"):
+            return e["download_id"]
+        # try to make it reasonably stable: index + short uuid
+        did = f"DL-{i:05d}-{uuid.uuid4().hex[:6]}"
+        e["download_id"] = did
+        return did
 
-def is_arxiv_source(url: str) -> bool:
-    return bool(url) and ("arxiv.org" in url.lower())
+    lines_aria2: List[str] = []
+    crawls: List[str] = []
+    dlmap: List[Dict] = []
 
+    sess = requests.Session() if probe_size else None
 
-def process_entry(entry: Dict, out_dir: Path, driver: webdriver.Chrome,
-                  successes_fp, failures_fp, ts: int) -> None:
-    # Prepare a per-entry temp dir so we can detect the new file cleanly
-    temp_dir = out_dir / f"_tmp_{uuid.uuid4().hex}"
-    temp_dir.mkdir(parents=True, exist_ok=True)
+    for i, e in enumerate(entries):
+        url = (e.get("pdf_url") or "").strip()
+        if not url:
+            continue
 
-    pdf_url = (entry.get("pdf_url") or "").strip()
-    scholar_url = (entry.get("scholar_url") or "").strip()
-    if not pdf_url:
-        fail_payload = {**entry, "failure_reason": "missing_pdf_url", "stage": "pre-download"}
-        failures_fp.write(json.dumps(fail_payload, ensure_ascii=False) + "\n")
-        sidecar = out_dir / f"failed--{uuid.uuid4().hex}.meta.json"
-        sidecar.write_text(json.dumps(fail_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        print("[SKIP] No pdf_url in manifest.")
-        return
+        did = ensure_id(i, e)
+        # temp filename we expect the downloader to save
+        temp_filename = f"{did}.pdf"
+        e["temp_filename"] = temp_filename
+        e.setdefault("download_status", "pending")
 
-    print(f"[FETCH] {pdf_url}")
-    before = set(os.listdir(temp_dir))
-    try:
-        driver.get(pdf_url)
-    except WebDriverException as e:
-        fail_payload = {**entry, "failure_reason": f"selenium_navigation_error: {e}", "stage": "navigate"}
-        failures_fp.write(json.dumps(fail_payload, ensure_ascii=False) + "\n")
-        sidecar = out_dir / f"failed--{uuid.uuid4().hex}.meta.json"
-        sidecar.write_text(json.dumps(fail_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        return
-
-    dl_path = wait_for_download(temp_dir, before, timeout_s=180)
-    if not dl_path or not dl_path.exists():
-        fail_payload = {**entry, "failure_reason": "download_timeout_or_missing_file", "stage": "download"}
-        failures_fp.write(json.dumps(fail_payload, ensure_ascii=False) + "\n")
-        sidecar = out_dir / f"failed--{uuid.uuid4().hex}.meta.json"
-        sidecar.write_text(json.dumps(fail_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        return
-
-    # Verify it's a PDF
-    try:
-        mime = magic.from_file(str(dl_path), mime=True)
-    except Exception as e:
-        mime = None
-        print(f"[ERROR] MIME check failed: {e}")
-
-    if mime != "application/pdf":
-        print(f"[DELETE] Not a PDF (mime={mime}): {dl_path.name}")
-        try:
-            dl_path.unlink()
-        except Exception:
-            pass
-        fail_payload = {**entry, "failure_reason": f"non_pdf_mime:{mime}", "stage": "verify"}
-        failures_fp.write(json.dumps(fail_payload, ensure_ascii=False) + "\n")
-        sidecar = out_dir / f"failed--{uuid.uuid4().hex}.meta.json"
-        sidecar.write_text(json.dumps(fail_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        return
-
-    # Open PDF for text/title fallback
-    try:
-        reader = PdfReader(str(dl_path))
-    except Exception as e:
-        print(f"[ERROR] Failed to open downloaded PDF: {e}")
-        try:
-            dl_path.unlink()
-        except Exception:
-            pass
-        fail_payload = {**entry, "failure_reason": f"pdf_open_error:{e}", "stage": "open"}
-        failures_fp.write(json.dumps(fail_payload, ensure_ascii=False) + "\n")
-        sidecar = out_dir / f"failed--{uuid.uuid4().hex}.meta.json"
-        sidecar.write_text(json.dumps(fail_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        return
-
-    # Build starting metadata (manifest is preferred)
-    meta: Dict = prefer_manifest({
-        "title": entry.get("title"),
-        "authors": entry.get("authors"),
-        "date": entry.get("date"),
-        "publication": entry.get("publication"),
-        "doi": entry.get("doi"),
-        "isbn": entry.get("isbn"),
-        "pdf_url": pdf_url,
-        "scholar_url": scholar_url,
-        "original_filename": dl_path.name,
-        "source": "manifest",
-    })
-
-    # Try DOI from URLs if missing
-    if not meta.get("doi"):
-        for u in (pdf_url, scholar_url):
-            cand = parse_doi_from_url(u or "")
-            if cand:
-                meta["doi"] = cand
-                break
-
-    # Extract minimal text for DOI/ISBN/title fallback
-    text = ""
-    try:
-        for i in range(min(5, len(reader.pages))):
-            text += "\n" + (reader.pages[i].extract_text() or "")
-    except Exception:
-        pass
-
-    if not meta.get("isbn"):
-        cand_isbn = parse_isbn_from_text(text)
-        if cand_isbn:
-            meta["isbn"] = cand_isbn
-    if not meta.get("title"):
-        meta["title"] = guess_title(reader)
-
-    # Enrichment strategy:
-    # - arXiv URL? Prefer arXiv enrichment.
-    # - Else Crossref (DOI first; else title/author search).
-    # - If ISBN present (or still missing title), also try Google Books.
-    if is_arxiv_source(pdf_url) or is_arxiv_source(scholar_url):
-        if HAVE_ARXIV:
+        expected_size = None
+        if probe_size:
             try:
-                meta = {**meta, **{k: v for k, v in (enrich_via_arxiv(pdf_url or scholar_url) or {}).items() if v}}
-            except Exception as e:
-                print(f"[WARN] arXiv enrichment failed: {e}")
+                r = sess.head(url, allow_redirects=True, timeout=20)
+                if "content-length" in r.headers:
+                    expected_size = int(r.headers["content-length"])
+            except Exception:
+                expected_size = None
 
-    # Crossref (uses your new clients)
-    try:
-        meta = {**meta, **{k: v for k, v in (enrich_via_crossref(doi=meta.get("doi"), title=meta.get("title"),
-                                                                 author=(meta.get("authors")[0] if isinstance(meta.get("authors"), list) and meta.get("authors") else "")) or {}).items() if v}}
-    except Exception as e:
-        print(f"[WARN] Crossref enrichment failed: {e}")
+        dlmap.append({
+            "id": did,
+            "url": url,
+            "temp_filename": temp_filename,
+            "expected_size": expected_size,
+        })
 
-    # Google Books (ISBN)
-    if meta.get("isbn"):
-        try:
-            gb = enrich_via_google_books(meta["isbn"])
-            if gb:
-                for k, v in gb.items():
-                    if not meta.get(k) and v:
-                        meta[k] = v
-        except Exception as e:
-            print(f"[WARN] Google Books enrichment failed: {e}")
+        # Emit downloader-specific batch
+        if downloader == "aria2c":
+            # aria2c input file format: URL newline + indented "out="
+            # Also set dir= to downloads_dir so the user can run aria2c -i file
+            lines_aria2.append(url)
+            lines_aria2.append(f"  out={temp_filename}")
+            lines_aria2.append(f"  dir={str(downloads_dir)}")
+        elif downloader == "jdownloader":
+            # JDownloader .crawljob: key=value per job, blank line between jobs
+            # Minimal keys: text, downloadFolder, filename, enabled, autoStart
+            crawls.append(
+                "\n".join([
+                    f"text={url}",
+                    f"downloadFolder={str(downloads_dir)}",
+                    f"filename={temp_filename}",
+                    "enabled=true",
+                    "autoStart=false",
+                    "autoConfirm=false",
+                    "forcedStart=false",
+                    "extractAfterDownload=false",
+                    "overwritePackagizerEnabled=true",
+                ])
+            )
+        else:
+            raise SystemExit("--downloader must be one of: aria2c, jdownloader")
 
-    # Final file name [title-slug]-[year].pdf
-    final_name = propose_filename(meta.get("title"), meta.get("date"))
-    final_path = ensure_unique(out_dir / final_name)
+    # Write script/batch
+    script_out.parent.mkdir(parents=True, exist_ok=True)
+    if downloader == "aria2c":
+        script_out.write_text("\n".join(lines_aria2) + "\n", encoding="utf-8")
+        print(f"[preprocess] Wrote aria2c batch → {script_out}")
+        print(f"Run example: aria2c -i '{script_out}' --check-certificate=false")
+    else:
+        script_out.write_text("\n\n".join(crawls) + "\n", encoding="utf-8")
+        print(f"[preprocess] Wrote JDownloader .crawljob → {script_out}")
+        print("Import in JDownloader: LinkGrabber menu → Add New Links → Load crawljob file")
 
-    # Move to output
-    try:
-        shutil.move(str(dl_path), str(final_path))
-    except Exception as e:
-        print(f"[ERROR] Failed to move file to output: {e}")
-        try:
-            dl_path.unlink()
-        except Exception:
-            pass
-        fail_payload = {**entry, "failure_reason": f"move_error:{e}", "stage": "finalize"}
-        failures_fp.write(json.dumps(fail_payload, ensure_ascii=False) + "\n")
-        sidecar = out_dir / f"failed--{uuid.uuid4().hex}.meta.json"
-        sidecar.write_text(json.dumps(fail_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        return
+    # Write downloads_map.json next to script
+    map_path = script_out.with_suffix(".downloads_map.json")
+    map_path.write_text(json.dumps(dlmap, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"[preprocess] Wrote downloads_map.json → {map_path}")
 
-    # Clean temp dir
-    shutil.rmtree(temp_dir, ignore_errors=True)
-
-    # Merge filename/path
-    meta["final_filename"] = final_path.name
-    meta["saved_path"] = str(final_path)
-
-    # Embed metadata (core + DC/PRISM) and write sidecar
-    write_pdf_metadata(final_path, meta)
-    sidecar = final_path.with_suffix(".meta.json")
-    sidecar.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
-
-    # Append to success manifest (JSONL)
-    successes_fp.write(json.dumps(meta, ensure_ascii=False) + "\n")
-    print(f"[OK] {meta.get('original_filename')} → {meta.get('final_filename')}")
+    # Save updated manifest
+    save_manifest(manifest_path, entries, wrapped)
+    print(f"[preprocess] Updated manifest with temp filenames and status=pending → {manifest_path}")
 
 
-def main():
-    ap = argparse.ArgumentParser(description="Download PDFs from manifest, verify/enrich, rename, and persist metadata.")
-    ap.add_argument("--manifest", required=True, help="Path to manifest.json (array of entries).")
-    ap.add_argument("--output", required=True, help="Directory to save PDFs and manifests.")
-    args = ap.parse_args()
+# ----------------------- process -----------------------
+def process_pipeline(
+    manifest_path: Path,
+    inbox_dir: Path,
+    output_dir: Path,
+) -> None:
+    entries, wrapped = load_manifest(manifest_path)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    out_dir = Path(args.output).expanduser().resolve()
-    out_dir.mkdir(parents=True, exist_ok=True)
+    success_log = output_dir / f"process-success.{int(time.time())}.jsonl"
+    fail_log = output_dir / f"process-fail.{int(time.time())}.jsonl"
 
-    try:
-        entries = json.loads(Path(args.manifest).read_text(encoding="utf-8"))
-        entries = entries['entries']
-    except Exception as e:
-        sys.exit(f"Failed to read manifest: {e}")
-    if not isinstance(entries, list):
-        sys.exit("Manifest must be a JSON array of entry objects.")
-
-    ts = int(time.time())
-    success_manifest_path = out_dir / f"download-success.manifest.{ts}.jsonl"
-    failed_manifest_path = out_dir / f"download-failed.manifest.{ts}.jsonl"
-
-    # Driver base temp dir (per-entry temp dirs will be under out_dir)
-    session_tmp = out_dir / f"_session_{uuid.uuid4().hex}"
-    session_tmp.mkdir(parents=True, exist_ok=True)
-    driver = build_driver(session_tmp)
+    succ_fp = success_log.open("a", encoding="utf-8")
+    fail_fp = fail_log.open("a", encoding="utf-8")
 
     processed = 0
-    try:
-        with success_manifest_path.open("a", encoding="utf-8") as succ_fp, \
-             failed_manifest_path.open("a", encoding="utf-8") as fail_fp:
-            for entry in entries:
-                process_entry(entry, out_dir, driver, succ_fp, fail_fp, ts)
-                processed += 1
-    finally:
-        try:
-            driver.quit()
-        except Exception:
-            pass
-        shutil.rmtree(session_tmp, ignore_errors=True)
 
-    print(f"\nProcessed {processed} entries.")
-    print(f"Success manifest: {success_manifest_path}")
-    print(f"Failed manifest : {failed_manifest_path}")
+    try:
+        for e in entries:
+            url = (e.get("pdf_url") or "").strip()
+            temp_name = e.get("temp_filename")
+            if not url or not temp_name:
+                continue
+
+            src = inbox_dir / temp_name
+            if not src.exists():
+                # leave pending; user may not have downloaded yet
+                continue
+
+            # MIME verify
+            try:
+                mime = magic.from_file(str(src), mime=True)
+            except Exception as ex:
+                mime = None
+                print(f"[WARN] MIME check failed for {temp_name}: {ex}")
+            if mime != "application/pdf":
+                e["download_status"] = "failed"
+                e["failure_reason"] = f"non_pdf_mime:{mime}"
+                fail_fp.write(json.dumps({"entry": e, "reason": e["failure_reason"]}, ensure_ascii=False) + "\n")
+                continue
+
+            # Open and extract skim text
+            try:
+                reader = PdfReader(str(src))
+            except Exception as ex:
+                e["download_status"] = "failed"
+                e["failure_reason"] = f"pdf_open_error:{ex}"
+                fail_fp.write(json.dumps({"entry": e, "reason": e["failure_reason"]}, ensure_ascii=False) + "\n")
+                continue
+
+            meta: Dict = {
+                "title": e.get("title"),
+                "authors": e.get("authors"),
+                "date": e.get("date"),
+                "publication": e.get("publication"),
+                "doi": e.get("doi"),
+                "isbn": e.get("isbn"),
+                "pdf_url": url,
+                "scholar_url": e.get("scholar_url"),
+                "original_filename": temp_name,
+                "source": "manifest",
+            }
+
+            # DOI from URLs fallback
+            if not meta.get("doi"):
+                for u in (e.get("pdf_url"), e.get("scholar_url")):
+                    cand = parse_doi_from_url(u or "")
+                    if cand:
+                        meta["doi"] = cand
+                        break
+
+            # First pages text for ISBN/title fallback
+            text = ""
+            try:
+                for i in range(min(5, len(reader.pages))):
+                    text += "\n" + (reader.pages[i].extract_text() or "")
+            except Exception:
+                pass
+
+            if not meta.get("isbn"):
+                cand_isbn = parse_isbn_from_text(text)
+                if cand_isbn:
+                    meta["isbn"] = cand_isbn
+            if not meta.get("title"):
+                meta["title"] = guess_title(reader)
+
+            # Enrichment
+            try:
+                if is_arxiv_source(e.get("pdf_url")) or is_arxiv_source(e.get("scholar_url")):
+                    if HAVE_ARXIV:
+                        am = enrich_via_arxiv(e.get("pdf_url") or e.get("scholar_url"))
+                        if am:
+                            for k, v in am.items():
+                                if v and not meta.get(k):
+                                    meta[k] = v
+            except Exception as ex:
+                print(f"[WARN] arXiv enrichment failed: {ex}")
+
+            try:
+                cr = enrich_via_crossref(
+                    doi=meta.get("doi"),
+                    title=meta.get("title"),
+                    author=(meta.get("authors")[0] if isinstance(meta.get("authors"), list) and meta.get("authors") else "")
+                )
+                if cr:
+                    for k, v in cr.items():
+                        if v and not meta.get(k):
+                            meta[k] = v
+            except Exception as ex:
+                print(f"[WARN] Crossref enrichment failed: {ex}")
+
+            if meta.get("isbn"):
+                try:
+                    gb = enrich_via_google_books(meta["isbn"])
+                    if gb:
+                        for k, v in gb.items():
+                            if v and not meta.get(k):
+                                meta[k] = v
+                except Exception as ex:
+                    print(f"[WARN] Google Books enrichment failed: {ex}")
+
+            # Final filename and move
+            final_name = propose_filename(meta.get("title"), meta.get("date"))
+            final_path = output_dir / final_name
+            if final_path.exists():
+                final_path = output_dir / f"{final_path.stem}--{int(time.time())}{final_path.suffix}"
+
+            try:
+                src.replace(final_path)
+            except Exception as ex:
+                e["download_status"] = "failed"
+                e["failure_reason"] = f"move_error:{ex}"
+                fail_fp.write(json.dumps({"entry": e, "reason": e["failure_reason"]}, ensure_ascii=False) + "\n")
+                continue
+
+            # Embed metadata, write sidecar, update entry
+            try:
+                write_pdf_metadata(final_path, meta)
+            except Exception as ex:
+                print(f"[WARN] metadata embed failed: {ex}")
+
+            sidecar = final_path.with_suffix(".meta.json")
+            sidecar.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+            e["local_path"] = str(final_path)
+            e["final_filename"] = final_path.name
+            e["file_sha256"] = sha256(final_path)
+            e["download_status"] = "done"
+            e.pop("failure_reason", None)
+
+            succ_fp.write(json.dumps(meta, ensure_ascii=False) + "\n")
+            processed += 1
+            print(f"[OK] {temp_name} → {final_path.name}")
+
+    finally:
+        succ_fp.close()
+        fail_fp.close()
+        save_manifest(manifest_path, entries, wrapped)
+        print(f"[process] Updated manifest → {manifest_path}")
+        print(f"[process] Success log: {success_log}")
+        print(f"[process] Fail log   : {fail_log}")
+        print(f"[process] Completed {processed} entries.")
+
+
+# ----------------------- CLI -----------------------
+def main():
+    ap = argparse.ArgumentParser(description="Two-phase PDF pipeline (preprocess → process) without Selenium.")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    sp = sub.add_parser("preprocess", help="Generate download script (aria2c/jdownloader) and update manifest.")
+    sp.add_argument("--manifest", required=True, type=Path)
+    sp.add_argument("--downloader", required=True, choices=["aria2c", "jdownloader"])
+    sp.add_argument("--script-out", required=True, type=Path, help="Path to write aria2c.txt or .crawljob")
+    sp.add_argument("--downloads-dir", required=True, type=Path, help="Directory where the downloader will place PDFs.")
+    sp.add_argument("--probe-size", action="store_true", help="HEAD each URL to record expected_size.")
+
+    sp2 = sub.add_parser("process", help="Verify/enrich/rename PDFs downloaded to --inbox and update manifest.")
+    sp2.add_argument("--manifest", required=True, type=Path)
+    sp2.add_argument("--inbox", required=True, type=Path, help="Folder containing downloaded temp PDFs (from preprocess).")
+    sp2.add_argument("--output", required=True, type=Path, help="Final folder for renamed PDFs + sidecars + logs.")
+
+    args = ap.parse_args()
+
+    if args.cmd == "preprocess":
+        preprocess(args.manifest, args.downloader, args.script_out, args.downloads_dir, args.probe_size)
+    else:
+        process_pipeline(args.manifest, args.inbox, args.output)
 
 
 if __name__ == "__main__":
