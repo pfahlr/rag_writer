@@ -53,7 +53,7 @@ import time
 import unicodedata
 import uuid
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import requests
 
@@ -199,6 +199,9 @@ def is_arxiv_source(url: Optional[str]) -> bool:
 
 
 def write_pdf_metadata(pdf_path: Path, meta: Dict) -> None:
+    if not isinstance(pdf_path, Path):
+        pdf_path = Path(pdf_path)
+
     if HAVE_PDFIO and hasattr(pdfio, "write_pdf_metadata"):
         authors = meta.get("authors") or []
         authors_str = "; ".join(authors) if isinstance(authors, list) else str(authors or "")
@@ -226,9 +229,14 @@ def write_pdf_metadata(pdf_path: Path, meta: Dict) -> None:
         }
         dcterms = {"issued": meta.get("date")}
         try:
-            if not isinstance(pdf_path, Path):
-                pdf_path = Path(pdf_path)
-            pdfio.write_pdf_metadata(str(pdf_path), core=core, dc=dc, prism=prism, dcterms=dcterms, full_meta_for_subject=meta)
+            pdfio.write_pdf_metadata(
+                pdf_path,
+                core=core,
+                dc=dc,
+                prism=prism,
+                dcterms=dcterms,
+                full_meta_for_subject=meta,
+            )
             return
         except Exception as e:
             print(f"[WARN] pdf_io.write_pdf_metadata failed, falling back to pypdf: {e}")
@@ -253,6 +261,126 @@ def write_pdf_metadata(pdf_path: Path, meta: Dict) -> None:
         print(f"[WARN] pypdf metadata write failed: {e}")
 
 
+# ----------------------- retry helpers -----------------------
+def parse_aria2_summary_lines(path: Path) -> List[Tuple[str, str]]:
+    results: List[Tuple[str, str]] = []
+    for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        parts = [p.strip() for p in raw.split("|")]
+        if len(parts) < 4:
+            continue
+        status = parts[1]
+        target = parts[3]
+        if not status or not target:
+            continue
+        basename = Path(target).name
+        if not basename:
+            continue
+        results.append((status.upper(), basename))
+    return results
+
+
+def build_retry_batch_from_manifest(
+    entries: List[Dict], failed_basenames: Set[str], downloads_dir: Path
+) -> Tuple[List[str], int, List[str]]:
+    by_temp = {}
+    for entry in entries:
+        temp = (entry.get("temp_filename") or "").strip()
+        if temp:
+            by_temp[temp] = entry
+
+    lines: List[str] = []
+    matched = 0
+    missing: List[str] = []
+
+    seen: Set[str] = set()
+    for base in sorted(failed_basenames):
+        if base in seen:
+            continue
+        seen.add(base)
+        entry = by_temp.get(base)
+        if entry and (entry.get("pdf_url") or "").strip():
+            url = entry["pdf_url"].strip()
+            lines.extend([url, f"  out={base}", f"  dir={str(downloads_dir)}"])
+            matched += 1
+            entry["download_status"] = "retry"
+            entry.pop("failure_reason", None)
+        else:
+            missing.append(base)
+
+    return lines, matched, missing
+
+
+def safe_enrich_crossref(
+    enrich_fn,
+    doi: Optional[str] = None,
+    title: Optional[str] = None,
+    author: Optional[str] = None,
+    timeout: float = 25.0,
+    tries: int = 4,
+    backoff: float = 1.5,
+    ua: str = "Content-Expanse/1.0 (mailto:pfahlr@gmail.com)",
+):
+    last: Optional[Exception] = None
+    max_tries = max(1, tries)
+    for attempt in range(max_tries):
+        try:
+            return enrich_fn(
+                doi=doi,
+                title=title,
+                author=author,
+                headers={"User-Agent": ua},
+                timeout=timeout,
+            )
+        except Exception as exc:
+            last = exc
+            time.sleep(backoff * (2 ** attempt))
+    print(f"[WARN] Crossref enrichment failed after {tries} attempts: {last}")
+    return {}
+
+
+def retry_from_aria2_log(
+    manifest_path: Path,
+    aria2_log: Path,
+    script_out: Path,
+    downloads_dir: Path,
+    update_manifest: bool = True,
+) -> None:
+    entries, wrapped = load_manifest(manifest_path)
+    rows = parse_aria2_summary_lines(aria2_log)
+    fail_status = {"ERR", "ERROR", "NG", "FAILED"}
+    failed_basenames = {basename for status, basename in rows if status in fail_status}
+
+    total_failed = len(failed_basenames)
+    if not failed_basenames:
+        print("[retry] No failures found.")
+        return
+
+    lines, matched, missing = build_retry_batch_from_manifest(entries, failed_basenames, downloads_dir)
+
+    if not lines:
+        print("[retry] No failed items matched manifest.")
+        if missing:
+            print("[retry] Unmatched:")
+            for base in missing:
+                print(f"  - {base}")
+        return
+
+    script_out.parent.mkdir(parents=True, exist_ok=True)
+    script_out.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    if update_manifest:
+        save_manifest(manifest_path, entries, wrapped)
+
+    print(f"[retry] Total failed in log: {total_failed}")
+    print(f"[retry] Matched: {matched} | Unmatched: {len(missing)}")
+    if missing:
+        print("[retry] Unmatched:")
+        for base in missing:
+            print(f"  - {base}")
+    print(f"[retry] Wrote: {script_out}")
+
+
+# ----------------------- preprocess -----------------------
 # ----------------------- preprocess -----------------------
 def preprocess(
     manifest_path: Path,
@@ -358,6 +486,11 @@ def process_pipeline(
     manifest_path: Path,
     inbox_dir: Path,
     output_dir: Path,
+    *,
+    crossref_timeout: float = 25.0,
+    crossref_tries: int = 4,
+    crossref_backoff: float = 1.5,
+    crossref_ua: str = "Content-Expanse/1.0 (mailto:pfahlr@gmail.com)",
 ) -> None:
     entries, wrapped = load_manifest(manifest_path)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -451,18 +584,24 @@ def process_pipeline(
             except Exception as ex:
                 print(f"[WARN] arXiv enrichment failed: {ex}")
 
-            try:
-                cr = enrich_via_crossref(
-                    doi=meta.get("doi"),
-                    title=meta.get("title"),
-                    author=(meta.get("authors")[0] if isinstance(meta.get("authors"), list) and meta.get("authors") else "")
-                )
-                if cr:
-                    for k, v in cr.items():
-                        if v and not meta.get(k):
-                            meta[k] = v
-            except Exception as ex:
-                print(f"[WARN] Crossref enrichment failed: {ex}")
+            cr = safe_enrich_crossref(
+                enrich_via_crossref,
+                doi=meta.get("doi"),
+                title=meta.get("title"),
+                author=(
+                    meta.get("authors")[0]
+                    if isinstance(meta.get("authors"), list) and meta.get("authors")
+                    else ""
+                ),
+                timeout=crossref_timeout,
+                tries=crossref_tries,
+                backoff=crossref_backoff,
+                ua=crossref_ua,
+            )
+            if cr:
+                for k, v in cr.items():
+                    if v and not meta.get(k):
+                        meta[k] = v
 
             if meta.get("isbn"):
                 try:
@@ -533,13 +672,40 @@ def main():
     sp2.add_argument("--manifest", required=True, type=Path)
     sp2.add_argument("--inbox", required=True, type=Path, help="Folder containing downloaded temp PDFs (from preprocess).")
     sp2.add_argument("--output", required=True, type=Path, help="Final folder for renamed PDFs + sidecars + logs.")
+    sp2.add_argument("--crossref-timeout", type=float, default=25.0)
+    sp2.add_argument("--crossref-tries", type=int, default=4)
+    sp2.add_argument("--crossref-backoff", type=float, default=1.5)
+    sp2.add_argument("--crossref-ua", type=str, default="Content-Expanse/1.0 (mailto:pfahlr@gmail.com)")
+
+    sr = sub.add_parser("retry", help="Parse aria2 log; regenerate aria2 batch for failed items.")
+    sr.add_argument("--manifest", required=True, type=Path)
+    sr.add_argument("--aria2-log", required=True, type=Path)
+    sr.add_argument("--script-out", required=True, type=Path)
+    sr.add_argument("--downloads-dir", required=True, type=Path)
+    sr.add_argument("--no-manifest-update", action="store_true")
 
     args = ap.parse_args()
 
     if args.cmd == "preprocess":
         preprocess(args.manifest, args.downloader, args.script_out, args.downloads_dir, args.probe_size)
+    elif args.cmd == "process":
+        process_pipeline(
+            args.manifest,
+            args.inbox,
+            args.output,
+            crossref_timeout=args.crossref_timeout,
+            crossref_tries=args.crossref_tries,
+            crossref_backoff=args.crossref_backoff,
+            crossref_ua=args.crossref_ua,
+        )
     else:
-        process_pipeline(args.manifest, args.inbox, args.output)
+        retry_from_aria2_log(
+            args.manifest,
+            args.aria2_log,
+            args.script_out,
+            args.downloads_dir,
+            update_manifest=not args.no_manifest_update,
+        )
 
 
 if __name__ == "__main__":
