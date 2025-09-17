@@ -230,9 +230,13 @@ def write_pdf_metadata(
     # Write classic PDF Info
     # -------------------------
     reader = PdfReader(str(path))
-    writer = PdfWriter()
-    for page in reader.pages:
-        writer.add_page(page)
+    pdf_length = len(reader.pages)
+
+    #writer = PdfWriter()
+    #   for page in reader.pages:
+    #   writer.add_page(page)
+
+    writer = PdfWriter(str(path))
 
     info: Dict[str, str] = {}
     # Copy caller-provided core fields
@@ -254,6 +258,7 @@ def write_pdf_metadata(
         writer.write(fp)
     tmp.replace(path)
 
+    # Created, Modified, Author, Title, Subject, Pages Count
     # -------------------------
     # Write XMP (if available)
     # -------------------------
@@ -261,7 +266,11 @@ def write_pdf_metadata(
         return
 
     with pikepdf.Pdf.open(str(path), allow_overwriting_input=True) as pdf:
+       # print("\n\n")
+       # print("---------old style metadata--------")
+        #copy the  deprecated documentinfo block into the new metadata
         with pdf.open_metadata() as meta:
+            meta.load_from_docinfo(pdf.docinfo)
             # Namespaces
             #meta.register_namespace("dc", "http://purl.org/dc/elements/1.1/")
             #meta.register_namespace("dcterms", "http://purl.org/dc/terms/")
@@ -277,7 +286,7 @@ def write_pdf_metadata(
                     meta["dc:creator"] = creators
                 if dc.get("description"):
                     meta["dc:description"] = str(dc["description"])
-                identifiers = _as_list(dc.get("identifier"))
+                identifiers =  dc.get("identifier")
                 if identifiers:
                     meta["dc:identifier"] = identifiers
                 if dc.get("date"):
@@ -321,6 +330,7 @@ def write_pdf_metadata(
                     meta["arxiv:pdfUrl"] = str(arxiv["pdfUrl"])
                 if arxiv.get("arxivDoi"):
                     meta["arxiv:doi"] = str(arxiv["arxivDoi"])
+
         pdf.save(str(path))
 
 

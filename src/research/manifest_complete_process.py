@@ -75,24 +75,27 @@ try:
     from clients.arxiv_client import enrich_via_arxiv
     HAVE_ARXIV = True
 except Exception:
-    pass
+    print("arxiv metadata module missing!")
 
 try:
     from clients.crossref_client import enrich_via_crossref
 except Exception:
     def enrich_via_crossref(**kwargs):
+        print("crossref metadata module missing!")
         return {}
 try:
     from clients.google_books_client import enrich_via_google_books
 except Exception:
     def enrich_via_google_books(*args, **kwargs):
+        print("google books metadata module missing!")
         return {}
 
 try:
     from functions import pdf_io as pdfio
     HAVE_PDFIO = True
 except Exception:
-    pass
+    print("PDFIO Not Installed!")
+
 
 
 DOI_RE = re.compile(r"\b10\.\d{4,9}/[-._;()/:A-Z0-9]+\b", re.IGNORECASE)
@@ -218,7 +221,7 @@ def write_pdf_metadata(pdf_path: Path, meta: Dict) -> None:
             "title": meta.get("title") or "",
             "creator": authors if isinstance(authors, list) else ([authors_str] if authors_str else []),
             "date": meta.get("date") or "",
-            "identifier": list(filter(None, [meta.get("doi_url"), meta.get("isbn")])),
+            "identifier": str(list(filter(None, [meta.get("doi"), meta.get("isbn"), meta.get('arXivID')])).pop()),
         }
         prism = {
             "doi": meta.get("doi") or "",
@@ -237,9 +240,7 @@ def write_pdf_metadata(pdf_path: Path, meta: Dict) -> None:
                 dcterms=dcterms,
                 full_meta_for_subject=meta,
             )
-            # we want it to also write the standard fields
-            # this isn;'t working yet
-           # return
+            return
         except Exception as e:
             print(f"[WARN] pdf_io.write_pdf_metadata failed, falling back to pypdf: {e}")
 
@@ -542,7 +543,8 @@ def process_pipeline(
                 "title": e.get("title"),
                 "authors": e.get("authors"),
                 "date": e.get("date"),
-                "publication": e.get("publication"),
+                "publication": "",
+                "arxivid":"",
                 "doi": e.get("doi"),
                 "isbn": e.get("isbn"),
                 "pdf_url": url,
@@ -550,6 +552,16 @@ def process_pipeline(
                 "original_filename": temp_name,
                 "source": "manifest",
             }
+
+
+            arxivid_regex = re.compile(r"(?:\d{4}\.\d{4,5})")
+            if "arxiv.org" in meta['pdf_url']:
+                match = arxivid_regex.search(meta['pdf_url'])
+            if not match and "arxiv.org" in meta['scholar_url']:
+                match = arxivid_regex.search(meta['scholar_url'])
+            if match:
+                meta['arxivid']=match.group(0)
+
 
             # DOI from URLs fallback
             if not meta.get("doi"):
