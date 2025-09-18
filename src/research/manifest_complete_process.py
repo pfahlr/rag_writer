@@ -52,10 +52,18 @@ import re
 import time
 import unicodedata
 import uuid
+import magic
+import requests
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-import requests
+from rich import print as rprint
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn
+from rich.pretty import pprint
+from rich.table import Table
+from rich.panel import Panel
+from rich.live import Live
+
 
 # --- MIME + PDF text ---
 try:
@@ -384,6 +392,54 @@ def retry_from_aria2_log(
 
 
 # ----------------------- preprocess -----------------------
+def prune_downloads(manifest_path: Path, inbox_dir: Path):
+    manifest = load_manifest(manifest_path)
+    data = manifest[0]
+    
+    display_table = Table.grid()
+    progress = Progress(
+        "{task.description}",
+        SpinnerColumn(),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+    )
+    job = progress.add_task("[red] entries processed", total=len(data))
+    display_table.add_row(
+        Panel.fit(progress, title="Pruning HTML downloads", border_style="purple", padding=(1,1)),
+        #Panel.fit(progress.console, title="Log", border_style="blue", padding=(1,1))
+    )
+    with Live(display_table, refresh_per_second=1) as live:
+        progress.console.print(f"Read manifest: got {len(data)} entries...")
+        progress.console.print(f"downloads stored in: {inbox_dir}")
+        for i in range(0, len(data)):
+            progress.update(job, completed=i)
+            if 'temp_filename' in data[i] and data[i]['temp_filename'] != "":
+                filename = data[i]['temp_filename']
+                temp_filepath = os.path.join(inbox_dir, filename )
+                progress.console.print(f"[{i}] checking {filename}")
+                if os.path.exists(temp_filepath):
+                    try:
+                        mime_type = magic.from_file(temp_filepath, mime=True)
+                    except Exception as e:
+                        progress.console.print(f"[{i}] ERROR:{e}")
+                        continue
+
+                    progress.console.print(f"[{i}] {filename} mime type is {mime_type}")
+                    if mime_type != "application/pdf":
+                        try:
+                            progress.console.print(f"[{i}] unlinking {filename}")
+                            temp_filepath.unlink()
+                            progress.console.print(f"[{i}] setting 'download_status' in manifest to 'E01_bad_mimetype'")
+                            data[i]['download_status'] = 'E01_bad_mimetype'
+                        except Exception as e:
+                            progress.console.print(f"[{i}] ERROR:{e}")
+
+        progress.update(job, completed=(i+1))
+        progress.console.print(f"DONE!")
+
+    save_manifest(manifest_path, data, True)
+
+
 # ----------------------- preprocess -----------------------
 def preprocess(
     manifest_path: Path,
@@ -555,6 +611,7 @@ def process_pipeline(
 
 
             arxivid_regex = re.compile(r"(?:\d{4}\.\d{4,5})")
+            match = False
             if "arxiv.org" in meta['pdf_url']:
                 match = arxivid_regex.search(meta['pdf_url'])
             if not match and "arxiv.org" in meta['scholar_url']:
@@ -691,6 +748,10 @@ def main():
     sp2.add_argument("--crossref-backoff", type=float, default=1.5)
     sp2.add_argument("--crossref-ua", type=str, default="Content-Expanse/1.0 (mailto:pfahlr@gmail.com)")
 
+    pd = sub.add_parser("prune-downloads", help="Prune non-pdfs from downloaded files.")
+    pd.add_argument("--manifest", required=True, type=Path)
+    pd.add_argument("--inbox", required=True, type=Path, help="Folder containing downloaded temp PDFs (from preprocess).")
+
     sr = sub.add_parser("retry", help="Parse aria2 log; regenerate aria2 batch for failed items.")
     sr.add_argument("--manifest", required=True, type=Path)
     sr.add_argument("--aria2-log", required=True, type=Path)
@@ -712,6 +773,12 @@ def main():
             crossref_backoff=args.crossref_backoff,
             crossref_ua=args.crossref_ua,
         )
+    elif args.cmd == "prune-downloads":
+        prune_downloads(
+            args.manifest,
+            args.inbox
+        )
+    # args.cmd == 'retry'
     else:
         retry_from_aria2_log(
             args.manifest,
