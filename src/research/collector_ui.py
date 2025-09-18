@@ -50,8 +50,10 @@ class CollectorUI(App):
                     rescan: bool = False,
                     depth: int = 0,
                     jobs: int = 0, 
-                    article_index: int =0 ) -> None:
+                    article_index: int =0,
+                    manifest = MANIFEST) -> None:
         super().__init__()
+        self.manifest = manifest
         self.mode_label: Label | None = None
         self.import_text: TextArea | None = None
         self.links_text: TextArea | None = None
@@ -150,9 +152,44 @@ class CollectorUI(App):
             yield Button("Quit", id="btn_quit", classes="button nav-btn btn-quit")
 
         yield Footer()
-        
+
+
+
+    def _merge_articles_lists(self, existing, new):
+        delete_idx = []
+        for i in range(0, len(new)):
+            for existing_item in existing:
+                if new[i]['pdf_url'] == existing_item['pdf_url']:
+                    delete_idx.append(i)
+                    break
+                if new[i]['scholar_url'] == existing_item['scholar_url']:
+                    delete_idx.append(i)
+                    break
+
+        delete_idx.sort(reverse=True)
+        for index in delete_idx:
+            del new[index]
+
+        final = existing + new
+        return final
+
+    def _dedup_article_list(self, articles):
+        temp = []
+        for a in articles:
+            bDup = False
+            for b in temp:
+                if (a.doi == b.doi) or (a.scholar_url == b.scholar_url):
+                    bDup = True
+                    break
+            if not bDup:
+                temp.append(a)
+        return temp
+
     def _html_parser(self, html):
         arts = parse_google_scholar_html(html)
+
+        arts = self._dedup_article_list(arts)
+
         articles = [
             {
                 "title": a.title,
@@ -191,7 +228,8 @@ class CollectorUI(App):
             try:
                 html = Path(self.opt_file).read_text(encoding="utf-8")
                 new_articles = self._html_parser(html)
-                self.articles += new_articles
+                #self.articles += new_articles
+                self.articles = self._merge_articles_lists(self.articles, new_articles)
                 self._save_current_article(update_only=True)
 
             except Exception:
@@ -299,7 +337,9 @@ class CollectorUI(App):
     # ============ Import handlers ============
     def _handle_import_html(self) -> None:
         text = self.import_text.document.text if self.import_text else ""
-        self.articles += self._html_parser(text)
+        #self.articles += self._html_parser(text)
+        new_articles = self._html_parser(text)
+        self.articles = self. _merge_articles_lists(self.articles, new_articles)
         self.import_text.clear()
         ts = _now_ts()
         OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -332,9 +372,9 @@ class CollectorUI(App):
 
     def _load_articles(self) -> None:
         self.articles = []
-        if MANIFEST.exists():
+        if self.manifest.exists():
             try:
-                data = json.loads(MANIFEST.read_text(encoding="utf-8"))
+                data = json.loads(self.manifest.read_text(encoding="utf-8"))
                 entries = data.get("entries") if isinstance(data, dict) else data
                 for e in entries or []:
                     if self.opt_skip_existing and e.get("processed"):
@@ -414,7 +454,7 @@ class CollectorUI(App):
         self.articles[self.current_index] = self._collect_form()
         OUT_DIR.mkdir(parents=True, exist_ok=True)
         payload = {"version": 1, "entries": self.articles}
-        MANIFEST.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        self.manifest.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         if self.mode_label and not update_only:
             self.mode_label.update("Saved current article to manifest")
 
@@ -504,6 +544,7 @@ class CollectorUI(App):
 def main() -> None:
     ap = argparse.ArgumentParser(description="Collector UI")
     ap.add_argument("--file", help="HTML file with Google Scholar results")
+    ap.add_argument("--manifest", help="Manifest of existing data, defaults to ../research/out/manifest.json")
     ap.add_argument("--xml", help="XML-like markup file with entries")
     ap.add_argument("--skip-existing", action="store_true", help="Skip entries with processed=true in manifest")
     ap.add_argument("--allow-delete", action="store_true", help="Enable delete actions")
@@ -518,7 +559,8 @@ def main() -> None:
                       allow_delete=args.allow_delete,
                       rescan=args.rescan,
                       depth=args.depth,
-                      jobs=args.jobs)
+                      jobs=args.jobs,
+                      manifest=Path(args.manifest))
     app.run()
 
 
