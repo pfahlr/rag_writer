@@ -391,10 +391,9 @@ def retry_from_aria2_log(
     print(f"[retry] Wrote: {script_out}")
 
 
-# ----------------------- preprocess -----------------------
+# ----------------------- prune-downloads -----------------------
 def prune_downloads(manifest_path: Path, inbox_dir: Path):
-    manifest = load_manifest(manifest_path)
-    data = manifest[0]
+    data, wrapped = load_manifest(manifest_path)
     
     display_table = Table.grid()
     progress = Progress(
@@ -408,7 +407,7 @@ def prune_downloads(manifest_path: Path, inbox_dir: Path):
         Panel.fit(progress, title="Pruning HTML downloads", border_style="purple", padding=(1,1)),
         #Panel.fit(progress.console, title="Log", border_style="blue", padding=(1,1))
     )
-    with Live(display_table, refresh_per_second=1) as live:
+    with Live(display_table, refresh_per_second=30) as live:
         progress.console.print(f"Read manifest: got {len(data)} entries...")
         progress.console.print(f"downloads stored in: {inbox_dir}")
         for i in range(0, len(data)):
@@ -443,7 +442,6 @@ def prune_downloads(manifest_path: Path, inbox_dir: Path):
 # ----------------------- preprocess -----------------------
 def preprocess(
     manifest_path: Path,
-    downloader: str,
     script_out: Path,
     downloads_dir: Path,
     probe_size: bool,
@@ -466,43 +464,66 @@ def preprocess(
 
     sess = requests.Session() if probe_size else None
 
-    for i, e in enumerate(entries):
-        url = (e.get("pdf_url") or "").strip()
-        if not url:
-            continue
+    # Progress bar output setup
+    display_table = Table.grid()
+    progress = Progress(
+        "{task.description}",
+        SpinnerColumn(),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+    )
+    job = progress.add_task("[pink] entries processed", total=entries_count)
+    display_table.add_row(
+        Panel.fit(progress, title="Creating Download Manifest", border_style="blue", padding=(1,1))
+    )
 
-        did = ensure_id(i, e)
-        # temp filename we expect the downloader to save
-        temp_filename = f"{did}.pdf"
-        e["temp_filename"] = temp_filename
-        e.setdefault("download_status", "pending")
+    with Live(display_table, refresh_per_second=30) as live:
 
-        expected_size = None
-        if probe_size:
-            try:
-                r = sess.head(url, allow_redirects=True, timeout=20)
-                if "content-length" in r.headers:
-                    expected_size = int(r.headers["content-length"])
-            except Exception:
-                expected_size = None
+        for i, e in enumerate(entries):
+            url = (e.get("pdf_url") or "").strip()
+            if not url:
+                progress.console.print(f"[NOTICE] no pdf_url found for record: {i}")
+                continue
 
-        dlmap.append({
-            "id": did,
-            "url": url,
-            "temp_filename": temp_filename,
-            "expected_size": expected_size,
-        })
+            did = ensure_id(i, e)
+            # temp filename we expect the downloader to save
+            temp_filename = f"{did}.pdf"
+            progress.console.print(f"[NOTICE] setting temp_filename = {temp_filename} for record {i}")
+            e["temp_filename"] = temp_filename
+            e.setdefault("download_status", "pending")
+            
+            expected_size = None
+            if probe_size:
+                try:
+                    progress.console.print(f"[NOTICE] requesting headers of download target")
+                    r = sess.head(url, allow_redirects=True, timeout=20)
+                    if "content-length" in r.headers:
+                        expected_size = int(r.headers["content-length"])
+                        progress.console.print(f"[NOTICE] got content-length {r.headers['content-length']}")
+                except Exception:
+                    expected_size = None
 
-        # Emit downloader-specific batch
-        if downloader == "aria2c":
+            dlmap.append({
+                "id": did,
+                "url": url,
+                "temp_filename": temp_filename,
+                "expected_size": expected_size,
+            })
+
+            # Emit downloader-specific batch
+            #if downloader == "aria2c":
+
             # aria2c input file format: URL newline + indented "out="
             # Also set dir= to downloads_dir so the user can run aria2c -i file
+            progress.console.print(f"[NOTICE] adding fields for aria2c")
             lines_aria2.append(url)
             lines_aria2.append(f"  out={temp_filename}")
             lines_aria2.append(f"  dir={str(downloads_dir)}")
-        elif downloader == "jdownloader":
+            #elif downloader == "jdownloader":
+            
             # JDownloader .crawljob: key=value per job, blank line between jobs
             # Minimal keys: text, downloadFolder, filename, enabled, autoStart
+            progress.console.print(f"[NOTICE] adding fields for jdownloader")
             crawls.append(
                 "\n".join([
                     f"text={url}",
@@ -516,28 +537,41 @@ def preprocess(
                     "overwritePackagizerEnabled=true",
                 ])
             )
-        else:
-            raise SystemExit("--downloader must be one of: aria2c, jdownloader")
+            #else:
+            #    raise SystemExit("--downloader must be one of: aria2c, jdownloader")
 
-    # Write script/batch
-    script_out.parent.mkdir(parents=True, exist_ok=True)
-    if downloader == "aria2c":
-        script_out.write_text("\n".join(lines_aria2) + "\n", encoding="utf-8")
-        print(f"[preprocess] Wrote aria2c batch → {script_out}")
-        print(f"Run example: aria2c -i '{script_out}' --check-certificate=false")
-    else:
-        script_out.write_text("\n\n".join(crawls) + "\n", encoding="utf-8")
-        print(f"[preprocess] Wrote JDownloader .crawljob → {script_out}")
-        print("Import in JDownloader: LinkGrabber menu → Add New Links → Load crawljob file")
+        # Write script/batch
+        script_out.parent.mkdir(parents=True, exist_ok=True)
+        #if downloader == "aria2c":
+        progress.console.print(f"[NOTICE] writing aria2c script")
+        counter_tmp = 1
+        aria2c_script = os.path.join(script_out, '/aria2c.txt')
+        while aria2c_script.exists():
+            aria2c_script = os.path.join(aria2c_script, counter_tmp)
+            counter_tmp = counter_tmp + 1
+        aria2c_script.write_text("\n".join(lines_aria2) + "\n", encoding="utf-8")
+        progress.console.print(f"[preprocess] Wrote aria2c batch → {script_out}")
+        progress.console.print(f"Run example: aria2c -i '{script_out}' --check-certificate=false")
+        
+        #else:
+        counter_tmp = 1
+        jdownloader_script = os.path.join(script_out, '/.crawljob')
+        while jdownloader_script.exists():
+            jdownloader_script = os.path.join(jdownloader_script, counter_tmp)
+            counter_tmp = counter_tmp + 1        
+        progress.console.print(f"[NOTICE] writing jdownloader script")
+        jdownloader_script.write_text("\n\n".join(crawls) + "\n", encoding="utf-8")
+        progress.console.print(f"[preprocess] Wrote JDownloader .crawljob → {script_out}")
+        progress.console.print("Import in JDownloader: LinkGrabber menu → Add New Links → Load crawljob file")
 
-    # Write downloads_map.json next to script
-    map_path = script_out.with_suffix(".downloads_map.json")
-    map_path.write_text(json.dumps(dlmap, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[preprocess] Wrote downloads_map.json → {map_path}")
+        # Write downloads_map.json next to script
+        map_path = script_out.with_suffix(".downloads_map.json")
+        map_path.write_text(json.dumps(dlmap, ensure_ascii=False, indent=2), encoding="utf-8")
+        progress.console.print(f"[preprocess] Wrote downloads_map.json → {map_path}")
 
-    # Save updated manifest
-    save_manifest(manifest_path, entries, wrapped)
-    print(f"[preprocess] Updated manifest with temp filenames and status=pending → {manifest_path}")
+        # Save updated manifest
+        save_manifest(manifest_path, entries, wrapped)
+        progress.console.print(f"[preprocess] Updated manifest with temp filenames and status=pending → {manifest_path}")
 
 
 # ----------------------- process -----------------------
@@ -549,9 +583,14 @@ def process_pipeline(
     crossref_timeout: float = 25.0,
     crossref_tries: int = 4,
     crossref_backoff: float = 1.5,
-    crossref_ua: str = "Content-Expanse/1.0 (mailto:pfahlr@gmail.com)",
+    crossref_ua: str = "Content-Expanse/1.0 (mailto:none@example.com)",
 ) -> None:
-    entries, wrapped = load_manifest(manifest_path)
+
+
+    data, wrapped = load_manifest(manifest_path)
+
+    entries_count = len(data)
+
     output_dir.mkdir(parents=True, exist_ok=True)
 
     success_log = output_dir / f"process-success.{int(time.time())}.jsonl"
@@ -562,169 +601,195 @@ def process_pipeline(
 
     processed = 0
 
-    try:
-        for e in entries:
-            url = (e.get("pdf_url") or "").strip()
-            temp_name = e.get("temp_filename")
-            if not url or not temp_name:
-                continue
+    # Progress bar output setup
+    display_table = Table.grid()
+    progress = Progress(
+        "{task.description}",
+        SpinnerColumn(),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+    )
+    job = progress.add_task("[blue] entries processed", total=entries_count)
+    display_table.add_row(
+        Panel.fit(progress, title="Completing Metadata and Writing Ready-for-Indexing PDFs ", border_style="green", padding=(1,1))
+    )
+    with Live(display_table, refresh_per_second=30) as live:
+        try:
+            #for e in entries:
+            for i in range(0, entries_count):
+                progress.update(job, completed=i)
+                url = (data[i].get("pdf_url") or "").strip()
+                temp_name = data[i].get("temp_filename")
+                if not url or not temp_name:
+                    continue
 
-            src = inbox_dir / temp_name
-            if not src.exists():
-                # leave pending; user may not have downloaded yet
-                continue
+                src = inbox_dir / temp_name
+                if not src.exists():
+                    # leave pending; user may not have downloaded yet
+                    continue
 
-            # MIME verify
-            try:
-                mime = magic.from_file(str(src), mime=True)
-            except Exception as ex:
-                mime = None
-                print(f"[WARN] MIME check failed for {temp_name}: {ex}")
-            if mime != "application/pdf":
-                e["download_status"] = "failed"
-                e["failure_reason"] = f"non_pdf_mime:{mime}"
-                fail_fp.write(json.dumps({"entry": e, "reason": e["failure_reason"]}, ensure_ascii=False) + "\n")
-                continue
+                # MIME verify
+                try:
+                    mime = magic.from_file(str(src), mime=True)
+                except Exception as ex:
+                    mime = None
+                    progress.console.print(f"[WARN] MIME check failed for {temp_name}: {ex}")
+                if mime != "application/pdf":
+                    progress.console.print(f"[NOTICE] MIME type for {temp_name}: {mime} - deleting")
+                    src.unlink()
+                    data[i]["download_status"] = "failed"
+                    data[i]["failure_reason"] = f"non_pdf_mime:{mime}"
+                    fail_fp.write(json.dumps({"entry": data[i], "reason": data[i]["failure_reason"]}, ensure_ascii=False) + "\n")
+                    continue
 
-            # Open and extract skim text
-            try:
-                reader = PdfReader(str(src))
-            except Exception as ex:
-                e["download_status"] = "failed"
-                e["failure_reason"] = f"pdf_open_error:{ex}"
-                fail_fp.write(json.dumps({"entry": e, "reason": e["failure_reason"]}, ensure_ascii=False) + "\n")
-                continue
+                # Open and extract skim text
+                try:
+                    reader = PdfReader(str(src))
+                except Exception as ex:
+                    progress.console.print(f"[WARN] failed to open downloaded file: {src} - Exception:{ex}")
+                    data[i]["download_status"] = "failed"
+                    data[i]["failure_reason"] = f"pdf_open_error:{ex}"
+                    fail_fp.write(json.dumps({"entry": data[i], "reason": data[i]["failure_reason"]}, ensure_ascii=False) + "\n")
+                    continue
 
-            meta: Dict = {
-                "title": e.get("title"),
-                "authors": e.get("authors"),
-                "date": e.get("date"),
-                "publication": "",
-                "arxivid":"",
-                "doi": e.get("doi"),
-                "isbn": e.get("isbn"),
-                "pdf_url": url,
-                "scholar_url": e.get("scholar_url"),
-                "original_filename": temp_name,
-                "source": "manifest",
-            }
-
-
-            arxivid_regex = re.compile(r"(?:\d{4}\.\d{4,5})")
-            match = False
-            if "arxiv.org" in meta['pdf_url']:
-                match = arxivid_regex.search(meta['pdf_url'])
-            if not match and "arxiv.org" in meta['scholar_url']:
-                match = arxivid_regex.search(meta['scholar_url'])
-            if match:
-                meta['arxivid']=match.group(0)
+                meta: Dict = {
+                    "title": data[i].get("title"),
+                    "authors": data[i].get("authors"),
+                    "date": data[i].get("date"),
+                    "publication": "",
+                    "arxivid":"",
+                    "doi": data[i].get("doi"),
+                    "isbn": data[i].get("isbn"),
+                    "pdf_url": url,
+                    "scholar_url": data[i].get("scholar_url"),
+                    "original_filename": temp_name,
+                    "source": "manifest",
+                }
 
 
-            # DOI from URLs fallback
-            if not meta.get("doi"):
-                for u in (e.get("pdf_url"), e.get("scholar_url")):
-                    cand = parse_doi_from_url(u or "")
-                    if cand:
-                        meta["doi"] = cand
-                        break
+                arxivid_regex = re.compile(r"(?:\d{4}\.\d{4,5})")
+                match = False
+                if "arxiv.org" in meta['pdf_url']:
+                    match = arxivid_regex.search(meta['pdf_url'])
+                if not match and "arxiv.org" in meta['scholar_url']:
+                    match = arxivid_regex.search(meta['scholar_url'])
+                if match:
+                    meta['arxivid']=match.group(0)
+                    data[i]['arxivid']=match.group(0)
+                    progress.console.print(f"[NOTICE] updated arXivID field {data[i]['arxivid']}")
 
-            # First pages text for ISBN/title fallback
-            text = ""
-            try:
-                for i in range(min(5, len(reader.pages))):
-                    text += "\n" + (reader.pages[i].extract_text() or "")
-            except Exception:
-                pass
 
-            if not meta.get("isbn"):
-                cand_isbn = parse_isbn_from_text(text)
-                if cand_isbn:
-                    meta["isbn"] = cand_isbn
-            if not meta.get("title"):
-                meta["title"] = guess_title(reader)
+                # DOI from URLs fallback
+                if not meta.get("doi"):
+                    for u in (data[i].get("pdf_url"), data[i].get("scholar_url")):
+                        cand = parse_doi_from_url(u or "")
+                        if cand:
+                            progress.console.print(f"[NOTICE] updated doi field from url pattern match {cand}")
+                            data[i]['doi'] = meta["doi"] = cand
+                            break
 
-            # Enrichment
-            try:
-                if is_arxiv_source(e.get("pdf_url")) or is_arxiv_source(e.get("scholar_url")):
-                    if HAVE_ARXIV:
-                        am = enrich_via_arxiv(e.get("pdf_url") or e.get("scholar_url"))
-                        if am:
-                            for k, v in am.items():
+                # First pages text for ISBN/title fallback
+                text = ""
+                try:
+                    for i in range(min(5, len(reader.pages))):
+                        text += "\n" + (reader.pages[i].extract_text() or "")
+                except Exception:
+                    pass
+
+                if not meta.get("isbn"):
+                    cand_isbn = parse_isbn_from_text(text)
+                    if cand_isbn:
+                        data[i]['isbn'] = meta["isbn"] = cand_isbn
+                        progress.console.print(f"[NOTICE] updated isbn field from body text match {cand_isbn}")
+
+                if not meta.get("title"):
+                    data[i]['title'] = meta["title"] = guess_title(reader)
+                    progress.console.print(f"[NOTICE] updated title field from content match guess_title() function {meta['title']}")
+
+                # Enrichment
+                try:
+                    if is_arxiv_source(data[i].get("pdf_url")) or is_arxiv_source(data[i].get("scholar_url")):
+                        if HAVE_ARXIV:
+                            am = enrich_via_arxiv(data[i].get("pdf_url") or data[i].get("scholar_url"))
+                            if am:
+                                for k, v in am.items():
+                                    if v and not meta.get(k):
+                                        meta[k] = v
+                except Exception as ex:
+                    progress.console.print(f"[WARN] arXiv enrichment failed: {ex}")
+
+                cr = safe_enrich_crossref(
+                    enrich_via_crossref,
+                    doi=meta.get("doi"),
+                    title=meta.get("title"),
+                    author=(
+                        meta.get("authors")[0]
+                        if isinstance(meta.get("authors"), list) and meta.get("authors")
+                        else ""
+                    ),
+                    timeout=crossref_timeout,
+                    tries=crossref_tries,
+                    backoff=crossref_backoff,
+                    ua=crossref_ua,
+                )
+                if cr:
+                    for k, v in cr.items():
+                        if v and not meta.get(k):
+                            meta[k] = v
+
+                if meta.get("isbn"):
+                    try:
+                        gb = enrich_via_google_books(meta["isbn"])
+                        if gb:
+                            for k, v in gb.items():
                                 if v and not meta.get(k):
                                     meta[k] = v
-            except Exception as ex:
-                print(f"[WARN] arXiv enrichment failed: {ex}")
+                    except Exception as ex:
+                        progress.console.print(f"[WARN] Google Books enrichment failed: {ex}")
 
-            cr = safe_enrich_crossref(
-                enrich_via_crossref,
-                doi=meta.get("doi"),
-                title=meta.get("title"),
-                author=(
-                    meta.get("authors")[0]
-                    if isinstance(meta.get("authors"), list) and meta.get("authors")
-                    else ""
-                ),
-                timeout=crossref_timeout,
-                tries=crossref_tries,
-                backoff=crossref_backoff,
-                ua=crossref_ua,
-            )
-            if cr:
-                for k, v in cr.items():
-                    if v and not meta.get(k):
-                        meta[k] = v
+                # Final filename and move
+                final_name = propose_filename(meta.get("title"), meta.get("date"))
+                final_path = output_dir / final_name
+                if final_path.exists():
+                    final_path = output_dir / f"{final_path.stem}--{int(time.time())}{final_path.suffix}"
 
-            if meta.get("isbn"):
                 try:
-                    gb = enrich_via_google_books(meta["isbn"])
-                    if gb:
-                        for k, v in gb.items():
-                            if v and not meta.get(k):
-                                meta[k] = v
+                    src.replace(final_path)
                 except Exception as ex:
-                    print(f"[WARN] Google Books enrichment failed: {ex}")
+                    data[i]["download_status"] = "failed"
+                    data[i]["failure_reason"] = f"move_error:{ex}"
+                    progress.console.print(f"move_error:{ex}")
+                    fail_fp.write(json.dumps({"entry": data[i], "reason": data[i]["failure_reason"]}, ensure_ascii=False) + "\n")
+                    continue
 
-            # Final filename and move
-            final_name = propose_filename(meta.get("title"), meta.get("date"))
-            final_path = output_dir / final_name
-            if final_path.exists():
-                final_path = output_dir / f"{final_path.stem}--{int(time.time())}{final_path.suffix}"
+                # Embed metadata, write sidecar, update entry
+                try:
+                    write_pdf_metadata(final_path, meta)
+                except Exception as ex:
+                    progress.console.print(f"[WARN] metadata embed failed: {ex}")
 
-            try:
-                src.replace(final_path)
-            except Exception as ex:
-                e["download_status"] = "failed"
-                e["failure_reason"] = f"move_error:{ex}"
-                fail_fp.write(json.dumps({"entry": e, "reason": e["failure_reason"]}, ensure_ascii=False) + "\n")
-                continue
+                sidecar = final_path.with_suffix(".meta.json")
+                sidecar.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
-            # Embed metadata, write sidecar, update entry
-            try:
-                write_pdf_metadata(final_path, meta)
-            except Exception as ex:
-                print(f"[WARN] metadata embed failed: {ex}")
+                data[i]["local_path"] = str(final_path)
+                data[i]["final_filename"] = final_path.name
+                data[i]["file_sha256"] = sha256(final_path)
+                data[i]["download_status"] = "done"
+                data[i].pop("failure_reason", None)
 
-            sidecar = final_path.with_suffix(".meta.json")
-            sidecar.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+                succ_fp.write(json.dumps(meta, ensure_ascii=False) + "\n")
+                processed += 1
+                progress.console.print(f"[OK] {temp_name} → {final_path.name}")
 
-            e["local_path"] = str(final_path)
-            e["final_filename"] = final_path.name
-            e["file_sha256"] = sha256(final_path)
-            e["download_status"] = "done"
-            e.pop("failure_reason", None)
-
-            succ_fp.write(json.dumps(meta, ensure_ascii=False) + "\n")
-            processed += 1
-            print(f"[OK] {temp_name} → {final_path.name}")
-
-    finally:
-        succ_fp.close()
-        fail_fp.close()
-        save_manifest(manifest_path, entries, wrapped)
-        print(f"[process] Updated manifest → {manifest_path}")
-        print(f"[process] Success log: {success_log}")
-        print(f"[process] Fail log   : {fail_log}")
-        print(f"[process] Completed {processed} entries.")
+        finally:
+            progress.update(job, completed=entries_count)
+            succ_fp.close()
+            fail_fp.close()
+            save_manifest(manifest_path, data, wrapped=True)
+            progress.console.print(f"[process] Updated manifest → {manifest_path}")
+            progress.console.print(f"[process] Success log: {success_log}")
+            progress.console.print(f"[process] Fail log   : {fail_log}")
+            progress.console.print(f"[process] Completed {processed} entries.")
 
 
 # ----------------------- CLI -----------------------
@@ -734,7 +799,6 @@ def main():
 
     sp = sub.add_parser("preprocess", help="Generate download script (aria2c/jdownloader) and update manifest.")
     sp.add_argument("--manifest", required=True, type=Path)
-    sp.add_argument("--downloader", required=True, choices=["aria2c", "jdownloader"])
     sp.add_argument("--script-out", required=True, type=Path, help="Path to write aria2c.txt or .crawljob")
     sp.add_argument("--downloads-dir", required=True, type=Path, help="Directory where the downloader will place PDFs.")
     sp.add_argument("--probe-size", action="store_true", help="HEAD each URL to record expected_size.")
@@ -762,7 +826,7 @@ def main():
     args = ap.parse_args()
 
     if args.cmd == "preprocess":
-        preprocess(args.manifest, args.downloader, args.script_out, args.downloads_dir, args.probe_size)
+        preprocess(args.manifest, args.script_out, args.downloads_dir, args.probe_size)
     elif args.cmd == "process":
         process_pipeline(
             args.manifest,
