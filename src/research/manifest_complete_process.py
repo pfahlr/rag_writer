@@ -652,7 +652,7 @@ def write_pdf_metadata(pdf_path: Path, meta: Dict) -> None:
             )
             return
         except Exception as e:
-            print(f"[WARN] pdf_io.write_pdf_metadata failed, falling back to pypdf: {e}")
+            print(f"[⚠️] pdf_io.write_pdf_metadata failed, falling back to pypdf: {e}")
 
     # Fallback: pypdf Info dictionary
     try:
@@ -671,7 +671,7 @@ def write_pdf_metadata(pdf_path: Path, meta: Dict) -> None:
         with open(pdf_path, "wb") as f:
             writer.write(f)
     except Exception as e:
-        print(f"[WARN] pypdf metadata write failed: {e}")
+        print(f"[⚠️] pypdf metadata write failed: {e}")
 
 
 # ----------------------- retry helpers -----------------------
@@ -747,7 +747,7 @@ def safe_enrich_crossref(
         except Exception as exc:
             last = exc
             time.sleep(backoff * (2 ** attempt))
-    print(f"[WARN] Crossref enrichment failed after {tries} attempts: {last}")
+    print(f"[⚠️] Crossref enrichment failed after {tries} attempts: {last}")
     return {}
 
 
@@ -820,24 +820,24 @@ def prune_downloads(manifest_path: Path, inbox_dir: Path):
                 if os.path.exists(temp_filepath):
                     try:
                         mime_type = magic.from_file(temp_filepath, mime=True)
-                        progress.console.print(f"[{i}] {temp_filepath} is type: {mime_type}")
+                        progress.console.print(f"[🧿] {temp_filepath} is type: {mime_type}")
 
                     except Exception as e:
-                        progress.console.print(f"[{i}] ERROR:{e}")
+                        progress.console.print(f"[⛔] ERROR:{e}")
                         continue
 
                     if mime_type != "application/pdf":
                         try:
-                            progress.console.print(f"[{i}] unlinking {filename}")
+                            progress.console.print(f"[🚫] unlinking {filename}")
                             temp_filepath.unlink()
-                            progress.console.print(f"[{i}] setting 'download_status' in manifest to 'E01_bad_mimetype'")
+                            progress.console.print(f"[⚠️] setting 'download_status' in manifest to 'E01_bad_mimetype'")
                             data[i]['download_status'] = 'E01_bad_mimetype'
                         except Exception as e:
-                            progress.console.print(f"[{i}] ERROR:{e}")
+                            progress.console.print(f"[⛔] ERROR:{e}")
                 else:
                     progress.console.print(f"[{i}] checking {temp_filepath} does not exist")
         progress.update(job, completed=(i+1))
-        progress.console.print(f"DONE!")
+        progress.console.print(f"✅ DONE! 🎆...🎇...🎉...🌋...🎊...🌠")
 
     save_manifest(manifest_path, data, True)
 
@@ -888,24 +888,24 @@ def preprocess(
 
             url = (e.get("pdf_url") or "").strip()
             if not url:
-                progress.console.print(f"[NOTICE] no pdf_url found for record: {i}")
+                progress.console.print(f"[⛔] no pdf_url found for record: {i}")
                 continue
 
             did = ensure_id(i, e)
             # temp filename we expect the downloader to save
             temp_filename = f"{did}.pdf"
-            progress.console.print(f"[NOTICE] setting temp_filename = {temp_filename} for record {i}")
+            progress.console.print(f"[☑️] setting temp_filename = {temp_filename} for record {i}")
             e["temp_filename"] = temp_filename
             e.setdefault("download_status", "pending")
             
             expected_size = None
             if probe_size:
                 try:
-                    progress.console.print(f"[NOTICE] requesting headers of download target")
+                    progress.console.print(f"[❔] requesting headers of download target")
                     r = sess.head(url, allow_redirects=True, timeout=20)
                     if "content-length" in r.headers:
                         expected_size = int(r.headers["content-length"])
-                        progress.console.print(f"[NOTICE] got content-length {r.headers['content-length']}")
+                        progress.console.print(f"[🧿] got content-length {r.headers['content-length']}")
                 except Exception:
                     expected_size = None
 
@@ -921,7 +921,7 @@ def preprocess(
 
             # aria2c input file format: URL newline + indented "out="
             # Also set dir= to downloads_dir so the user can run aria2c -i file
-            progress.console.print(f"[NOTICE] adding fields for aria2c")
+            progress.console.print(f"[☑️] adding fields for aria2c")
             lines_aria2.append(url)
             lines_aria2.append(f"  out={temp_filename}")
             lines_aria2.append(f"  dir={str(downloads_dir)}")
@@ -929,7 +929,7 @@ def preprocess(
             
             # JDownloader .crawljob: key=value per job, blank line between jobs
             # Minimal keys: text, downloadFolder, filename, enabled, autoStart
-            progress.console.print(f"[NOTICE] adding fields for jdownloader")
+            progress.console.print(f"[☑️] adding fields for jdownloader")
             crawls.append(
                 "\n".join([
                     f"text={url}",
@@ -949,7 +949,6 @@ def preprocess(
         # Write script/batch
         script_out.parent.mkdir(parents=True, exist_ok=True)
         #if downloader == "aria2c":
-        progress.console.print(f"[NOTICE] writing aria2c script")
         counter_tmp = 1
         aria2c_script = Path(str(script_out)+'/aria2c.txt')
         
@@ -958,7 +957,7 @@ def preprocess(
             aria2c_script = Path(str(aria2c_script)+'.'+str(counter_tmp))
             counter_tmp = counter_tmp + 1
         aria2c_script.write_text("\n".join(lines_aria2) + "\n", encoding="utf-8")
-        progress.console.print(f"[preprocess] Wrote aria2c batch → {aria2c_script}")
+        progress.console.print(f"[☑️] Wrote aria2c batch → {aria2c_script}")
         progress.console.print(f"Run example: aria2c -i '{script_out}' --check-certificate=false")
         
         #else:
@@ -968,19 +967,19 @@ def preprocess(
             jdownloader_script = Path(str(script_out)+'/.crawljob')
             jdownloader_script = Path(str(jdownloader_script)+'.'+str(counter_tmp))
             counter_tmp = counter_tmp + 1        
-        progress.console.print(f"[NOTICE] writing jdownloader script")
         jdownloader_script.write_text("\n\n".join(crawls) + "\n", encoding="utf-8")
-        progress.console.print(f"[preprocess] Wrote JDownloader .crawljob → {jdownloader_script}")
+        progress.console.print(f"[☑️] Wrote JDownloader .crawljob → {jdownloader_script}")
         progress.console.print("Import in JDownloader: LinkGrabber menu → Add New Links → Load crawljob file")
 
         # Write downloads_map.json next to script
         map_path = script_out.with_suffix(".downloads_map.json")
         map_path.write_text(json.dumps(dlmap, ensure_ascii=False, indent=2), encoding="utf-8")
-        progress.console.print(f"[preprocess] Wrote downloads_map.json → {map_path}")
+        progress.console.print(f"[☑️] Wrote downloads_map.json → {map_path}")
 
         # Save updated manifest
         save_manifest(manifest_path, entries, wrapped)
-        progress.console.print(f"[preprocess] Updated manifest with temp filenames and status=pending → {manifest_path}")
+        progress.console.print(f"[☑️] Updated manifest with temp filenames and status=pending → {manifest_path}")
+        progress.console.print(f"[✅] DONE! 🎆...🎇...🎉...🌋...🎊...🌠")
 
 
 # ----------------------- process -----------------------
@@ -1020,7 +1019,7 @@ def process_pipeline(
     )
     job = progress.add_task("[blue] entries processed", total=entries_count)
     display_table.add_row(
-        Panel.fit(progress, title="Completing Metadata and Writing Ready-for-Indexing PDFs ", border_style="green", padding=(1,1))
+        Panel.fit(progress, title="📇 Completing Metadata and Writing Ready-for-Indexing PDFs ", border_style="green", padding=(1,1))
     )
     index = scan_inbox_for_candidates(inbox_dir)
     claimed: Set[Path] = set()
@@ -1048,7 +1047,7 @@ def process_pipeline(
 
                 src = candidate.path
                 if not src.exists():
-                    progress.console.print(f"[WARN] matched file missing on disk: {src}")
+                    progress.console.print(f"[⚠️] matched file missing on disk: {src}")
                     entry.setdefault("download_status", "pending")
                     continue
 
@@ -1060,9 +1059,9 @@ def process_pipeline(
                     mime = magic.from_file(str(src), mime=True)
                 except Exception as ex:
                     mime = None
-                    progress.console.print(f"[WARN] MIME check failed for {temp_name}: {ex}")
+                    progress.console.print(f"[⚠️] MIME check failed for {temp_name}: {ex}")
                 if mime != "application/pdf":
-                    progress.console.print(f"[NOTICE] MIME type for {temp_name}: {mime} - deleting")
+                    progress.console.print(f"[❌] MIME type for {temp_name}: {mime} - deleting")
                     src.unlink()
                     entry["download_status"] = "failed"
                     entry["failure_reason"] = f"non_pdf_mime:{mime}"
@@ -1073,7 +1072,7 @@ def process_pipeline(
                 try:
                     reader = PdfReader(str(src))
                 except Exception as ex:
-                    progress.console.print(f"[WARN] failed to open downloaded file: {src} - Exception:{ex}")
+                    progress.console.print(f"[⚠️] failed to open downloaded file: {src} - Exception:{ex}")
                     entry["download_status"] = "failed"
                     entry["failure_reason"] = f"pdf_open_error:{ex}"
                     fail_fp.write(json.dumps({"entry": entry, "reason": entry["failure_reason"]}, ensure_ascii=False) + "\n")
@@ -1113,14 +1112,14 @@ def process_pipeline(
                 if match:
                     meta['arxivid']=match.group(0)
                     entry['arxivid']=match.group(0)
-                    progress.console.print(f"[NOTICE] updated arXivID field {entry['arxivid']}")
+                    progress.console.print(f"[🔖] updated arXivID field {entry['arxivid']}")
 
                 # DOI from URLs fallback
                 if not meta.get("doi"):
                     for u in (entry.get("pdf_url"), entry.get("scholar_url")):
                         cand = parse_doi_from_url(u or "")
                         if cand:
-                            progress.console.print(f"[NOTICE] updated doi field from url pattern match {cand}")
+                            progress.console.print(f"[🔖] updated doi field from url pattern match {cand}")
                             entry['doi'] = meta["doi"] = cand
                             break
 
@@ -1136,11 +1135,11 @@ def process_pipeline(
                     cand_isbn = parse_isbn_from_text(text)
                     if cand_isbn:
                         entry['isbn'] = meta["isbn"] = cand_isbn
-                        progress.console.print(f"[NOTICE] updated isbn field from body text match {cand_isbn}")
+                        progress.console.print(f"[🔖] updated isbn field from body text match {cand_isbn}")
 
                 if not meta.get("title"):
                     entry['title'] = meta["title"] = guess_title(reader)
-                    progress.console.print(f"[NOTICE] updated title field from content match guess_title() function {meta['title']}")
+                    progress.console.print(f"[🔖] updated title field from content match guess_title() function {meta['title']}")
 
                 # Enrichment
                 try:
@@ -1152,7 +1151,7 @@ def process_pipeline(
                                     if v and not meta.get(k):
                                         meta[k] = v
                 except Exception as ex:
-                    progress.console.print(f"[WARN] arXiv enrichment failed: {ex}")
+                    progress.console.print(f"[⚠️] arXiv enrichment failed: {ex}")
 
                 cr = safe_enrich_crossref(
                     enrich_via_crossref,
@@ -1181,7 +1180,7 @@ def process_pipeline(
                                 if v and not meta.get(k):
                                     meta[k] = v
                     except Exception as ex:
-                        progress.console.print(f"[WARN] Google Books enrichment failed: {ex}")
+                        progress.console.print(f"[⚠️] Google Books enrichment failed: {ex}")
 
                 # Final filename and move
                 final_name = propose_filename(meta.get("title"), meta.get("date"))
@@ -1203,7 +1202,7 @@ def process_pipeline(
                 try:
                     write_pdf_metadata(final_path, meta)
                 except Exception as ex:
-                    progress.console.print(f"[WARN] metadata embed failed: {ex}")
+                    progress.console.print(f"[⚠️] metadata embed failed: {ex}")
 
                 sidecar = final_path.with_suffix(".meta.json")
                 sidecar.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -1220,17 +1219,19 @@ def process_pipeline(
                     display_label = f"{manifest_temp_name} ({temp_name})"
                 else:
                     display_label = temp_name
-                progress.console.print(f"[OK] {display_label} → {final_path.name}")
+                progress.console.print(f"[✅] {display_label} → {final_path.name}")
 
         finally:
             progress.update(job, completed=entries_count)
             succ_fp.close()
             fail_fp.close()
             save_manifest(manifest_path, data, wrapped=True)
-            progress.console.print(f"[process] Updated manifest → {manifest_path}")
-            progress.console.print(f"[process] Success log: {success_log}")
-            progress.console.print(f"[process] Fail log   : {fail_log}")
-            progress.console.print(f"[process] Completed {processed} entries.")
+            progress.console.print(f"[⛴️] Updated manifest → {manifest_path}")
+            progress.console.print(f"[🛫] Success log: {success_log}")
+            progress.console.print(f"[🚀] Fail log   : {fail_log}")
+            progress.console.print(f"[🛸] Completed {processed} entries.")
+            progress.console.print(f"[✅] DONE! 🎆...🎇...🎉...🌋...🎊...🌠")
+
 
 
 # ----------------------- CLI -----------------------
