@@ -46,12 +46,44 @@ This suite provides a complete workflow for content creation and processing usin
 ### Prerequisites
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+#### Install Python dependencies globally
+pip install -r requirements.txt -r requirements-faiss-cpu.txt
+# or swap requirements-faiss-cpu.txt for requirements-faiss-gpu.txt on CUDA hosts
+pip install -r requirements-test.txt
+```
 
-# Set up environment (if needed)
+#### or in a virtualenv (reccommended)
+```bash
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt -r requirements-faiss-cpu.txt
+# or swap requirements-faiss-cpu.txt for requirements-faiss-gpu.txt on CUDA hosts
+pip install -r requirements-test.txt
+
+```
+
+#### Install SOPS
+
+```bash
+curl -LO https://github.com/getsops/sops/releases/download/v3.10.2/sops-v3.10.2.linux.amd64
+sudo mv sops-v3.10.2.linux.amd64 /usr/local/bin/sops
+chmod +x /usr/local/bin/sops
+```
+
+#### Set up environment (if needed)
+```
 cp env.json.template env.json
-# Edit env.json with your API keys and settings
+
+# Edit env.json with your API keys and settings (add _pt for plaintext after non-secret environment variables)
+nano env.json
+
+# encrypt values in env.json 
+sops -e env.json > env.json
+
+# load environment variables of both secret or otherwise, you may need to eval or run inside backticks, as the output of this command is the specific shell commands to export the environment variables.(workaround for having the _pt suffix)
+
+`make sops-env-export`
+
 ```
 
 ### Basic Usage
@@ -61,6 +93,8 @@ cp env.json.template env.json
 ```bash
 # Complete setup and workflow
 make init                # Set up environment
+# (optional) make init with GPU FAISS wheel
+FAISS_BACKEND=gpu make init
 make lc-index KEY=default  # Build FAISS index
 make cli-ask "What is machine learning?"  # Ask questions via Typer CLI
 make cli-shell           # Interactive shell
@@ -110,6 +144,7 @@ make examples      # List all available example files
 #### Core CLI Targets
 ```bash
 make init                                # Initialize environment and install dependencies
+FAISS_BACKEND=gpu make init              # Same as above but installs faiss-gpu
 make lc-index KEY=foo SHARD_SIZE=2000 RESUME=1  # Build sharded FAISS index
 make cli-ask "question"                  # RAG query via Typer CLI
 make cli-shell                           # Interactive shell
@@ -724,6 +759,24 @@ or a final response:
 
 See [docs/tool_agent_schema.md](docs/tool_agent_schema.md) for the full specification and transcript example.
 
+### Canonical Tool Schemas
+
+Canonical tool input and output JSON schemas live under `schemas/tools/`. Each tool,
+such as `web_search_query` or `vector_query_search`, has corresponding
+`*.input.schema.json` and `*.output.schema.json` files that define the expected
+Model Context Protocol contracts.
+
+### YAML Toolpacks
+
+Additional tools can be declared by dropping `*.tool.yaml` files under the
+`tools/` directory. Each YAML file defines a *toolpack* with an `id`, `kind`
+(`python`, `cli`, `node`, `php`, or `http`), an entry point (or `php` script
+path), and JSON schemas for input and output. On startup these files are loaded
+and exposed over `/mcp/tool/<id>`. Jinja2 templating is supported for argv, URL,
+and headers, and a `templating.cacheKey` value can override caching behavior.
+See [docs/MCP.md](docs/MCP.md) for full field definitions, env passthrough, and
+JSON contracts.
+
 ### Multi-agent CLI
 
 Run a tool-enabled agent that combines local RAG retrieval with tools served
@@ -744,6 +797,7 @@ Start the tool server to expose registered tools via the Model Context Protocol:
 
 ```bash
 python -m src.tool.mcp_server  # or: make tool-shell
+uvicorn src.tool.mcp_app:app --host 127.0.0.1 --port 3333
 ```
 
 ---
@@ -761,11 +815,38 @@ Write standard PDF metadata fields with pypdf
 
 Write XMP (Dublin Core + Prism) metadata in-place using pikepdf. If pikepdf is not installed, this function silently returns
 
-### 📄 `research/functions/filelogger.py` 
+### 📄 `research/functions/filelogger.py`
 Provides debout log output to a file for cases where it is not possible to access the standard error and standard out streams directly.
 
 #### `_fllog(s: str) -> void:`
 log str to file
+
+---
+### 📄 `src/tool/toolpack_models.py`
+Pydantic models describing YAML-defined toolpacks.
+
+#### `class ToolPack(BaseModel)`
+- `id: str` – canonical tool identifier
+- `kind: Literal['python','cli','node','http','php']`
+- `entry: str | List[str] | None` – module path, CLI/Node argv, or HTTP URL
+- `php: str | List[str] | None` – PHP script path
+- `phpBinary: Optional[str]` – PHP interpreter override
+- `schema: ToolSchema` – input and output JSON schemas
+- `timeoutMs: Optional[int]`
+- `limits: ToolLimits` – input/output byte caps
+- `env: List[str]` – environment variables to pass through
+- `headers: Dict[str, str]` – HTTP headers (templated)
+- `templating: Optional[Templating]` – Jinja2 settings
+- `deterministic: bool` – enable idempotent caching
+
+#### `class Templating(BaseModel)`
+- `cacheKey: Optional[str]` – Jinja2 template for cache key
+
+### 📄 `src/tool/executor.py`
+Executes a loaded `ToolPack`.
+
+#### `run_toolpack(tp: ToolPack, payload: Dict[str, Any]) -> Dict[str, Any]`
+Run the toolpack either in-process or via subprocess/HTTP and return its JSON output.
 
 ---
 ---
@@ -790,6 +871,7 @@ args = parser.parse_args()
 mime_type = magic.from_file(filepath, mime=True)
 ```
 
+
 ### pytest-asyncio
 [Documentation](https://pytest-asyncio.readthedocs.io/en/latest/): pytest-asyncio provides asyncio awareness for pytest so asynchronous tests can run alongside synchronous suites.
 
@@ -804,15 +886,76 @@ async def test_tool_invocation():
 ```
 
 
+### FastAPI
+[Documentation](https://fastapi.tiangolo.com/): FastAPI is a modern, high-performance web framework for building APIs with Python.
+
+**Example Usage**:
+```python
+from fastapi import FastAPI
+
+app = FastAPI()
+```
+
+### Uvicorn
+[Documentation](https://www.uvicorn.org/): Uvicorn is a lightning-fast ASGI server implementation, perfect for serving FastAPI apps.
+
+**Example Usage**:
+```bash
+uvicorn src.tool.mcp_app:app --host 127.0.0.1 --port 3333
+```
+
+### Pydantic
+[Documentation](https://docs.pydantic.dev/): Pydantic provides data validation and settings management using Python type annotations.
+
+**Example Usage**:
+```python
+from pydantic import BaseModel
+
+class Meta(BaseModel):
+    traceId: str
+```
+
+### Jinja2
+[Documentation](https://jinja.palletsprojects.com/): Jinja2 is a modern templating engine for Python used to render strings with
+dynamic values.
+
+**Example Usage**:
+```python
+from jinja2 import Environment, BaseLoader
+
+env = Environment(loader=BaseLoader())
+env.from_string("Hello {{ name }}").render(name="World")
+```
+
+### httpx
+[Documentation](https://www.python-httpx.org/): httpx is a fully featured HTTP client for Python.
+
+**Example Usage**:
+```python
+from httpx import ASGITransport, AsyncClient
+
+transport = ASGITransport(app=app)
+async with AsyncClient(transport=transport, base_url="http://test") as client:
+    await client.get("/")
+```
+
+### AnyIO
+[Documentation](https://anyio.readthedocs.io/): AnyIO provides a unified asynchronous I/O API across event loops.
+
+**Example Usage**:
+```python
+import anyio
+
+process = await anyio.open_process(["python", "-m", "src.tool.mcp_stdio"])
+```
+
 ---
 ---
 
 ## 😵‍💫 Miscellaneous
 
-
 ---
 ---
-
 
 ## ⚙️ Environment Variables
 
@@ -833,6 +976,26 @@ use `sops-edit env.json` to add/edit new environment variables... append `_pt` (
 ## 🛠️ YAML Configuration Files
 
 The system uses several YAML configuration files located in `src/config/content/prompts/` to define content types, merge pipelines, and interactive presets.
+
+### Toolpack Definitions
+
+`tools/**/*.tool.yaml` files describe executable tools. Core keys:
+
+```yaml
+id: <unique tool id>
+kind: python | cli | node | http
+entry: package.module:func  # argv for CLI/Node or URL for HTTP tools
+headers:
+  X-Token: "{{input.token}}"  # optional HTTP headers
+templating:
+  cacheKey: "{{input.path}}"  # override caching
+schema:
+  input: $ref to input schema
+  output: $ref to output schema
+```
+
+Dropping a new file in this tree automatically registers the tool at
+`/mcp/tool/<id>`.
 
 ### Content Types Configuration
 
@@ -902,6 +1065,36 @@ This ensures that new content types can inherit templates from the default confi
 **File**: `src/config/content/prompts/merge_types.yaml`
 
 Defines different merge pipeline configurations for content consolidation and editing.
+
+### Prompt Packs and Registry
+
+**File**: `prompts/REGISTRY.yaml`
+
+Prompt packs are stored on disk and registered via `prompts/REGISTRY.yaml`. Each prompt family contains one or more versions. Bodies live in Markdown files named `prompts/packs/<domain>/<name>.v<major>.md` and share a spec defined in `prompts/packs/<domain>/<name>.spec.yaml`.
+
+**Example Registry Structure**:
+
+```yaml
+writing:
+  sectioned_draft:
+    - 3
+```
+
+**Example Spec Structure** (`sectioned_draft.spec.yaml`):
+
+```yaml
+inputs:
+  type: object
+  properties:
+    topic:
+      type: string
+  required:
+    - topic
+  additionalProperties: false
+constraints:
+  length:
+    max_tokens: 1000
+```
 
 **Available Merge Types:**
 - `generic_editor` - Basic single-stage merging

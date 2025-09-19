@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "docs_load_fetch.input",
+  "type": "object",
+  "properties": {
+    "doc_ids": {
+      "type": "array",
+      "items": {"type": "string"},
+      "minItems": 1
+    }
+  },
+  "required": ["doc_ids"],
+  "additionalProperties": false
+}

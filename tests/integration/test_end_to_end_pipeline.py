@@ -318,7 +318,7 @@ class TestEndToEndPipeline:
             assert len(merged_files) >= 1
 
             # Check that pipeline metadata indicates advanced processing
-            with open(merged_files[0], "r") as f:
+            with open(merged_files[-1], "r") as f:
                 merged_data = json.load(f)
 
             assert merged_data["metadata"]["pipeline_type"] == "advanced"

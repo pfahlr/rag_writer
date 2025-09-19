@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "citations_audit_check.output",
+  "type": "object",
+  "properties": {
+    "reports": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "citation": {"type": "string"},
+          "valid": {"type": "boolean"},
+          "reason": {"type": "string"}
+        },
+        "required": ["citation", "valid", "reason"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["reports"],
+  "additionalProperties": false
+}

@@ -93,6 +93,7 @@ ruff check --fix . || true
 black .
 pytest -q
 uvicorn src.api.main:app --reload --port 8000
+python -m src.tool.mcp_stdio
 ```
 
 ---
@@ -162,6 +163,7 @@ uvicorn src.api.main:app --reload --port 8000
 * **Logging:** use Rich logging factory; no raw `print()`.
 * **Errors:** raise typed exceptions with context.
 * **Directory discipline:** core logic in `src/`; side effects isolated in `services/`.
+* **Variable/Function names:** use descriptive variable and function names rather than cryptic ones, favor readable code over excessive consicion. 
 
 **DO NOT MAKE CODING STYLE UPDATES TO LINES OTHER THAN THOSE CHANGING TO FULFILL THE REQUIREMENTS OF THE CURRENT TASK UNLESS THE CURRENT TASK SPECIFIES REFACTORING OVER ALL OR A SUBSET OF THE SOURCE FILES. UNNECESSARY CHANGES CAN RESULT IN UNNECESSARY MERGE CONFLICTS WHEN MULTIPLE CODING TASKS ARE HANDLED IN PARALLEL**
 
@@ -480,6 +482,12 @@ python -m research.collector
   - document how they interact with the program operation
 
 #### When defining new Model Context Protocol (MCP) Tools update `README.ms`: `## 🧩 Tool Agent Schema` section
+
+### MCP Tools & Prompt Packs
+
+See [docs/MCP.md](docs/MCP.md) for how to run HTTP/STDIO servers, the full
+`*.tool.yaml` reference, JSON contracts for subprocess tools, prompt
+registry format, determinism guarantees, and copy‑paste examples.
 
 
 

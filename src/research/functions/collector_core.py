@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import List
 from textual.color import Color
 from functions.filelogger import _fllog
+from urllib.parse import urljoin, unquote
 
 from rich.console import Console
 from rich.panel import Panel

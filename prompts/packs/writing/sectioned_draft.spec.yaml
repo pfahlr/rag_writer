@@ -1,0 +1,11 @@
+inputs:
+  type: object
+  properties:
+    topic:
+      type: string
+  required:
+    - topic
+  additionalProperties: false
+constraints:
+  length:
+    max_tokens: 1000

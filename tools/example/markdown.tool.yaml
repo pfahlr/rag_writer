@@ -1,0 +1,14 @@
+id: markdown
+kind: python
+entry: tools.example.markdown:run
+deterministic: true
+timeoutMs: 1000
+limits:
+  input: 4096
+  output: 4096
+env: []
+schema:
+  input:
+    $ref: ./markdown.input.schema.json
+  output:
+    $ref: ./markdown.output.schema.json
