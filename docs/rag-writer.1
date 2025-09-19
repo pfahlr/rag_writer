@@ -205,7 +205,7 @@ JSONL file with jobs (required)
 Output directory
 .TP
 .B \-\-parallel \fINUM\fR
-Number of parallel processes (default: 1)
+Number of parallel processes (default: RAG_PARALLEL_WORKERS or clamped os.cpu_count())
 .TP
 .B \-\-key \fIKEY\fR
 Collection key for RAG (default: default)
