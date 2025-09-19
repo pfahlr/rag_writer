@@ -149,7 +149,7 @@ class AppConfig:
     def _determine_parallel_workers(self) -> int:
         """Resolve the default parallel worker count from env or system state."""
 
-        env_value = os.getenv("RAG_PARALLEL_WORKERS")
+        env_value = os.getenv("PARALLEL_WORKERS_COUNT", os.cpu_count())
 
         if env_value is not None:
             try:

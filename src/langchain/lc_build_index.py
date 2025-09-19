@@ -22,6 +22,12 @@ try:
 except ImportError:
     from langchain_community.embeddings import HuggingFaceEmbeddings
 
+VIRTUAL_CPU_COUNT = os.getenv(VIRTUAL_CPU_COUNT, os.cpu_count())
+if VIRTUAL_CPU_COUNT > os.cpu_count():
+  VIRTUAL_CPU_COUNT = os.cpu_count()
+
+faiss.cmp_set_num_threads(VIRTUAL_CPU_COUNT)
+
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -109,7 +115,7 @@ def build_faiss_for_models(
         embedder = HuggingFaceEmbeddings(
             model_name=emb,
             model_kwargs={"device": device},
-            encode_kwargs={"device": device},
+#            encode_kwargs={"device": device},
         )
         completed_index_file = base_dir / "index.faiss"
 
@@ -137,6 +143,8 @@ def build_faiss_for_models(
             if resume and (shard_path / "index.faiss").exists():
                 continue
             slice_texts = texts[start : start + shard_size]
+            if not slice_texts:
+		continue
             slice_metas = metadatas[start : start + shard_size]
             vs = FAISS.from_texts(
                 texts=slice_texts, embedding=embedder, metadatas=slice_metas
@@ -144,9 +152,15 @@ def build_faiss_for_models(
             vs.save_local(str(shard_path))
         shard_bar.close()
 
-        shard_paths = sorted(shards_dir.glob("shard_*"))
+	shard_paths = sorted(shards_dir.glob("shard_*"))
         vectorstore = None
         logger.info("Merging %s shards on CPU", emb_name)
+
+        # Helper to assert we didn't accidentally turn a vectorstore into a raw faiss.Index
+        def _assert_is_vectorstore(obj, label):
+            if not (hasattr(obj, "index") and hasattr(obj, "merge_from") and hasattr(obj, "docstore")):
+                raise TypeError(f"{label} is not a LangChain FAISS vectorstore (got {type(obj)})")
+
         for shard_path in tqdm(
             shard_paths, desc=f"Merging {emb_name}", unit="shard"
         ):
@@ -156,14 +170,19 @@ def build_faiss_for_models(
                 allow_dangerous_deserialization=True,
             )
             vs.index = faiss_utils.ensure_cpu_index(vs.index)
+
+            _assert_is_vectorstore(vs, "vs")  # guard
+
             if vectorstore is None:
                 vectorstore = vs
             else:
                 vectorstore.index = faiss_utils.ensure_cpu_index(vectorstore.index)
+		_assert_is_vectorstore(vectorstore, "vectorstore")  # guard
                 vectorstore.merge_from(vs)
 
         base_dir.mkdir(parents=True, exist_ok=True)
         if vectorstore is not None:
+	    _assert_is_vectorstore(vectorstore, "vectorstore (pre-save)")  # guard
             vectorstore.index = faiss_utils.ensure_cpu_index(vectorstore.index)
             logger.info("Saving FAISS index for %s to %s", emb_name, base_dir)
             vectorstore.save_local(str(base_dir))
