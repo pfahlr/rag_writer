@@ -300,11 +300,14 @@ def main():
         tqdm(splitter.split_documents(pages), desc="Splitting", unit="chunk")
     )
 
+    resume_flag = bool(args.resume)
+    
     # Normalize chunks JSONL and build FAISS indexes for multiple models
     chunks_out = Path(f"data_processed/lc_chunks_{key}.jsonl")
-    write_chunks_jsonl(chunks, chunks_out)
 
-    resume_flag = bool(args.resume)
+    # don't rebuild this on --resume
+    if not resume_flag or chunks_out.file_size < 100: 
+        write_chunks_jsonl(chunks, chunks_out)
 
     build_faiss_for_models(
         chunks,
