@@ -108,3 +108,215 @@ def test_write_pdf_metadata_converts_str_to_path(monkeypatch, tmp_path, manifest
     manifest_module.write_pdf_metadata(str(pdf_file), {"title": "Test"})
 
     assert issubclass(called["type"], Path)
+
+
+def _make_candidate(manifest_module, tmp_path, name: str, **kwargs):
+    path = tmp_path / name
+    path.write_bytes(b"")
+    return manifest_module.PdfCandidate(path=path, **kwargs)
+
+
+def test_match_entry_prefers_temp_filename_over_other_heuristics(manifest_module, tmp_path):
+    cand1 = _make_candidate(
+        manifest_module,
+        tmp_path,
+        "expected.pdf",
+        metadata_doi="10.1234/example",
+    )
+    cand2 = _make_candidate(
+        manifest_module,
+        tmp_path,
+        "other.pdf",
+        metadata_doi="10.1234/example",
+    )
+
+    index = manifest_module.build_inbox_index_from_candidates([cand1, cand2])
+    entry = {"temp_filename": "expected.pdf", "doi": "10.1234/example"}
+
+    claimed = set()
+    matched = manifest_module.match_entry_to_candidate(entry, index, claimed)
+
+    assert matched is cand1
+    assert cand1.path in claimed
+
+
+def test_match_entry_matches_by_metadata_doi_when_filename_mismatch(manifest_module, tmp_path):
+    cand1 = _make_candidate(
+        manifest_module,
+        tmp_path,
+        "random.pdf",
+        metadata_doi="10.5555/alpha",
+    )
+    index = manifest_module.build_inbox_index_from_candidates([cand1])
+    entry = {"temp_filename": "missing.pdf", "doi": "10.5555/ALPHA"}
+
+    matched = manifest_module.match_entry_to_candidate(entry, index, set())
+
+    assert matched is cand1
+
+
+def test_match_entry_falls_back_to_content_title_and_respects_claimed(manifest_module, tmp_path):
+    cand1 = _make_candidate(
+        manifest_module,
+        tmp_path,
+        "mystery.pdf",
+        content_title="Understanding Transformers",
+    )
+    cand2 = _make_candidate(
+        manifest_module,
+        tmp_path,
+        "spare.pdf",
+        metadata_title="Understanding Transformers",
+    )
+    index = manifest_module.build_inbox_index_from_candidates([cand1, cand2])
+
+    entry1 = {"temp_filename": "nope.pdf", "title": "Understanding Transformers"}
+    claimed: set = set()
+
+    # metadata title match should win before content title
+    first = manifest_module.match_entry_to_candidate(entry1, index, claimed)
+    assert first is cand2
+
+    entry2 = {"title": "Understanding Transformers"}
+    second = manifest_module.match_entry_to_candidate(entry2, index, claimed)
+    assert second is cand1
+    assert cand1.path in claimed
+
+    entry3 = {"title": "Understanding Transformers"}
+    third = manifest_module.match_entry_to_candidate(entry3, index, claimed)
+    assert third is None
+
+
+def test_match_entry_uses_doi_substring_in_filename(manifest_module, tmp_path):
+    cand = _make_candidate(
+        manifest_module,
+        tmp_path,
+        "paper-101234abc123.pdf",
+    )
+    index = manifest_module.build_inbox_index_from_candidates([cand])
+    entry = {"doi": "10.1234/ABC-123"}
+
+    matched = manifest_module.match_entry_to_candidate(entry, index, set())
+
+    assert matched is cand
+
+
+def test_match_entry_uses_doi_substring_in_content_snippet(manifest_module, tmp_path):
+    cand = _make_candidate(
+        manifest_module,
+        tmp_path,
+        "unmatched.pdf",
+        content_compact="xx101234bbccdd",
+    )
+    index = manifest_module.build_inbox_index_from_candidates([cand])
+    entry = {"doi": "10.1234/bb-cc"}
+
+    matched = manifest_module.match_entry_to_candidate(entry, index, set())
+
+    assert matched is cand
+
+
+def test_match_entry_uses_doi_suffix_digits(manifest_module, tmp_path):
+    cand = _make_candidate(
+        manifest_module,
+        tmp_path,
+        "15391523.2025.2478424.pdf",
+    )
+    index = manifest_module.build_inbox_index_from_candidates([cand])
+    entry = {"doi": "10.1080/15391523.2025.2478424"}
+
+    matched = manifest_module.match_entry_to_candidate(entry, index, set())
+
+    assert matched is cand
+
+
+def test_match_entry_handles_journal_suffix_token(manifest_module, tmp_path):
+    cand = _make_candidate(
+        manifest_module,
+        tmp_path,
+        "bjet.13411.pdf",
+    )
+    index = manifest_module.build_inbox_index_from_candidates([cand])
+    entry = {"doi": "10.1111/BJET.13411"}
+
+    matched = manifest_module.match_entry_to_candidate(entry, index, set())
+
+    assert matched is cand
+
+
+def test_match_entry_matches_extensionless_basename(manifest_module, tmp_path):
+    cand = _make_candidate(
+        manifest_module,
+        tmp_path,
+        "jcal.13009",
+    )
+    index = manifest_module.build_inbox_index_from_candidates([cand])
+    entry = {"doi": "10.1111/JCAL.13009"}
+
+    matched = manifest_module.match_entry_to_candidate(entry, index, set())
+
+    assert matched is cand
+
+
+def test_match_entry_matches_short_suffix_digits(manifest_module, tmp_path):
+    cand = _make_candidate(
+        manifest_module,
+        tmp_path,
+        "jee.20503",
+    )
+    index = manifest_module.build_inbox_index_from_candidates([cand])
+    entry = {"doi": "10.1002/jee.20503"}
+
+    matched = manifest_module.match_entry_to_candidate(entry, index, set())
+
+    assert matched is cand
+
+
+def test_match_entry_uses_pdf_url_basename(manifest_module, tmp_path):
+    cand = _make_candidate(
+        manifest_module,
+        tmp_path,
+        "447499335_oa.pdf",
+    )
+    index = manifest_module.build_inbox_index_from_candidates([cand])
+    entry = {"pdf_url": "https://research.monash.edu/files/447499584/447499335_oa.pdf"}
+
+    matched = manifest_module.match_entry_to_candidate(entry, index, set())
+
+    assert matched is cand
+
+
+def test_match_entry_uses_doi_suffix_in_url_path(manifest_module, tmp_path):
+    cand = _make_candidate(
+        manifest_module,
+        tmp_path,
+        "17439884.2021.1876725",
+    )
+    index = manifest_module.build_inbox_index_from_candidates([cand])
+    entry = {
+        "doi": "10.1080/17439884.2021.1876725",
+        "pdf_url": "https://www.tandfonline.com/doi/pdf/10.1080/17439884.2021.1876725",
+    }
+
+    matched = manifest_module.match_entry_to_candidate(entry, index, set())
+
+    assert matched is cand
+
+
+def test_scan_inbox_includes_extensionless_pdfs(monkeypatch, tmp_path, manifest_module):
+    target = tmp_path / "15391523.2025.2478424"
+    target.write_bytes(b"%PDF-1.4\n%stub")
+
+    captured: Dict[str, bool] = {"called": False}
+
+    def fake_build(path):
+        captured["called"] = True
+        return manifest_module.PdfCandidate(path=path)
+
+    monkeypatch.setattr(manifest_module, "build_candidate_from_pdf", fake_build)
+    monkeypatch.setattr(manifest_module.magic, "from_file", lambda *_args, **_kwargs: "application/pdf")
+
+    index = manifest_module.scan_inbox_for_candidates(tmp_path)
+
+    assert captured["called"] is True
+    assert any(cand.basename == target.name for cand in index.candidates)

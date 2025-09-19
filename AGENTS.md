@@ -163,6 +163,7 @@ python -m src.tool.mcp_stdio
 * **Logging:** use Rich logging factory; no raw `print()`.
 * **Errors:** raise typed exceptions with context.
 * **Directory discipline:** core logic in `src/`; side effects isolated in `services/`.
+* **Variable/Function names:** use descriptive variable and function names rather than cryptic ones, favor readable code over excessive consicion. 
 
 **DO NOT MAKE CODING STYLE UPDATES TO LINES OTHER THAN THOSE CHANGING TO FULFILL THE REQUIREMENTS OF THE CURRENT TASK UNLESS THE CURRENT TASK SPECIFIES REFACTORING OVER ALL OR A SUBSET OF THE SOURCE FILES. UNNECESSARY CHANGES CAN RESULT IN UNNECESSARY MERGE CONFLICTS WHEN MULTIPLE CODING TASKS ARE HANDLED IN PARALLEL**
 

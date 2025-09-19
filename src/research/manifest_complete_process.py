@@ -52,10 +52,14 @@ import re
 import time
 import unicodedata
 import uuid
+from collections import defaultdict
+from dataclasses import dataclass, field
+
 import magic
 import requests
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
+from urllib.parse import urlparse
 
 from rich import print as rprint
 from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn
@@ -176,6 +180,404 @@ def parse_isbn_from_text(text: str) -> Optional[str]:
             digits = re.sub(r"[\s\-]", "", digits).strip()
             if len(digits) == 10 or len(digits) == 13:
                 return digits.upper()
+    return None
+
+
+def normalize_doi(raw: Optional[str]) -> Optional[str]:
+    if not raw:
+        return None
+    match = DOI_RE.search(str(raw))
+    if not match:
+        return None
+    doi = match.group(0).strip()
+    doi = doi.rstrip(".,;)")
+    doi = doi.replace("\\", "/")
+    doi = re.sub(r"\s+", "", doi)
+    return doi.lower()
+
+
+def parse_doi_from_text(text: Optional[str]) -> Optional[str]:
+    if not text:
+        return None
+    match = DOI_RE.search(text)
+    if not match:
+        return None
+    return normalize_doi(match.group(0))
+
+
+def strip_pdf_extension(name: str) -> str:
+    lname = name.lower()
+    return lname[:-4] if lname.endswith(".pdf") else lname
+
+
+def compact_token(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    return re.sub(r"[^0-9a-z]", "", value.lower())
+
+
+def normalize_isbn(raw: Optional[str]) -> Optional[str]:
+    if not raw:
+        return None
+    digits = re.sub(r"[^0-9Xx]", "", str(raw)).upper()
+    if len(digits) not in (10, 13):
+        return None
+    return digits
+
+
+@dataclass
+class PdfCandidate:
+    path: Path
+    metadata_doi: Optional[str] = None
+    metadata_isbn: Optional[str] = None
+    metadata_title: Optional[str] = None
+    filename_doi: Optional[str] = None
+    content_doi: Optional[str] = None
+    content_title: Optional[str] = None
+    filename_title_slug: Optional[str] = None
+    metadata_title_slug: Optional[str] = None
+    content_title_slug: Optional[str] = None
+    basename: str = field(init=False)
+    filename_compact: str = field(init=False)
+    content_compact: Optional[str] = None
+    basename_lower: str = field(init=False)
+    basename_without_ext: str = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.path = Path(self.path)
+        self.basename = self.path.name
+        stem_lower = self.path.stem.lower()
+        self.filename_compact = re.sub(r"[^0-9a-z]", "", stem_lower)
+        self.basename_lower = self.basename.lower()
+        self.basename_without_ext = strip_pdf_extension(self.basename_lower)
+
+        self.metadata_doi = normalize_doi(self.metadata_doi)
+        self.content_doi = normalize_doi(self.content_doi)
+        self.filename_doi = normalize_doi(self.filename_doi) if self.filename_doi else parse_doi_from_text(self.basename)
+
+        self.metadata_isbn = normalize_isbn(self.metadata_isbn)
+
+        self.metadata_title = (self.metadata_title or None)
+        if self.metadata_title:
+            self.metadata_title = self.metadata_title.strip() or None
+        if self.metadata_title and not self.metadata_title_slug:
+            self.metadata_title_slug = slugify(self.metadata_title)
+
+        self.content_title = (self.content_title or None)
+        if self.content_title:
+            self.content_title = self.content_title.strip() or None
+        if self.content_title and not self.content_title_slug:
+            self.content_title_slug = slugify(self.content_title)
+
+        if not self.filename_title_slug:
+            self.filename_title_slug = slugify(self.path.stem)
+
+
+@dataclass
+class InboxIndex:
+    candidates: List[PdfCandidate]
+    by_basename: Dict[str, PdfCandidate]
+    by_metadata_doi: Dict[str, List[PdfCandidate]]
+    by_metadata_isbn: Dict[str, List[PdfCandidate]]
+    by_metadata_title_slug: Dict[str, List[PdfCandidate]]
+    by_filename_doi: Dict[str, List[PdfCandidate]]
+    by_content_doi: Dict[str, List[PdfCandidate]]
+    by_content_title_slug: Dict[str, List[PdfCandidate]]
+    by_filename_title_slug: Dict[str, List[PdfCandidate]]
+
+
+def build_inbox_index_from_candidates(candidates: List[PdfCandidate]) -> InboxIndex:
+    by_basename: Dict[str, PdfCandidate] = {}
+    by_metadata_doi: Dict[str, List[PdfCandidate]] = defaultdict(list)
+    by_metadata_isbn: Dict[str, List[PdfCandidate]] = defaultdict(list)
+    by_metadata_title_slug: Dict[str, List[PdfCandidate]] = defaultdict(list)
+    by_filename_doi: Dict[str, List[PdfCandidate]] = defaultdict(list)
+    by_content_doi: Dict[str, List[PdfCandidate]] = defaultdict(list)
+    by_content_title_slug: Dict[str, List[PdfCandidate]] = defaultdict(list)
+    by_filename_title_slug: Dict[str, List[PdfCandidate]] = defaultdict(list)
+
+    for cand in candidates:
+        by_basename[cand.basename] = cand
+        if cand.metadata_doi:
+            by_metadata_doi[cand.metadata_doi].append(cand)
+        if cand.metadata_isbn:
+            by_metadata_isbn[cand.metadata_isbn].append(cand)
+        if cand.metadata_title_slug:
+            by_metadata_title_slug[cand.metadata_title_slug].append(cand)
+        if cand.filename_doi:
+            by_filename_doi[cand.filename_doi].append(cand)
+        if cand.content_doi:
+            by_content_doi[cand.content_doi].append(cand)
+        if cand.content_title_slug:
+            by_content_title_slug[cand.content_title_slug].append(cand)
+        if cand.filename_title_slug:
+            by_filename_title_slug[cand.filename_title_slug].append(cand)
+
+    return InboxIndex(
+        candidates=list(candidates),
+        by_basename=by_basename,
+        by_metadata_doi={k: list(v) for k, v in by_metadata_doi.items()},
+        by_metadata_isbn={k: list(v) for k, v in by_metadata_isbn.items()},
+        by_metadata_title_slug={k: list(v) for k, v in by_metadata_title_slug.items()},
+        by_filename_doi={k: list(v) for k, v in by_filename_doi.items()},
+        by_content_doi={k: list(v) for k, v in by_content_doi.items()},
+        by_content_title_slug={k: list(v) for k, v in by_content_title_slug.items()},
+        by_filename_title_slug={k: list(v) for k, v in by_filename_title_slug.items()},
+    )
+
+
+def build_candidate_from_pdf(path: Path) -> PdfCandidate:
+    metadata_doi: Optional[str] = None
+    metadata_isbn: Optional[str] = None
+    metadata_title: Optional[str] = None
+    content_doi: Optional[str] = None
+    content_title: Optional[str] = None
+    content_compact: Optional[str] = None
+
+    try:
+        reader = PdfReader(str(path))
+    except Exception:
+        return PdfCandidate(path=path)
+
+    raw_metadata = {}
+    try:
+        raw_metadata = reader.metadata or {}
+    except Exception:
+        raw_metadata = {}
+
+    meta_values: List[str] = []
+    for key, value in getattr(raw_metadata, "items", lambda: [])():
+        if isinstance(value, str):
+            meta_values.append(value)
+        if not metadata_title and isinstance(value, str) and key in {"/Title", "Title", "title"}:
+            metadata_title = value.strip() or None
+
+    if meta_values:
+        merged = " ".join(meta_values)
+        metadata_doi = parse_doi_from_text(merged)
+        metadata_isbn = parse_isbn_from_text(merged) or metadata_isbn
+
+    if not metadata_title:
+        try:
+            maybe_title = getattr(reader.metadata, "title", None)
+            if isinstance(maybe_title, str) and maybe_title.strip():
+                metadata_title = maybe_title.strip()
+        except Exception:
+            pass
+
+    text_chunks: List[str] = []
+    for page_index in range(min(5, len(reader.pages))):
+        try:
+            text_chunks.append(reader.pages[page_index].extract_text() or "")
+        except Exception:
+            continue
+
+    text_blob = "\n".join(text_chunks)
+    if text_blob:
+        content_doi = parse_doi_from_text(text_blob)
+        if not metadata_isbn:
+            metadata_isbn = parse_isbn_from_text(text_blob) or metadata_isbn
+        lowered = text_blob.lower()
+        content_compact = re.sub(r"[^0-9a-z]", "", lowered)
+        if content_compact:
+            content_compact = content_compact[:10000]
+
+    try:
+        content_title = guess_title(reader)
+    except Exception:
+        content_title = None
+
+    return PdfCandidate(
+        path=path,
+        metadata_doi=metadata_doi,
+        metadata_isbn=metadata_isbn,
+        metadata_title=metadata_title,
+        filename_doi=parse_doi_from_text(path.name),
+        content_doi=content_doi,
+        content_title=content_title,
+        content_compact=content_compact,
+    )
+
+
+def scan_inbox_for_candidates(inbox_dir: Path) -> InboxIndex:
+    candidates: List[PdfCandidate] = []
+    for path in sorted(inbox_dir.glob("*")):
+        if not path.is_file():
+            continue
+
+        suffix = path.suffix.lower()
+        is_pdf = suffix == ".pdf"
+
+        if not is_pdf:
+            try:
+                mime = magic.from_file(str(path), mime=True)
+                is_pdf = bool(mime) and str(mime).lower().startswith("application/pdf")
+            except Exception:
+                is_pdf = False
+
+        if not is_pdf:
+            continue
+
+        candidates.append(build_candidate_from_pdf(path))
+    return build_inbox_index_from_candidates(candidates)
+
+
+def match_entry_to_candidate(entry: Dict, index: InboxIndex, claimed: Set[Path]) -> Optional[PdfCandidate]:
+    def claim(candidate: Optional[PdfCandidate]) -> Optional[PdfCandidate]:
+        if candidate and candidate.path not in claimed:
+            claimed.add(candidate.path)
+            return candidate
+        return None
+
+    def claim_from_list(candidates: List[PdfCandidate]) -> Optional[PdfCandidate]:
+        for cand in candidates:
+            if cand.path not in claimed:
+                claimed.add(cand.path)
+                return cand
+        return None
+
+    def claim_where(predicate: Callable[[PdfCandidate], bool]) -> Optional[PdfCandidate]:
+        for cand in index.candidates:
+            if cand.path in claimed:
+                continue
+            if predicate(cand):
+                claimed.add(cand.path)
+                return cand
+        return None
+
+    temp_name = (entry.get("temp_filename") or "").strip()
+    if temp_name:
+        candidate = claim(index.by_basename.get(temp_name))
+        if candidate:
+            return candidate
+
+    entry_doi = normalize_doi(entry.get("doi"))
+    entry_isbn = normalize_isbn(entry.get("isbn"))
+    title_value = (entry.get("title") or "").strip()
+    entry_title_slug = slugify(title_value) if title_value else None
+    entry_doi_token = compact_token(entry_doi)
+    entry_doi_suffix = entry_doi.split("/", 1)[1] if entry_doi and "/" in entry_doi else entry_doi
+    entry_doi_suffix_compact = compact_token(entry_doi_suffix)
+    url_basenames: List[str] = []
+    url_basename_compact: List[str] = []
+    for key in ("pdf_url", "scholar_url"):
+        parsed = entry.get(key)
+        if not parsed:
+            continue
+        try:
+            path = urlparse(parsed).path
+        except Exception:
+            path = ""
+        name = Path(path).name
+        if not name:
+            continue
+        lower = name.lower()
+        url_basenames.append(lower)
+        url_basenames.append(strip_pdf_extension(lower))
+        comp = compact_token(lower)
+        if comp:
+            url_basename_compact.append(comp)
+
+    if entry_doi:
+        candidate = claim_from_list(index.by_metadata_doi.get(entry_doi, []))
+        if candidate:
+            return candidate
+
+    if entry_isbn:
+        candidate = claim_from_list(index.by_metadata_isbn.get(entry_isbn, []))
+        if candidate:
+            return candidate
+
+    if entry_title_slug:
+        candidate = claim_from_list(index.by_metadata_title_slug.get(entry_title_slug, []))
+        if candidate:
+            return candidate
+
+    if entry_doi:
+        candidate = claim_from_list(index.by_filename_doi.get(entry_doi, []))
+        if candidate:
+            return candidate
+
+        candidate = claim_from_list(index.by_content_doi.get(entry_doi, []))
+        if candidate:
+            return candidate
+
+    if entry_doi_suffix:
+        candidate = claim_where(
+            lambda cand: (
+                cand.basename_lower == entry_doi_suffix
+                or cand.basename_without_ext == entry_doi_suffix
+                or (
+                    entry_doi_suffix_compact
+                    and cand.filename_compact == entry_doi_suffix_compact
+                )
+            )
+        )
+        if candidate:
+            return candidate
+
+    if url_basenames:
+        candidate = claim_where(
+            lambda cand: cand.basename_lower in url_basenames or cand.basename_without_ext in url_basenames
+        )
+        if candidate:
+            return candidate
+
+    if url_basename_compact:
+        candidate = claim_where(
+            lambda cand: any(
+                comp and (
+                    comp == cand.filename_compact
+                    or comp == cand.basename_without_ext
+                    or comp in cand.filename_compact
+                    or cand.filename_compact in comp
+                )
+                for comp in url_basename_compact
+            )
+        )
+        if candidate:
+            return candidate
+
+    token_candidates = [entry_doi_token, entry_doi_suffix_compact]
+    for token in token_candidates:
+        if not token or len(token) < 6:
+            continue
+
+        candidate = claim_where(
+            lambda cand: bool(
+                cand.filename_compact
+                and len(cand.filename_compact) >= 6
+                and (
+                    token in cand.filename_compact
+                    or cand.filename_compact in token
+                )
+            )
+        )
+        if candidate:
+            return candidate
+
+        candidate = claim_where(
+            lambda cand: bool(
+                cand.content_compact
+                and len(cand.content_compact) >= 6
+                and (
+                    token in cand.content_compact
+                    or cand.content_compact in token
+                )
+            )
+        )
+        if candidate:
+            return candidate
+
+    if entry_title_slug:
+        candidate = claim_from_list(index.by_content_title_slug.get(entry_title_slug, []))
+        if candidate:
+            return candidate
+
+        candidate = claim_from_list(index.by_filename_title_slug.get(entry_title_slug, []))
+        if candidate:
+            return candidate
+
     return None
 
 
@@ -414,16 +816,16 @@ def prune_downloads(manifest_path: Path, inbox_dir: Path):
             progress.update(job, completed=i)
             if 'temp_filename' in data[i] and data[i]['temp_filename'] != "":
                 filename = data[i]['temp_filename']
-                temp_filepath = os.path.join(inbox_dir, filename )
-                progress.console.print(f"[{i}] checking {filename}")
+                temp_filepath = Path(str(inbox_dir)+'/'+str(filename))
                 if os.path.exists(temp_filepath):
                     try:
                         mime_type = magic.from_file(temp_filepath, mime=True)
+                        progress.console.print(f"[{i}] {temp_filepath} is type: {mime_type}")
+
                     except Exception as e:
                         progress.console.print(f"[{i}] ERROR:{e}")
                         continue
 
-                    progress.console.print(f"[{i}] {filename} mime type is {mime_type}")
                     if mime_type != "application/pdf":
                         try:
                             progress.console.print(f"[{i}] unlinking {filename}")
@@ -432,7 +834,8 @@ def prune_downloads(manifest_path: Path, inbox_dir: Path):
                             data[i]['download_status'] = 'E01_bad_mimetype'
                         except Exception as e:
                             progress.console.print(f"[{i}] ERROR:{e}")
-
+                else:
+                    progress.console.print(f"[{i}] checking {temp_filepath} does not exist")
         progress.update(job, completed=(i+1))
         progress.console.print(f"DONE!")
 
@@ -449,6 +852,7 @@ def preprocess(
     entries, wrapped = load_manifest(manifest_path)
     downloads_dir.mkdir(parents=True, exist_ok=True)
 
+
     # Ensure stable download_id/temp_filename for any entries that already have them
     def ensure_id(i: int, e: Dict) -> str:
         if e.get("download_id"):
@@ -463,7 +867,7 @@ def preprocess(
     dlmap: List[Dict] = []
 
     sess = requests.Session() if probe_size else None
-
+    entries_count = len(entries)
     # Progress bar output setup
     display_table = Table.grid()
     progress = Progress(
@@ -480,6 +884,8 @@ def preprocess(
     with Live(display_table, refresh_per_second=30) as live:
 
         for i, e in enumerate(entries):
+            progress.update(job, completed=i)
+
             url = (e.get("pdf_url") or "").strip()
             if not url:
                 progress.console.print(f"[NOTICE] no pdf_url found for record: {i}")
@@ -545,23 +951,26 @@ def preprocess(
         #if downloader == "aria2c":
         progress.console.print(f"[NOTICE] writing aria2c script")
         counter_tmp = 1
-        aria2c_script = os.path.join(script_out, '/aria2c.txt')
+        aria2c_script = Path(str(script_out)+'/aria2c.txt')
+        
         while aria2c_script.exists():
-            aria2c_script = os.path.join(aria2c_script, counter_tmp)
+            aria2c_script = Path(str(script_out)+'/aria2c.txt')
+            aria2c_script = Path(str(aria2c_script)+'.'+str(counter_tmp))
             counter_tmp = counter_tmp + 1
         aria2c_script.write_text("\n".join(lines_aria2) + "\n", encoding="utf-8")
-        progress.console.print(f"[preprocess] Wrote aria2c batch → {script_out}")
+        progress.console.print(f"[preprocess] Wrote aria2c batch → {aria2c_script}")
         progress.console.print(f"Run example: aria2c -i '{script_out}' --check-certificate=false")
         
         #else:
         counter_tmp = 1
-        jdownloader_script = os.path.join(script_out, '/.crawljob')
+        jdownloader_script = Path(str(script_out)+'/.crawljob')
         while jdownloader_script.exists():
-            jdownloader_script = os.path.join(jdownloader_script, counter_tmp)
+            jdownloader_script = Path(str(script_out)+'/.crawljob')
+            jdownloader_script = Path(str(jdownloader_script)+'.'+str(counter_tmp))
             counter_tmp = counter_tmp + 1        
         progress.console.print(f"[NOTICE] writing jdownloader script")
         jdownloader_script.write_text("\n\n".join(crawls) + "\n", encoding="utf-8")
-        progress.console.print(f"[preprocess] Wrote JDownloader .crawljob → {script_out}")
+        progress.console.print(f"[preprocess] Wrote JDownloader .crawljob → {jdownloader_script}")
         progress.console.print("Import in JDownloader: LinkGrabber menu → Add New Links → Load crawljob file")
 
         # Write downloads_map.json next to script
@@ -613,20 +1022,38 @@ def process_pipeline(
     display_table.add_row(
         Panel.fit(progress, title="Completing Metadata and Writing Ready-for-Indexing PDFs ", border_style="green", padding=(1,1))
     )
+    index = scan_inbox_for_candidates(inbox_dir)
+    claimed: Set[Path] = set()
+
     with Live(display_table, refresh_per_second=30) as live:
         try:
-            #for e in entries:
-            for i in range(0, entries_count):
-                progress.update(job, completed=i)
-                url = (data[i].get("pdf_url") or "").strip()
-                temp_name = data[i].get("temp_filename")
-                if not url or not temp_name:
+            for entry_idx in range(entries_count):
+                progress.update(job, completed=entry_idx)
+                entry = data[entry_idx]
+
+                url = (entry.get("pdf_url") or "").strip()
+                if not url:
                     continue
 
-                src = inbox_dir / temp_name
-                if not src.exists():
-                    # leave pending; user may not have downloaded yet
+                if str(entry.get("download_status") or "").lower() == "done":
                     continue
+
+                manifest_temp_name = entry.get("temp_filename")
+
+                candidate = match_entry_to_candidate(entry, index, claimed)
+                if not candidate:
+                    label = manifest_temp_name or entry.get("title") or entry.get("doi") or f"entry_{entry_idx}"
+                    progress.console.print(f"[SKIP] no downloaded PDF matched manifest entry {label}")
+                    continue
+
+                src = candidate.path
+                if not src.exists():
+                    progress.console.print(f"[WARN] matched file missing on disk: {src}")
+                    entry.setdefault("download_status", "pending")
+                    continue
+
+                temp_name = candidate.basename
+                entry["matched_filename"] = temp_name
 
                 # MIME verify
                 try:
@@ -637,9 +1064,9 @@ def process_pipeline(
                 if mime != "application/pdf":
                     progress.console.print(f"[NOTICE] MIME type for {temp_name}: {mime} - deleting")
                     src.unlink()
-                    data[i]["download_status"] = "failed"
-                    data[i]["failure_reason"] = f"non_pdf_mime:{mime}"
-                    fail_fp.write(json.dumps({"entry": data[i], "reason": data[i]["failure_reason"]}, ensure_ascii=False) + "\n")
+                    entry["download_status"] = "failed"
+                    entry["failure_reason"] = f"non_pdf_mime:{mime}"
+                    fail_fp.write(json.dumps({"entry": entry, "reason": entry["failure_reason"]}, ensure_ascii=False) + "\n")
                     continue
 
                 # Open and extract skim text
@@ -647,25 +1074,35 @@ def process_pipeline(
                     reader = PdfReader(str(src))
                 except Exception as ex:
                     progress.console.print(f"[WARN] failed to open downloaded file: {src} - Exception:{ex}")
-                    data[i]["download_status"] = "failed"
-                    data[i]["failure_reason"] = f"pdf_open_error:{ex}"
-                    fail_fp.write(json.dumps({"entry": data[i], "reason": data[i]["failure_reason"]}, ensure_ascii=False) + "\n")
+                    entry["download_status"] = "failed"
+                    entry["failure_reason"] = f"pdf_open_error:{ex}"
+                    fail_fp.write(json.dumps({"entry": entry, "reason": entry["failure_reason"]}, ensure_ascii=False) + "\n")
                     continue
 
                 meta: Dict = {
-                    "title": data[i].get("title"),
-                    "authors": data[i].get("authors"),
-                    "date": data[i].get("date"),
+                    "title": entry.get("title"),
+                    "authors": entry.get("authors"),
+                    "date": entry.get("date"),
                     "publication": "",
                     "arxivid":"",
-                    "doi": data[i].get("doi"),
-                    "isbn": data[i].get("isbn"),
+                    "doi": entry.get("doi"),
+                    "isbn": entry.get("isbn"),
                     "pdf_url": url,
-                    "scholar_url": data[i].get("scholar_url"),
+                    "scholar_url": entry.get("scholar_url"),
                     "original_filename": temp_name,
                     "source": "manifest",
                 }
 
+                if candidate.metadata_doi and not meta.get("doi"):
+                    entry["doi"] = meta["doi"] = candidate.metadata_doi
+                if candidate.content_doi and not meta.get("doi"):
+                    entry["doi"] = meta["doi"] = candidate.content_doi
+                if candidate.metadata_isbn and not meta.get("isbn"):
+                    entry["isbn"] = meta["isbn"] = candidate.metadata_isbn
+                if candidate.metadata_title and not meta.get("title"):
+                    entry["title"] = meta["title"] = candidate.metadata_title
+                if candidate.content_title and not meta.get("title"):
+                    entry["title"] = meta["title"] = candidate.content_title
 
                 arxivid_regex = re.compile(r"(?:\d{4}\.\d{4,5})")
                 match = False
@@ -675,42 +1112,41 @@ def process_pipeline(
                     match = arxivid_regex.search(meta['scholar_url'])
                 if match:
                     meta['arxivid']=match.group(0)
-                    data[i]['arxivid']=match.group(0)
-                    progress.console.print(f"[NOTICE] updated arXivID field {data[i]['arxivid']}")
-
+                    entry['arxivid']=match.group(0)
+                    progress.console.print(f"[NOTICE] updated arXivID field {entry['arxivid']}")
 
                 # DOI from URLs fallback
                 if not meta.get("doi"):
-                    for u in (data[i].get("pdf_url"), data[i].get("scholar_url")):
+                    for u in (entry.get("pdf_url"), entry.get("scholar_url")):
                         cand = parse_doi_from_url(u or "")
                         if cand:
                             progress.console.print(f"[NOTICE] updated doi field from url pattern match {cand}")
-                            data[i]['doi'] = meta["doi"] = cand
+                            entry['doi'] = meta["doi"] = cand
                             break
 
                 # First pages text for ISBN/title fallback
                 text = ""
                 try:
-                    for i in range(min(5, len(reader.pages))):
-                        text += "\n" + (reader.pages[i].extract_text() or "")
+                    for page_index in range(min(5, len(reader.pages))):
+                        text += "\n" + (reader.pages[page_index].extract_text() or "")
                 except Exception:
                     pass
 
                 if not meta.get("isbn"):
                     cand_isbn = parse_isbn_from_text(text)
                     if cand_isbn:
-                        data[i]['isbn'] = meta["isbn"] = cand_isbn
+                        entry['isbn'] = meta["isbn"] = cand_isbn
                         progress.console.print(f"[NOTICE] updated isbn field from body text match {cand_isbn}")
 
                 if not meta.get("title"):
-                    data[i]['title'] = meta["title"] = guess_title(reader)
+                    entry['title'] = meta["title"] = guess_title(reader)
                     progress.console.print(f"[NOTICE] updated title field from content match guess_title() function {meta['title']}")
 
                 # Enrichment
                 try:
-                    if is_arxiv_source(data[i].get("pdf_url")) or is_arxiv_source(data[i].get("scholar_url")):
+                    if is_arxiv_source(entry.get("pdf_url")) or is_arxiv_source(entry.get("scholar_url")):
                         if HAVE_ARXIV:
-                            am = enrich_via_arxiv(data[i].get("pdf_url") or data[i].get("scholar_url"))
+                            am = enrich_via_arxiv(entry.get("pdf_url") or entry.get("scholar_url"))
                             if am:
                                 for k, v in am.items():
                                     if v and not meta.get(k):
@@ -756,10 +1192,11 @@ def process_pipeline(
                 try:
                     src.replace(final_path)
                 except Exception as ex:
-                    data[i]["download_status"] = "failed"
-                    data[i]["failure_reason"] = f"move_error:{ex}"
+                    entry["download_status"] = "failed"
+                    entry["failure_reason"] = f"move_error:{ex}"
                     progress.console.print(f"move_error:{ex}")
-                    fail_fp.write(json.dumps({"entry": data[i], "reason": data[i]["failure_reason"]}, ensure_ascii=False) + "\n")
+                    fail_fp.write(json.dumps({"entry": entry, "reason": entry["failure_reason"]}, ensure_ascii=False) + "\n")
+                    data[entry_idx] = entry
                     continue
 
                 # Embed metadata, write sidecar, update entry
@@ -771,15 +1208,19 @@ def process_pipeline(
                 sidecar = final_path.with_suffix(".meta.json")
                 sidecar.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
 
-                data[i]["local_path"] = str(final_path)
-                data[i]["final_filename"] = final_path.name
-                data[i]["file_sha256"] = sha256(final_path)
-                data[i]["download_status"] = "done"
-                data[i].pop("failure_reason", None)
+                entry["local_path"] = str(final_path)
+                entry["final_filename"] = final_path.name
+                entry["file_sha256"] = sha256(final_path)
+                entry["download_status"] = "done"
+                entry.pop("failure_reason", None)
 
                 succ_fp.write(json.dumps(meta, ensure_ascii=False) + "\n")
                 processed += 1
-                progress.console.print(f"[OK] {temp_name} → {final_path.name}")
+                if manifest_temp_name and manifest_temp_name != temp_name:
+                    display_label = f"{manifest_temp_name} ({temp_name})"
+                else:
+                    display_label = temp_name
+                progress.console.print(f"[OK] {display_label} → {final_path.name}")
 
         finally:
             progress.update(job, completed=entries_count)
