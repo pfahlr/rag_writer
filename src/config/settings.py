@@ -8,7 +8,7 @@ eliminating scattered environment variables and hardcoded values throughout the 
 
 import os
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional
 from dataclasses import dataclass, field
 
 
@@ -102,6 +102,7 @@ class AppConfig:
     enable_caching: bool = True
     enable_metrics: bool = False
     debug_mode: bool = False
+    parallel_workers: int = field(init=False)
 
     def __post_init__(self):
         """Initialize configuration from environment."""
@@ -133,6 +134,31 @@ class AppConfig:
 
         # Set debug mode
         self.debug_mode = os.getenv("DEBUG", "").lower() in ("true", "1", "yes")
+
+        # Determine parallel workers default
+        self.parallel_workers = self._determine_parallel_workers()
+
+    @staticmethod
+    def _clamp_parallel_workers(value: int) -> int:
+        """Clamp parallel worker counts to sensible operational bounds."""
+
+        min_workers = 1
+        max_workers = 32
+        return max(min_workers, min(max_workers, value))
+
+    def _determine_parallel_workers(self) -> int:
+        """Resolve the default parallel worker count from env or system state."""
+
+        env_value = os.getenv("RAG_PARALLEL_WORKERS")
+
+        if env_value is not None:
+            try:
+                return self._clamp_parallel_workers(int(env_value))
+            except (TypeError, ValueError):
+                pass
+
+        cpu_count = os.cpu_count() or 1
+        return self._clamp_parallel_workers(cpu_count)
 
     def get_storage_path(self, key: Optional[str] = None) -> Path:
         """Get storage path for a collection key."""
