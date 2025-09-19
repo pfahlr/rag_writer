@@ -6,11 +6,12 @@ Tests that content_type parameter flows correctly through the entire pipeline:
 - Outline Converter → Book Structure → Job Generation → Batch Processing → LLM Calls
 """
 
-import pytest
 import json
 import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
+
+import pytest
 
 from src.langchain.lc_outline_converter import main as outline_converter_main
 from src.langchain.lc_book_runner import load_book_structure, BookStructure, SectionConfig
@@ -318,6 +319,82 @@ class TestVariableScoping:
         assert section.merge_params['k'] == 3
 
         print("✓ SectionConfig parameter handling validated")
+
+
+class TestParallelWorkersConfiguration:
+    """Tests for parallel worker configuration defaults and overrides."""
+
+    def _capture_parallel_argument(self, lc_batch, monkeypatch, argv):
+        """Invoke lc_batch.main until argument parsing to capture --parallel value."""
+
+        import argparse
+
+        captured = {}
+        original_parse_args = argparse.ArgumentParser.parse_args
+
+        def parse_and_stop(self, *args, **kwargs):
+            namespace = original_parse_args(self, *args, **kwargs)
+            captured["parallel"] = namespace.parallel
+            raise RuntimeError("stop after parse")
+
+        monkeypatch.setattr(argparse.ArgumentParser, "parse_args", parse_and_stop)
+        monkeypatch.setattr(lc_batch.sys, "argv", ["lc_batch.py", "--jobs", "dummy.json", *argv])
+
+        with pytest.raises(RuntimeError, match="stop after parse"):
+            lc_batch.main()
+
+        assert "parallel" in captured, "Parser did not populate the parallel argument"
+        return captured["parallel"]
+
+    def test_parallel_workers_default_uses_env_var(self, monkeypatch):
+        """AppConfig should respect the RAG_PARALLEL_WORKERS env var when present."""
+
+        from src.config import settings as settings_module
+
+        monkeypatch.setenv("RAG_PARALLEL_WORKERS", "4")
+        config = settings_module.AppConfig()
+
+        assert config.parallel_workers == 4
+
+    def test_parallel_workers_fallback_clamps_cpu_count(self, monkeypatch):
+        """Ensure config defaults clamp cpu_count derived values when env var is absent."""
+
+        from src.config import settings as settings_module
+
+        monkeypatch.delenv("RAG_PARALLEL_WORKERS", raising=False)
+        monkeypatch.setattr("src.config.settings.os.cpu_count", lambda: 128)
+
+        config = settings_module.AppConfig()
+
+        assert config.parallel_workers == 32
+
+    def test_parallel_workers_cli_default_matches_config(self, monkeypatch):
+        """CLI parser should use config.parallel_workers for the default value."""
+
+        import src.langchain.lc_batch as lc_batch
+
+        config = get_config()
+        config.parallel_workers = 6
+
+        parallel_value = self._capture_parallel_argument(lc_batch, monkeypatch, [])
+
+        assert parallel_value == 6
+
+    def test_parallel_workers_cli_override(self, monkeypatch):
+        """Explicit --parallel values must override configuration defaults."""
+
+        import src.langchain.lc_batch as lc_batch
+
+        config = get_config()
+        config.parallel_workers = 6
+
+        parallel_value = self._capture_parallel_argument(
+            lc_batch,
+            monkeypatch,
+            ["--parallel", "2"],
+        )
+
+        assert parallel_value == 2
 
 
 if __name__ == '__main__':

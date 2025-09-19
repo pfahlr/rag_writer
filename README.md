@@ -283,7 +283,7 @@ make lc-ask INSTR="Explain neural networks" TASK="Write for beginners" KEY="scie
 **Options:**
 - `--key`: string specifying the faiss index to query
 - `--k`: number of results to return from vector database
-- `--parallel`: number of parallel workers (default: `1`)
+- `--parallel`: number of parallel workers (default: derived from `RAG_PARALLEL_WORKERS` or clamped `os.cpu_count()`)
 - `--output-dir`: specify output directory
 - `--jobs`: JSON or JSONL file containing job definitions
 
@@ -864,12 +864,27 @@ args = parser.parse_args()
 ```
 
 ### Python Magic
-[Documentation](https://pypi.org/project/python-magic/): python-magic is a Python interface to the libmagic file type identification library. libmagic identifies file types by checking their headers according to a predefined list of file types. This functionality is exposed to the command line by the Unix command file. 
+[Documentation](https://pypi.org/project/python-magic/): python-magic is a Python interface to the libmagic file type identification library. libmagic identifies file types by checking their headers according to a predefined list of file types. This functionality is exposed to the command line by the Unix command file.
 **Example Usage**:
 ```python
 # returns a value such as image/png, application/pdf, text/html
 mime_type = magic.from_file(filepath, mime=True)
 ```
+
+
+### pytest-asyncio
+[Documentation](https://pytest-asyncio.readthedocs.io/en/latest/): pytest-asyncio provides asyncio awareness for pytest so asynchronous tests can run alongside synchronous suites.
+
+**Example Usage**:
+```python
+from src.tool import ToolRegistry
+
+@pytest.mark.asyncio
+async def test_tool_invocation():
+    registry = ToolRegistry()
+    await registry.register_mcp_server("dummy://server")
+```
+
 
 ### FastAPI
 [Documentation](https://fastapi.tiangolo.com/): FastAPI is a modern, high-performance web framework for building APIs with Python.
@@ -934,16 +949,13 @@ import anyio
 process = await anyio.open_process(["python", "-m", "src.tool.mcp_stdio"])
 ```
 
-
 ---
 ---
 
 ## 😵‍💫 Miscellaneous
 
-
 ---
 ---
-
 
 ## ⚙️ Environment Variables
 
@@ -954,6 +966,7 @@ process = await anyio.open_process(["python", "-m", "src.tool.mcp_stdio"])
 | `OPENAI_MODEL` | Override OpenAI chat model | 📖 | gpt-4o-mini |
 | `OLLAMA_MODEL` | Override local Ollama model | 📖 | llama3.1:8b |
 | `DEBUG` |  Set to 1/true to enable debug mode in config | 📖 | `0/False` |
+| `RAG_PARALLEL_WORKERS` | Default parallel workers for `lc_batch` (see `src/config/settings.py`, `src/langchain/lc_batch.py`) | 📖 | Auto (clamped `os.cpu_count()` to 1-32) |
 
 use `sops-edit env.json` to add/edit new environment variables... append `_pt` (for plaintext) to names of non-secret values. Load sops values into environment using `eval(make sops-env-export) or ``make sops-env-export`` ` operation as this handles removing the suffix and loading them properly 
 
@@ -1754,7 +1767,7 @@ python src/langchain/lc_merge_runner.py --sub 1A1
 
 ### Performance Optimization
 
-- Use `--parallel` in batch processing for faster execution
+- Use `--parallel` in batch processing for faster execution (defaults driven by `RAG_PARALLEL_WORKERS` or CPU count)
 - Adjust `similarity_threshold` in pipeline config for different de-duplication levels
 - Configure appropriate `top_n_variations` based on content complexity
 
