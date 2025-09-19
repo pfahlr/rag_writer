@@ -14,6 +14,7 @@ from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
+from src.core import faiss_utils
 # Prefer langchain-huggingface (new home), fallback to community
 try:
     from langchain_huggingface import HuggingFaceEmbeddings  # type: ignore
@@ -96,6 +97,8 @@ def build_faiss_for_models(
 
         shard_paths = sorted(shards_dir.glob("shard_*"))
         vectorstore = None
+        gpu_indexes_in_use = False
+        gpu_supported = faiss_utils.is_faiss_gpu_available()
         for shard_path in tqdm(
             shard_paths, desc=f"Merging {emb_name}", unit="shard"
         ):
@@ -104,6 +107,11 @@ def build_faiss_for_models(
                 embeddings=embedder,
                 allow_dangerous_deserialization=True,
             )
+            if gpu_supported:
+                gpu_index = faiss_utils.clone_index_to_gpu(vs.index)
+                if gpu_index is not None:
+                    vs.index = gpu_index
+                    gpu_indexes_in_use = True
             if vectorstore is None:
                 vectorstore = vs
             else:
@@ -111,6 +119,8 @@ def build_faiss_for_models(
 
         base_dir.mkdir(parents=True, exist_ok=True)
         if vectorstore is not None:
+            if gpu_indexes_in_use:
+                vectorstore.index = faiss_utils.clone_index_to_cpu(vectorstore.index)
             vectorstore.save_local(str(base_dir))
             print(f"[build] wrote FAISS: {base_dir}")
 

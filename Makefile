@@ -9,6 +9,8 @@ PY_CMD := $(shell command -v python3.11 || command -v python3.10 || command -v p
 PY := python
 #PIP := $(ROOT)/venv/bin/pip
 PIP := pip
+# FAISS backend selector (cpu or gpu)
+FAISS_BACKEND ?= cpu
 # Docker
 DOCKER_IMAGE ?= rag-writer:latest
 
@@ -67,7 +69,13 @@ init:
 	mkdir -p $(ROOT)/data_raw $(ROOT)/data_processed $(ROOT)/storage/lancedb_default $(ROOT)/storage/faiss_default $(ROOT)/src/llamaindex $(ROOT)/src/langchain $(ROOT)/src/tool $(ROOT)/src/config/content/prompts
 	$(PY_CMD) -m venv $(ROOT)/venv
 	$(PIP) install -U pip wheel setuptools
-	$(PIP) install -r $(ROOT)/requirements.txt
+        $(PIP) install -r $(ROOT)/requirements.txt
+        if [ -f "$(ROOT)/requirements-faiss-$(FAISS_BACKEND).txt" ]; then \
+                $(PIP) install -r $(ROOT)/requirements-faiss-$(FAISS_BACKEND).txt; \
+        else \
+                echo "Unknown FAISS_BACKEND=$(FAISS_BACKEND); expected cpu or gpu"; \
+                exit 1; \
+        fi
 	@echo "Init complete. Put PDFs into $(ROOT)/data_raw/"
 
 # ----- LangChain -----

@@ -452,8 +452,11 @@ def main():
     ap.add_argument(
         "--parallel",
         type=int,
-        default=1,
-        help="Number of parallel workers (1 = sequential)",
+        default=config.parallel_workers,
+        help=(
+            "Number of parallel workers (1 = sequential, "
+            f"default: {config.parallel_workers})"
+        ),
     )
     ap.add_argument("--output-dir", help="Custom output directory")
 

@@ -34,6 +34,7 @@ except ImportError:
 
 from langchain_community.vectorstores import FAISS
 from langchain_community.retrievers import BM25Retriever
+from . import faiss_utils
 
 # Try to import HuggingFaceEmbeddings from the new package first
 try:
@@ -128,7 +129,14 @@ class RetrieverFactory:
     def _load_faiss_index(self, faiss_dir: Path, embeddings: HuggingFaceEmbeddings) -> FAISS:
         """Load FAISS index from directory."""
         try:
-            return FAISS.load_local(str(faiss_dir), embeddings, allow_dangerous_deserialization=True)
+            vectorstore = FAISS.load_local(
+                str(faiss_dir), embeddings, allow_dangerous_deserialization=True
+            )
+            if faiss_utils.is_faiss_gpu_available():
+                gpu_index = faiss_utils.clone_index_to_gpu(vectorstore.index)
+                if gpu_index is not None:
+                    vectorstore.index = gpu_index
+            return vectorstore
         except Exception as e:
             raise RuntimeError(f"Failed to load FAISS index from {faiss_dir}: {str(e)}")
 
