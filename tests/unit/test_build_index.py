@@ -1,9 +1,12 @@
-"""
-Unit tests for build index functionality.
-"""
+"""Unit tests for build index functionality."""
 
+import importlib
 import re
+import sys
+from types import SimpleNamespace
 from unittest.mock import Mock
+
+import pytest
 
 # Test DOI extraction functionality without importing problematic modules
 DOI_REGEX = re.compile(r'10\.\d{4,9}/[-._;()/:a-zA-Z0-9]*[a-zA-Z0-9]')
@@ -45,6 +48,100 @@ class TestDOIExtraction:
 
         result = get_doi(pages)
         assert result == ""
+
+
+@pytest.fixture
+def load_lc_build_index(monkeypatch):
+    """Load the ``lc_build_index`` module with lightweight stubs."""
+
+    def _load(torch_module=None):
+        stubs = {
+            "langchain_community.document_loaders": SimpleNamespace(
+                PyMuPDFLoader=object
+            ),
+            "langchain_text_splitters": SimpleNamespace(
+                RecursiveCharacterTextSplitter=object
+            ),
+            "langchain_core.documents": SimpleNamespace(Document=object),
+            "langchain_community.vectorstores": SimpleNamespace(FAISS=object),
+            "langchain_huggingface": SimpleNamespace(
+                HuggingFaceEmbeddings=object
+            ),
+            "langchain_community.embeddings": SimpleNamespace(
+                HuggingFaceEmbeddings=object
+            ),
+        }
+        for name, module in stubs.items():
+            monkeypatch.setitem(sys.modules, name, module)
+
+        if torch_module is None:
+            monkeypatch.delitem(sys.modules, "torch", raising=False)
+        else:
+            monkeypatch.setitem(sys.modules, "torch", torch_module)
+
+        module = importlib.import_module("src.langchain.lc_build_index")
+        return importlib.reload(module)
+
+    return _load
+
+
+class TestPickDevice:
+    """Validate device selection logic."""
+
+    def test_no_gpu_flag_forces_cpu(self, load_lc_build_index, caplog):
+        module = load_lc_build_index()
+        caplog.set_level("INFO")
+
+        device = module.pick_device(no_gpu=True)
+
+        assert device == "cpu"
+        assert "Selected embedding device" in caplog.text
+
+    def test_prefers_cuda_when_available(self, load_lc_build_index, monkeypatch, caplog):
+        fake_torch = SimpleNamespace(
+            cuda=SimpleNamespace(is_available=lambda: True),
+            backends=SimpleNamespace(
+                mps=SimpleNamespace(is_available=lambda: False)
+            ),
+        )
+
+        module = load_lc_build_index(torch_module=fake_torch)
+        caplog.set_level("INFO")
+
+        device = module.pick_device(no_gpu=False)
+
+        assert device == "cuda"
+        assert "Selected embedding device" in caplog.text
+
+    def test_falls_back_to_mps(self, load_lc_build_index, caplog):
+        fake_torch = SimpleNamespace(
+            cuda=SimpleNamespace(is_available=lambda: False),
+            backends=SimpleNamespace(
+                mps=SimpleNamespace(is_available=lambda: True)
+            ),
+        )
+
+        module = load_lc_build_index(torch_module=fake_torch)
+        caplog.set_level("INFO")
+
+        device = module.pick_device(no_gpu=False)
+
+        assert device == "mps"
+        assert "Selected embedding device" in caplog.text
+
+    def test_defaults_to_cpu_when_no_backend(self, load_lc_build_index, caplog):
+        fake_torch = SimpleNamespace(
+            cuda=SimpleNamespace(is_available=lambda: False),
+            backends=SimpleNamespace(mps=SimpleNamespace(is_available=lambda: False)),
+        )
+
+        module = load_lc_build_index(torch_module=fake_torch)
+        caplog.set_level("INFO")
+
+        device = module.pick_device(no_gpu=False)
+
+        assert device == "cpu"
+        assert "Selected embedding device" in caplog.text
 
     def test_get_doi_case_insensitive(self):
         """Test DOI extraction is case insensitive."""

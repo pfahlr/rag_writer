@@ -327,19 +327,21 @@ make lc-batch FILE="examples/sample_jobs_1A1.jsonl" KEY="biology" PARALLEL=4
 - Multiple data sources
 
 **Options:**
-- `--shard-size`: number of chunks per shard (default:`1000`)
-- `--resume`: Skip shards already built (default: `False`)
-- `--keep-shards`: Do not delete shard directories after merge (default: `False`)
-- `<argument>`:  string specifying the faiss index to query (same as key in other operations)
+- `key`: Positional storage key prefix (defaults to `$RAG_KEY` or `default`)
+- `--shard-size`: Number of chunks per shard (default: `1000`)
+- `--resume [VALUE]`: Skip shards already built (accepts optional value for compatibility)
+- `--keep-shards`: Do not delete shard directories after merge
+- `--no-gpu`: Force embeddings to run on CPU even if accelerators are available
+- `--serve-gpu`: After saving, copy the in-memory FAISS index to GPU for serving
+- `--faiss-threads`: Override FAISS build thread count (default: host CPU count)
 
 **Usage**:
 ```bash
+# Build index using the default key with GPU embeddings when available
+python src/langchain/lc_build_index.py science
 
-#simple
-python src/langchain/lc_build_index.py --source data/ --index my_index
-
-#specify shard size of 200, check for existing shards and resume a previously unfinished index operation, and do not delete shards after merge
-python src/langchain/lc_build_index.py --source data/ --index --resume --shard_size 200 --key_shards my_index
+# Resume a sharded build, keep intermediate shards, pin to CPU, and serve from GPU memory
+python src/langchain/lc_build_index.py science --shard-size 200 --resume --keep-shards --no-gpu --serve-gpu --faiss-threads 8
 
 ```
 
