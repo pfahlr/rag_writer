@@ -19,7 +19,9 @@ langchain-text-splitters>=0.2.2,<0.3
 
 # Vector stores
 lancedb>=0.6,<=0.13
-faiss-cpu>=1.8.0
+# Select a FAISS backend by installing one of the overlay files:
+#   pip install -r requirements.txt -r requirements-faiss-cpu.txt   # default
+#   pip install -r requirements.txt -r requirements-faiss-gpu.txt   # CUDA
 
 # Retrieval helpers
 rank_bm25>=0.2.2
