@@ -458,8 +458,8 @@ def match_entry_to_candidate(entry: Dict, index: InboxIndex, claimed: Set[Path])
     entry_doi_token = compact_token(entry_doi)
     entry_doi_suffix = entry_doi.split("/", 1)[1] if entry_doi and "/" in entry_doi else entry_doi
     entry_doi_suffix_compact = compact_token(entry_doi_suffix)
-    url_basenames: List[str] = []
-    url_basename_compact: List[str] = []
+    url_basenames: Set[str] = set()
+    url_basename_compact: Set[str] = set()
     for key in ("pdf_url", "scholar_url"):
         parsed = entry.get(key)
         if not parsed:
@@ -468,15 +468,31 @@ def match_entry_to_candidate(entry: Dict, index: InboxIndex, claimed: Set[Path])
             path = urlparse(parsed).path
         except Exception:
             path = ""
-        name = Path(path).name
-        if not name:
+        if not path:
             continue
-        lower = name.lower()
-        url_basenames.append(lower)
-        url_basenames.append(strip_pdf_extension(lower))
-        comp = compact_token(lower)
+        segments = [seg.lower() for seg in path.split("/") if seg]
+        if not segments:
+            continue
+        for seg in segments:
+            url_basenames.add(seg)
+            url_basenames.add(strip_pdf_extension(seg))
+            comp = compact_token(seg)
+            if comp:
+                url_basename_compact.add(comp)
+        if len(segments) >= 2:
+            for i in range(len(segments) - 1):
+                combo = f"{segments[i]}.{segments[i + 1]}"
+                url_basenames.add(combo)
+                url_basenames.add(strip_pdf_extension(combo))
+                comp = compact_token(combo)
+                if comp:
+                    url_basename_compact.add(comp)
+        joined = ".".join(segments)
+        url_basenames.add(joined)
+        url_basenames.add(strip_pdf_extension(joined))
+        comp = compact_token(joined)
         if comp:
-            url_basename_compact.append(comp)
+            url_basename_compact.add(comp)
 
     if entry_doi:
         candidate = claim_from_list(index.by_metadata_doi.get(entry_doi, []))
@@ -890,11 +906,14 @@ def preprocess(
             if not url:
                 progress.console.print(f"[⛔] no pdf_url found for record: {i}")
                 continue
+            if str(e.get("download_status") or "").lower() == "done":
+                progress.console.print(f"[💓] pdf already processed: {i}")
+                continue
 
             did = ensure_id(i, e)
             # temp filename we expect the downloader to save
             temp_filename = f"{did}.pdf"
-            progress.console.print(f"[☑️] setting temp_filename = {temp_filename} for record {i}")
+            progress.console.print(f"[✅] setting temp_filename = {temp_filename} for record {i}")
             e["temp_filename"] = temp_filename
             e.setdefault("download_status", "pending")
             
@@ -921,7 +940,7 @@ def preprocess(
 
             # aria2c input file format: URL newline + indented "out="
             # Also set dir= to downloads_dir so the user can run aria2c -i file
-            progress.console.print(f"[☑️] adding fields for aria2c")
+            progress.console.print(f"[✏️] adding fields for aria2c")
             lines_aria2.append(url)
             lines_aria2.append(f"  out={temp_filename}")
             lines_aria2.append(f"  dir={str(downloads_dir)}")
@@ -929,7 +948,7 @@ def preprocess(
             
             # JDownloader .crawljob: key=value per job, blank line between jobs
             # Minimal keys: text, downloadFolder, filename, enabled, autoStart
-            progress.console.print(f"[☑️] adding fields for jdownloader")
+            progress.console.print(f"[✏️] adding fields for jdownloader")
             crawls.append(
                 "\n".join([
                     f"text={url}",

@@ -303,6 +303,40 @@ def test_match_entry_uses_doi_suffix_in_url_path(manifest_module, tmp_path):
     assert matched is cand
 
 
+def test_match_entry_handles_segment_joined_url(manifest_module, tmp_path):
+    cand = _make_candidate(
+        manifest_module,
+        tmp_path,
+        "10.1201.9781003184157-8",
+    )
+    index = manifest_module.build_inbox_index_from_candidates([cand])
+    entry = {
+        "pdf_url": "https://example.com/pdf/10.1201/9781003184157-8",
+        "doi": "10.1201/9781003184157-8",
+    }
+
+    matched = manifest_module.match_entry_to_candidate(entry, index, set())
+
+    assert matched is cand
+
+
+def test_match_entry_handles_removed_slash_doi(manifest_module, tmp_path):
+    cand = _make_candidate(
+        manifest_module,
+        tmp_path,
+        "10.53761caraaq92",
+    )
+    index = manifest_module.build_inbox_index_from_candidates([cand])
+    entry = {
+        "pdf_url": "https://example.org/articles/10.53761/caraaq92/fulltext.pdf",
+        "doi": "10.53761/caraaq92",
+    }
+
+    matched = manifest_module.match_entry_to_candidate(entry, index, set())
+
+    assert matched is cand
+
+
 def test_scan_inbox_includes_extensionless_pdfs(monkeypatch, tmp_path, manifest_module):
     target = tmp_path / "15391523.2025.2478424"
     target.write_bytes(b"%PDF-1.4\n%stub")
