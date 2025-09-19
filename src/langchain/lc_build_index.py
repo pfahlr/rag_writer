@@ -10,6 +10,9 @@ import math
 import shutil
 import argparse
 import logging
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -25,6 +28,8 @@ except ImportError:
 VIRTUAL_CPU_COUNT = os.getenv(VIRTUAL_CPU_COUNT, os.cpu_count())
 if VIRTUAL_CPU_COUNT > os.cpu_count():
   VIRTUAL_CPU_COUNT = os.cpu_count()
+
+
 
 faiss.cmp_set_num_threads(VIRTUAL_CPU_COUNT)
 
