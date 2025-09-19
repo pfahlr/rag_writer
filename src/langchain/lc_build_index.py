@@ -329,9 +329,7 @@ def main():
     # Normalize chunks JSONL and build FAISS indexes for multiple models
     chunks_out = Path(f"data_processed/lc_chunks_{key}.jsonl")
 
-    # don't rebuild this on --resume
-    if not resume_flag or chunks_out.file_size < 100: 
-        write_chunks_jsonl(chunks, chunks_out)
+    write_chunks_jsonl(chunks, chunks_out)
 
     build_faiss_for_models(
         chunks,
