@@ -458,6 +458,26 @@ docker run --rm -it \
   -v "$PWD":/app \
   -e RAG_KEY=science \
   rag-writer:latest python src/langchain/lc_build_index.py
+.fi
+.SS lc_build_index.py Options
+.PP
+The index builder CLI supports the following arguments:
+.IP \[bu] 2
+\fIkey\fP — storage key prefix (defaults to \fIRAG_KEY\fP or \fIdefault\fP)
+.IP \[bu] 2
+\fB--shard-size\fP \fIN\fP — number of chunks per shard (default 1000)
+.IP \[bu] 2
+\fB--resume\fP [\fIVALUE\fP] — resume shard processing when previous output exists
+.IP \[bu] 2
+\fB--keep-shards\fP — preserve shard directories after merging
+.IP \[bu] 2
+\fB--no-gpu\fP — force embedding to run on CPU even if accelerators are detected
+.IP \[bu] 2
+\fB--serve-gpu\fP — after saving, copy the in-memory FAISS index to GPU for serving
+.IP \[bu] 2
+\fB--faiss-threads\fP \fIN\fP — override FAISS thread count (defaults to host CPU count)
+.sp
+.nf
 
 # Ask a question using the Typer CLI
 docker run --rm -it \

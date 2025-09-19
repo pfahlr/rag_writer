@@ -9,6 +9,7 @@ import os
 import math
 import shutil
 import argparse
+import logging
 
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -23,8 +24,50 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
+# Logging setup
+# ---------------------------------------------------------------------------
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
 # Helpers for chunk export and multi-model FAISS building
 # ---------------------------------------------------------------------------
+
+
+def pick_device(no_gpu: bool) -> str:
+    """Select the torch device for embedding inference."""
+
+    if no_gpu:
+        device = "cpu"
+    else:
+        try:
+            import torch  # type: ignore
+        except ImportError:
+            device = "cpu"
+        else:
+            cuda_runtime = getattr(torch, "cuda", None)
+            has_cuda = bool(
+                cuda_runtime
+                and callable(getattr(cuda_runtime, "is_available", None))
+                and cuda_runtime.is_available()
+            )
+            mps_backend = getattr(getattr(torch, "backends", None), "mps", None)
+            has_mps = bool(
+                mps_backend
+                and callable(getattr(mps_backend, "is_available", None))
+                and mps_backend.is_available()
+            )
+
+            if has_cuda:
+                device = "cuda"
+            elif has_mps:
+                device = "mps"
+            else:
+                device = "cpu"
+
+    logger.info("Selected embedding device: %s", device)
+    return device
 
 def _fs_safe(s: str) -> str:
     return re.sub(r"[^a-zA-Z0-9._-]+", "-", s)
@@ -49,6 +92,8 @@ def build_faiss_for_models(
     shard_size: int = 1000,
     resume: bool = False,
     keep_shards: bool = False,
+    device: str = "cpu",
+    serve_gpu: bool = False,
 ):
     texts = [d.page_content for d in chunks]
     metadatas = [d.metadata for d in chunks]
@@ -61,9 +106,13 @@ def build_faiss_for_models(
         base_dir = Path(f"storage/faiss_{key}__{emb_name}")
         shards_dir = base_dir / "shards"
         shards_dir.mkdir(parents=True, exist_ok=True)
-        embedder = HuggingFaceEmbeddings(model_name=emb)
+        embedder = HuggingFaceEmbeddings(
+            model_name=emb,
+            model_kwargs={"device": device},
+            encode_kwargs={"device": device},
+        )
         completed_index_file = base_dir / "index.faiss"
-        
+
         if resume and completed_index_file.exists():
             continue
 
@@ -97,8 +146,7 @@ def build_faiss_for_models(
 
         shard_paths = sorted(shards_dir.glob("shard_*"))
         vectorstore = None
-        gpu_indexes_in_use = False
-        gpu_supported = faiss_utils.is_faiss_gpu_available()
+        logger.info("Merging %s shards on CPU", emb_name)
         for shard_path in tqdm(
             shard_paths, desc=f"Merging {emb_name}", unit="shard"
         ):
@@ -107,22 +155,31 @@ def build_faiss_for_models(
                 embeddings=embedder,
                 allow_dangerous_deserialization=True,
             )
-            if gpu_supported:
-                gpu_index = faiss_utils.clone_index_to_gpu(vs.index)
-                if gpu_index is not None:
-                    vs.index = gpu_index
-                    gpu_indexes_in_use = True
+            vs.index = faiss_utils.ensure_cpu_index(vs.index)
             if vectorstore is None:
                 vectorstore = vs
             else:
+                vectorstore.index = faiss_utils.ensure_cpu_index(vectorstore.index)
                 vectorstore.merge_from(vs)
 
         base_dir.mkdir(parents=True, exist_ok=True)
         if vectorstore is not None:
-            if gpu_indexes_in_use:
-                vectorstore.index = faiss_utils.clone_index_to_cpu(vectorstore.index)
+            vectorstore.index = faiss_utils.ensure_cpu_index(vectorstore.index)
+            logger.info("Saving FAISS index for %s to %s", emb_name, base_dir)
             vectorstore.save_local(str(base_dir))
             print(f"[build] wrote FAISS: {base_dir}")
+
+            if serve_gpu:
+                gpu_index = faiss_utils.try_index_cpu_to_gpu(vectorstore.index)
+                if gpu_index is not None:
+                    vectorstore.index = gpu_index
+                    logger.info(
+                        "Copied FAISS index for %s to GPU memory for serving", emb_name
+                    )
+                else:
+                    logger.info(
+                        "Skipped GPU copy for %s (GPU runtime unavailable)", emb_name
+                    )
 
         if not keep_shards:
             shutil.rmtree(shards_dir, ignore_errors=True)
@@ -207,9 +264,31 @@ def main():
         action="store_true",
         help="Do not delete shard directories after merge",
     )
+    parser.add_argument(
+        "--no-gpu",
+        action="store_true",
+        help="Force CPU embeddings even when accelerators are available",
+    )
+    parser.add_argument(
+        "--serve-gpu",
+        action="store_true",
+        help="Copy the final FAISS index to GPU memory for serving",
+    )
+    parser.add_argument(
+        "--faiss-threads",
+        type=int,
+        default=None,
+        help="Thread count for FAISS operations (default: CPU count)",
+    )
     args = parser.parse_args()
 
+    logging.basicConfig(level=logging.INFO)
+
     key = (args.key or "default").strip() or "default"
+    device = pick_device(args.no_gpu)
+    faiss_threads = args.faiss_threads or os.cpu_count() or 1
+    faiss_utils.set_faiss_threads(faiss_threads)
+    logger.info("Configured FAISS thread count: %s", faiss_threads)
 
     print("Parsing PDFs…")
     pages = load_pdfs()
@@ -237,6 +316,8 @@ def main():
         shard_size=args.shard_size,
         resume=resume_flag,
         keep_shards=args.keep_shards,
+        device=device,
+        serve_gpu=args.serve_gpu,
     )
 
 
