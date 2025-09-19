@@ -47,7 +47,8 @@ This suite provides a complete workflow for content creation and processing usin
 
 ```bash
 #### Install Python dependencies globally
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-faiss-cpu.txt
+# or swap requirements-faiss-cpu.txt for requirements-faiss-gpu.txt on CUDA hosts
 pip install -r requirements-test.txt
 ```
 
@@ -55,7 +56,8 @@ pip install -r requirements-test.txt
 ```bash
 python -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-faiss-cpu.txt
+# or swap requirements-faiss-cpu.txt for requirements-faiss-gpu.txt on CUDA hosts
 pip install -r requirements-test.txt
 
 ```
@@ -91,6 +93,8 @@ sops -e env.json > env.json
 ```bash
 # Complete setup and workflow
 make init                # Set up environment
+# (optional) make init with GPU FAISS wheel
+FAISS_BACKEND=gpu make init
 make lc-index KEY=default  # Build FAISS index
 make cli-ask "What is machine learning?"  # Ask questions via Typer CLI
 make cli-shell           # Interactive shell
@@ -140,6 +144,7 @@ make examples      # List all available example files
 #### Core CLI Targets
 ```bash
 make init                                # Initialize environment and install dependencies
+FAISS_BACKEND=gpu make init              # Same as above but installs faiss-gpu
 make lc-index KEY=foo SHARD_SIZE=2000 RESUME=1  # Build sharded FAISS index
 make cli-ask "question"                  # RAG query via Typer CLI
 make cli-shell                           # Interactive shell

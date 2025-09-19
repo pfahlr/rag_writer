@@ -1,0 +1,2 @@
+# Default FAISS backend for CPU-only environments
+faiss-cpu>=1.8.0
