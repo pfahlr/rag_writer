@@ -14,6 +14,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+import faiss
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
@@ -25,14 +26,13 @@ try:
 except ImportError:
     from langchain_community.embeddings import HuggingFaceEmbeddings
 
-VIRTUAL_CPU_COUNT = os.getenv(VIRTUAL_CPU_COUNT, os.cpu_count())
+VIRTUAL_CPU_COUNT = os.getenv("VIRTUAL_CPU_COUNT", os.cpu_count())
 if VIRTUAL_CPU_COUNT > os.cpu_count():
   VIRTUAL_CPU_COUNT = os.cpu_count()
 
+faiss.omp_set_num_threads(VIRTUAL_CPU_COUNT)
 
-
-faiss.cmp_set_num_threads(VIRTUAL_CPU_COUNT)
-
+DOI_REGEX = re.compile(r'10\.\d{4,9}/[-._;()/:a-zA-Z0-9]*[a-zA-Z0-9]')
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -114,7 +114,7 @@ def build_faiss_for_models(
         embedding_models, desc="Embedding models", unit="model", leave=True
     ):
         emb_name = _fs_safe(emb)
-        base_dir = Path(f"storage/faiss_{key}__{emb_name}")
+        base_dir = Path(f"{INDEX_DIR}/faiss_{key}__{emb_name}")
         shards_dir = base_dir / "shards"
         shards_dir.mkdir(parents=True, exist_ok=True)
         embedder = HuggingFaceEmbeddings(
@@ -146,10 +146,10 @@ def build_faiss_for_models(
             shard_bar.set_description(f"{emb_name} shard {shard_idx}")
             shard_path = shards_dir / f"shard_{shard_idx:03d}"
             if resume and (shard_path / "index.faiss").exists():
-                continue
+              continue
             slice_texts = texts[start : start + shard_size]
             if not slice_texts:
-		continue
+              continue
             slice_metas = metadatas[start : start + shard_size]
             vs = FAISS.from_texts(
                 texts=slice_texts, embedding=embedder, metadatas=slice_metas
@@ -157,7 +157,7 @@ def build_faiss_for_models(
             vs.save_local(str(shard_path))
         shard_bar.close()
 
-	shard_paths = sorted(shards_dir.glob("shard_*"))
+        shard_paths = sorted(shards_dir.glob("shard_*"))
         vectorstore = None
         logger.info("Merging %s shards on CPU", emb_name)
 
@@ -182,12 +182,12 @@ def build_faiss_for_models(
                 vectorstore = vs
             else:
                 vectorstore.index = faiss_utils.ensure_cpu_index(vectorstore.index)
-		_assert_is_vectorstore(vectorstore, "vectorstore")  # guard
+                _assert_is_vectorstore(vectorstore, "vectorstore")  # guard
                 vectorstore.merge_from(vs)
 
         base_dir.mkdir(parents=True, exist_ok=True)
         if vectorstore is not None:
-	    _assert_is_vectorstore(vectorstore, "vectorstore (pre-save)")  # guard
+            _assert_is_vectorstore(vectorstore, "vectorstore (pre-save)")  # guard
             vectorstore.index = faiss_utils.ensure_cpu_index(vectorstore.index)
             logger.info("Saving FAISS index for %s to %s", emb_name, base_dir)
             vectorstore.save_local(str(base_dir))
@@ -212,12 +212,6 @@ def build_faiss_for_models(
 # ---------------------------------------------------------------------------
 # Existing PDF ingestion + chunking
 # ---------------------------------------------------------------------------
-
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-PDF_DIR = f"{ROOT}/data_raw"
-
-DOI_REGEX = re.compile(r'10\.\d{4,9}/[-._;()/:a-zA-Z0-9]*[a-zA-Z0-9]')
-
 
 def load_pdfs() -> List[Document]:
     docs = []
@@ -263,6 +257,8 @@ def get_doi(pages) -> str:
 # ---------------------------------------------------------------------------
 
 def main():
+    global ROOT, PDF_DIR, CHUNKS_DIR, INDEX_DIR
+    ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "key",
@@ -304,7 +300,28 @@ def main():
         default=None,
         help="Thread count for FAISS operations (default: CPU count)",
     )
+    parser.add_argument(
+        "--input-dir",
+        type=str,
+        default=f"{ROOT}/data_raw",
+        help="Path to directory containing source files for index"
+    )
+    parser.add_argument(
+        "--chunks-dir",
+        type=str,
+        default=f"{ROOT}/data_processed",
+        help="Path to directory to store chunks"
+    )
+    parser.add_argument(
+        "--index-dir",
+        type=str,
+        default=f"storage",
+        help="Path to directory containing index directories (i.e., storage) not individual index directories, the collection of them"
+    )
     args = parser.parse_args()
+    PDF_DIR = args.input_dir
+    CHUNKS_DIR = args.chunks_dir
+    INDEX_DIR = args.index_dir
 
     logging.basicConfig(level=logging.INFO)
 
@@ -325,9 +342,9 @@ def main():
     )
 
     resume_flag = bool(args.resume)
-    
+
     # Normalize chunks JSONL and build FAISS indexes for multiple models
-    chunks_out = Path(f"data_processed/lc_chunks_{key}.jsonl")
+    chunks_out = Path(f"{CHUNKS_DIR}/lc_chunks_{key}.jsonl")
 
     write_chunks_jsonl(chunks, chunks_out)
 
