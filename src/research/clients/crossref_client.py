@@ -50,11 +50,15 @@ def fetch_crossref_by_doi(doi: str, timeout: float = 10.0) -> Optional[Dict[str,
     if not doi:
         return None
     url = f"https://api.crossref.org/works/{requests.utils.quote(doi)}"
-    r = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=timeout)
-    if not r.ok:
+    try:
+      r = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=timeout)
+      if not r.ok:
         return None
-    msg = r.json().get("message", {})
-    return _message_to_meta(msg)
+      msg = r.json().get("message", {})
+      return _message_to_meta(msg)
+    except Exception as e:
+      print(e)
+      return {}
 
 def search_crossref(title: str, author: str = "", timeout: float = 10.0) -> Optional[Dict[str, Any]]:
     if not title:
@@ -62,15 +66,17 @@ def search_crossref(title: str, author: str = "", timeout: float = 10.0) -> Opti
     params = {"query.title": title, "rows": 1}
     if author:
         params["query.author"] = author
-
-    r = requests.get("https://api.crossref.org/works", params=params,
-                     headers={"User-Agent": USER_AGENT}, timeout=timeout)
-
-    if not r.ok:
+    try:
+      r = requests.get("https://api.crossref.org/works", params=params,
+                    headers={"User-Agent": USER_AGENT}, timeout=timeout)
+      if not r.ok:
         return None
-    items = r.json().get("message", {}).get("items", [])
-    if not items:
+      items = r.json().get("message", {}).get("items", [])
+      if not items:
         return None
+    except Exception as e:
+      print(e)
+      return None
     return _message_to_meta(items[0])
 
 def enrich_via_crossref(doi: Optional[str] = None, title: Optional[str] = None,

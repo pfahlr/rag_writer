@@ -10,34 +10,52 @@ import math
 import shutil
 import argparse
 import logging
+import sys
 
+# ensure project root on sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+import faiss
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
+
+# your existing helpers
 from src.core import faiss_utils
+# robust CPU-only FAISS merge helper
+from src.core.faiss_merge_helpers import merge_faiss_vectorstores_cpu
+
 # Prefer langchain-huggingface (new home), fallback to community
 try:
     from langchain_huggingface import HuggingFaceEmbeddings  # type: ignore
 except ImportError:
     from langchain_community.embeddings import HuggingFaceEmbeddings
 
+# ---------------------------------------------------------------------------
+# FAISS threading control (respect optional env override)
+# ---------------------------------------------------------------------------
+try:
+    VIRTUAL_CPU_COUNT = int(os.getenv("VIRTUAL_CPU_COUNT", os.cpu_count() or 1))
+except ValueError:
+    VIRTUAL_CPU_COUNT = os.cpu_count() or 1
+if VIRTUAL_CPU_COUNT > (os.cpu_count() or 1):
+    VIRTUAL_CPU_COUNT = os.cpu_count() or 1
+faiss.omp_set_num_threads(VIRTUAL_CPU_COUNT)
+
+DOI_REGEX = re.compile(r'10\.\d{4,9}/[-._;()/:a-zA-Z0-9]*[a-zA-Z0-9]')
 
 # ---------------------------------------------------------------------------
-# Logging setup
+# Logging
 # ---------------------------------------------------------------------------
-
 logger = logging.getLogger(__name__)
 
-
 # ---------------------------------------------------------------------------
-# Helpers for chunk export and multi-model FAISS building
+# Helpers
 # ---------------------------------------------------------------------------
-
 
 def pick_device(no_gpu: bool) -> str:
     """Select the torch device for embedding inference."""
-
     if no_gpu:
         device = "cpu"
     else:
@@ -58,7 +76,6 @@ def pick_device(no_gpu: bool) -> str:
                 and callable(getattr(mps_backend, "is_available", None))
                 and mps_backend.is_available()
             )
-
             if has_cuda:
                 device = "cuda"
             elif has_mps:
@@ -68,6 +85,7 @@ def pick_device(no_gpu: bool) -> str:
 
     logger.info("Selected embedding device: %s", device)
     return device
+
 
 def _fs_safe(s: str) -> str:
     return re.sub(r"[^a-zA-Z0-9._-]+", "-", s)
@@ -103,13 +121,14 @@ def build_faiss_for_models(
         embedding_models, desc="Embedding models", unit="model", leave=True
     ):
         emb_name = _fs_safe(emb)
-        base_dir = Path(f"storage/faiss_{key}__{emb_name}")
+        base_dir = Path(f"{INDEX_DIR}/faiss_{key}__{emb_name}")
         shards_dir = base_dir / "shards"
         shards_dir.mkdir(parents=True, exist_ok=True)
+
+        # Put embeddings on chosen device (GPU/MPS/CPU). encode_kwargs not required.
         embedder = HuggingFaceEmbeddings(
             model_name=emb,
             model_kwargs={"device": device},
-            encode_kwargs={"device": device},
         )
         completed_index_file = base_dir / "index.faiss"
 
@@ -137,16 +156,25 @@ def build_faiss_for_models(
             if resume and (shard_path / "index.faiss").exists():
                 continue
             slice_texts = texts[start : start + shard_size]
+            if not slice_texts:
+                continue
             slice_metas = metadatas[start : start + shard_size]
             vs = FAISS.from_texts(
                 texts=slice_texts, embedding=embedder, metadatas=slice_metas
             )
+            # Save shard (CPU format on disk)
             vs.save_local(str(shard_path))
         shard_bar.close()
 
         shard_paths = sorted(shards_dir.glob("shard_*"))
         vectorstore = None
         logger.info("Merging %s shards on CPU", emb_name)
+
+        # Guard to ensure we didn't accidentally turn a vectorstore into a raw faiss.Index
+        def _assert_is_vectorstore(obj, label):
+            if not (hasattr(obj, "index") and hasattr(obj, "docstore") and hasattr(obj, "index_to_docstore_id")):
+                raise TypeError(f"{label} is not a LangChain FAISS vectorstore (got {type(obj)})")
+
         for shard_path in tqdm(
             shard_paths, desc=f"Merging {emb_name}", unit="shard"
         ):
@@ -155,20 +183,28 @@ def build_faiss_for_models(
                 embeddings=embedder,
                 allow_dangerous_deserialization=True,
             )
+            # Ensure CPU index for robust merging
             vs.index = faiss_utils.ensure_cpu_index(vs.index)
+            _assert_is_vectorstore(vs, "vs")
+
             if vectorstore is None:
                 vectorstore = vs
             else:
+                # Keep accumulator on CPU and use a FAISS-native robust merge.
                 vectorstore.index = faiss_utils.ensure_cpu_index(vectorstore.index)
-                vectorstore.merge_from(vs)
+                _assert_is_vectorstore(vectorstore, "vectorstore")
+                vectorstore = merge_faiss_vectorstores_cpu(vectorstore, vs)
 
         base_dir.mkdir(parents=True, exist_ok=True)
         if vectorstore is not None:
+            _assert_is_vectorstore(vectorstore, "vectorstore (pre-save)")
+            # Always save CPU index to disk
             vectorstore.index = faiss_utils.ensure_cpu_index(vectorstore.index)
             logger.info("Saving FAISS index for %s to %s", emb_name, base_dir)
             vectorstore.save_local(str(base_dir))
             print(f"[build] wrote FAISS: {base_dir}")
 
+            # Optional: after saving, copy to GPU for serving (in-memory only)
             if serve_gpu:
                 gpu_index = faiss_utils.try_index_cpu_to_gpu(vectorstore.index)
                 if gpu_index is not None:
@@ -186,14 +222,8 @@ def build_faiss_for_models(
 
 
 # ---------------------------------------------------------------------------
-# Existing PDF ingestion + chunking
+# PDF ingestion + chunking
 # ---------------------------------------------------------------------------
-
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-PDF_DIR = f"{ROOT}/data_raw"
-
-DOI_REGEX = re.compile(r'10\.\d{4,9}/[-._;()/:a-zA-Z0-9]*[a-zA-Z0-9]')
-
 
 def load_pdfs() -> List[Document]:
     docs = []
@@ -213,8 +243,8 @@ def load_pdfs() -> List[Document]:
                 meta['isbn'] = meta_extended['isbn']
             except ValueError:
                 if not notified_missing_metadata:
-                 print('pdf from older version, has no extended metadata')
-                 notified_missing_metadata = True
+                    print('pdf from older version, has no extended metadata')
+                    notified_missing_metadata = True
             meta["title"] = pdf.stem
             meta["source"] = str(pdf)
             if 'doi' not in meta or meta['doi'] == "":
@@ -239,6 +269,8 @@ def get_doi(pages) -> str:
 # ---------------------------------------------------------------------------
 
 def main():
+    global ROOT, PDF_DIR, CHUNKS_DIR, INDEX_DIR
+    ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "key",
@@ -280,7 +312,28 @@ def main():
         default=None,
         help="Thread count for FAISS operations (default: CPU count)",
     )
+    parser.add_argument(
+        "--input-dir",
+        type=str,
+        default=f"{ROOT}/data_raw",
+        help="Path to directory containing source files for index"
+    )
+    parser.add_argument(
+        "--chunks-dir",
+        type=str,
+        default=f"{ROOT}/data_processed",
+        help="Path to directory to store chunks"
+    )
+    parser.add_argument(
+        "--index-dir",
+        type=str,
+        default=f"storage",
+        help="Path to directory containing index directories (i.e., storage) not individual index directories, the collection of them"
+    )
     args = parser.parse_args()
+    PDF_DIR = args.input_dir
+    CHUNKS_DIR = args.chunks_dir
+    INDEX_DIR = args.index_dir
 
     logging.basicConfig(level=logging.INFO)
 
@@ -301,13 +354,10 @@ def main():
     )
 
     resume_flag = bool(args.resume)
-    
-    # Normalize chunks JSONL and build FAISS indexes for multiple models
-    chunks_out = Path(f"data_processed/lc_chunks_{key}.jsonl")
 
-    # don't rebuild this on --resume
-    if not resume_flag or chunks_out.file_size < 100: 
-        write_chunks_jsonl(chunks, chunks_out)
+    # Normalize chunks JSONL and build FAISS indexes for multiple models
+    chunks_out = Path(f"{CHUNKS_DIR}/lc_chunks_{key}.jsonl")
+    write_chunks_jsonl(chunks, chunks_out)
 
     build_faiss_for_models(
         chunks,
@@ -326,3 +376,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
