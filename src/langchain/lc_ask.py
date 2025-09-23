@@ -39,7 +39,13 @@ def _load_chunks_jsonl(path: Path) -> list[Document]:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("question", nargs="?", help="Question to ask")
+    parser.add_argument("question", nargs="?", metavar="QUESTION", help="Question to ask")
+    parser.add_argument(
+        "-q",
+        "--question",
+        dest="question_opt",
+        help="Question to ask (overrides positional QUESTION)",
+    )
     parser.add_argument("--json", dest="json_path", help="JSON job file containing 'question'")
     parser.add_argument("--key", required=True, help="collection key used at index time")
     parser.add_argument(
@@ -78,7 +84,7 @@ def main():
             or ""
         )
     else:
-        question = args.question or ""
+        question = args.question_opt or args.question or ""
     if not question:
         raise SystemExit("No question provided")
 
