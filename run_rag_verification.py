@@ -26,6 +26,92 @@ class CommandError(RuntimeError):
     """Raised when a subprocess invocation fails."""
 
 
+def markdown_to_pdf(markdown_path: Path, pdf_path: Path) -> None:
+    """Render a markdown text file into a minimal PDF document."""
+
+    text = markdown_path.read_text(encoding="utf-8")
+    lines = text.splitlines() or [""]
+
+    def _escape_pdf_text(s: str) -> str:
+        return s.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+    content_lines = [
+        "BT",
+        "/F1 12 Tf",
+        "12 TL",
+        "1 0 0 1 72 720 Tm",
+    ]
+    for line in lines:
+        content_lines.append(f"({_escape_pdf_text(line.rstrip())}) Tj")
+        content_lines.append("T*")
+    content_lines.append("ET")
+    stream = "\n".join(content_lines) + "\n"
+    stream_bytes = stream.encode("utf-8")
+
+    pdf_parts: list[bytes] = [b"%PDF-1.4\n"]
+    offsets = [0]
+    current_offset = len(pdf_parts[0])
+
+    def add_object(index: int, body: str) -> None:
+        nonlocal current_offset
+        obj = f"{index} 0 obj\n{body}\nendobj\n".encode("utf-8")
+        offsets.append(current_offset)
+        pdf_parts.append(obj)
+        current_offset += len(obj)
+
+    add_object(1, "<< /Type /Catalog /Pages 2 0 R >>")
+    add_object(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+    add_object(
+        3,
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R "
+        "/Resources << /Font << /F1 5 0 R >> >> >>",
+    )
+    add_object(
+        4,
+        "<< /Length {length} >>\nstream\n{stream}endstream".format(
+            length=len(stream_bytes), stream=stream
+        ),
+    )
+    add_object(5, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+
+    xref_offset = current_offset
+    xref_entries = ["0000000000 65535 f \n"]
+    for offset in offsets[1:]:
+        xref_entries.append(f"{offset:010d} 00000 n \n")
+    xref_section = "xref\n0 {count}\n{entries}".format(
+        count=len(offsets), entries="".join(xref_entries)
+    )
+    pdf_parts.append(xref_section.encode("utf-8"))
+    trailer = (
+        "trailer\n"
+        f"<< /Size {len(offsets)} /Root 1 0 R >>\n"
+        "startxref\n"
+        f"{xref_offset}\n"
+        "%%EOF\n"
+    )
+    pdf_parts.append(trailer.encode("utf-8"))
+
+    pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    pdf_path.write_bytes(b"".join(pdf_parts))
+
+
+def prepare_pdf_corpus(markdown_dir: Path, output_dir: Path) -> List[Path]:
+    """Convert a directory of markdown documents into PDFs for indexing."""
+
+    markdown_files = sorted(markdown_dir.glob("*.md"))
+    if not markdown_files:
+        raise FileNotFoundError(
+            f"No markdown documents found in {markdown_dir} to build the index"
+        )
+
+    pdf_paths: List[Path] = []
+    for md_path in markdown_files:
+        pdf_path = output_dir / f"{md_path.stem}.pdf"
+        markdown_to_pdf(md_path, pdf_path)
+        pdf_paths.append(pdf_path)
+    return pdf_paths
+
+
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run verification against the neuroplasticity gold corpus."
@@ -128,18 +214,29 @@ def ensure_tmp_index(tmp_index: Path) -> None:
 def build_index(
     script_path: Path,
     corpus_docs: Path,
-    index_dir: Path,
     *,
     verbose: bool,
     cwd: Path,
-) -> None:
+    repo_root: Path,
+    tmp_index: Path,
+    index_key: str,
+) -> tuple[Path, list[Path], Path]:
+    pdf_dir = tmp_index / "pdf_corpus"
+    prepare_pdf_corpus(corpus_docs, pdf_dir)
+
+    chunks_dir = repo_root / "data_processed"
+    storage_dir = repo_root / "storage"
     command = [
         sys.executable,
         str(script_path),
-        "--corpus",
-        str(corpus_docs),
-        "--out",
-        str(index_dir),
+        index_key,
+        "--input-dir",
+        str(pdf_dir),
+        "--chunks-dir",
+        str(chunks_dir),
+        "--index-dir",
+        str(storage_dir),
+        "--no-gpu",
     ]
     result = run_command(command, verbose=verbose, cwd=cwd)
     if result.returncode != 0:
@@ -147,22 +244,43 @@ def build_index(
             f"Index build failed with code {result.returncode}: {result.stderr.strip()}"
         )
 
+    chunk_path = chunks_dir / f"lc_chunks_{index_key}.jsonl"
+    index_paths = sorted(storage_dir.glob(f"faiss_{index_key}__*"))
+    return chunk_path, index_paths, pdf_dir
 
-def run_query(
+
+def run_lc_ask_query(
     script_path: Path,
-    index_dir: Path,
     query: str,
     *,
+    index_key: str,
     verbose: bool,
     cwd: Path,
 ) -> subprocess.CompletedProcess[str]:
     command = [
         sys.executable,
         str(script_path),
-        "--index",
-        str(index_dir),
-        "--query",
         query,
+        "--key",
+        index_key,
+    ]
+    return run_command(command, verbose=verbose, cwd=cwd)
+
+
+def run_multi_agent_query(
+    script_path: Path,
+    query: str,
+    *,
+    index_key: str,
+    verbose: bool,
+    cwd: Path,
+) -> subprocess.CompletedProcess[str]:
+    command = [
+        sys.executable,
+        str(script_path),
+        query,
+        "--key",
+        index_key,
     ]
     return run_command(command, verbose=verbose, cwd=cwd)
 
@@ -221,6 +339,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
     repo_root = Path(__file__).resolve().parent
     cwd = repo_root
+    index_key = "rag_verification"
 
     try:
         lc_build = resolve_script(
@@ -254,13 +373,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     ensure_tmp_index(tmp_index)
+    generated_chunk: Path | None = None
+    generated_indexes: list[Path] = []
+    pdf_dir: Path | None = None
     try:
-        build_index(
+        generated_chunk, generated_indexes, pdf_dir = build_index(
             lc_build,
             corpus_dir,
-            tmp_index,
             verbose=args.verbose,
             cwd=cwd,
+            repo_root=repo_root,
+            tmp_index=tmp_index,
+            index_key=index_key,
         )
     except CommandError as exc:
         print(str(exc), file=sys.stderr)
@@ -302,10 +426,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         final_stdout = ""
 
         if question_type in SUPPORTED_DIRECT_TYPES:
-            result = run_query(
+            result = run_lc_ask_query(
                 lc_ask,
-                tmp_index,
                 question_text,
+                index_key=index_key,
                 verbose=args.verbose,
                 cwd=cwd,
             )
@@ -330,10 +454,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif question_type in SUPPORTED_MULTI_TYPES:
             current_query = question_text
             outputs: List[str] = []
-            result = run_query(
+            result = run_multi_agent_query(
                 multi_agent,
-                tmp_index,
                 current_query,
+                index_key=index_key,
                 verbose=args.verbose,
                 cwd=cwd,
             )
@@ -357,10 +481,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             for follow in followups:
                 current_query = f"{current_query}\n{follow}"
-                follow_result = run_query(
+                follow_result = run_multi_agent_query(
                     multi_agent,
-                    tmp_index,
                     current_query,
+                    index_key=index_key,
                     verbose=args.verbose,
                     cwd=cwd,
                 )
@@ -440,8 +564,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     for line in summary_lines:
         print(line)
 
-    if not args.keep_index and tmp_index.exists():
-        shutil.rmtree(tmp_index)
+    if not args.keep_index:
+        if generated_chunk and generated_chunk.exists():
+            generated_chunk.unlink()
+        for index_path in generated_indexes:
+            if index_path.exists():
+                shutil.rmtree(index_path)
+        if pdf_dir and pdf_dir.exists():
+            shutil.rmtree(pdf_dir)
+        if tmp_index.exists():
+            shutil.rmtree(tmp_index)
 
     return 0 if all_passed else 1
 
