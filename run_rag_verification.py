@@ -572,11 +572,28 @@ def load_questions(path: Path, *, require_answers: bool) -> list[Question]:
     return questions
 
 
+def script_base_command(script: Path) -> list[str]:
+    """Return the appropriate Python invocation for a script path."""
+
+    script = Path(script)
+    repo_root = Path(__file__).resolve().parent
+    try:
+        relative = script.relative_to(repo_root)
+    except ValueError:
+        return [sys.executable, str(script)]
+
+    if relative.parts and relative.parts[0] == "src":
+        module = ".".join(relative.with_suffix("").parts)
+        return [sys.executable, "-m", module]
+
+    return [sys.executable, str(script)]
+
+
 @lru_cache(maxsize=None)
 def script_help_text(script: Path) -> str:
     try:
         proc = subprocess.run(
-            [sys.executable, str(script), "--help"],
+            [*script_base_command(script), "--help"],
             capture_output=True,
             text=True,
             timeout=10,
@@ -615,7 +632,7 @@ def build_question_command(
     If the script advertises a question flag, use it; otherwise pass the prompt positionally.
     """
 
-    argv: List[str] = [sys.executable, str(script), *base_args]
+    argv: List[str] = [*script_base_command(script), *base_args]
     flag = _script_supports_flag(script, ["--question", "-q"])
     if flag:
         argv.extend([flag, prompt])
@@ -635,8 +652,7 @@ def build_builder_command(
     """Construct the lc_build_index command for the verification run."""
 
     return [
-        sys.executable,
-        str(builder),
+        *script_base_command(builder),
         index_key,
         "--input-dir",
         str(pdf_dir),
