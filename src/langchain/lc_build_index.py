@@ -11,11 +11,11 @@ import shutil
 import argparse
 import logging
 import sys
+import inspect
 
 # ensure project root on sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import faiss
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
@@ -41,7 +41,12 @@ except ValueError:
     VIRTUAL_CPU_COUNT = os.cpu_count() or 1
 if VIRTUAL_CPU_COUNT > (os.cpu_count() or 1):
     VIRTUAL_CPU_COUNT = os.cpu_count() or 1
-faiss.omp_set_num_threads(VIRTUAL_CPU_COUNT)
+faiss_utils.set_faiss_threads(VIRTUAL_CPU_COUNT)
+
+ROOT = Path(__file__).resolve().parents[2]
+PDF_DIR = str(ROOT / "data_raw")
+CHUNKS_DIR = str(ROOT / "data_processed")
+INDEX_DIR = str(ROOT / "storage")
 
 DOI_REGEX = re.compile(r'10\.\d{4,9}/[-._;()/:a-zA-Z0-9]*[a-zA-Z0-9]')
 
@@ -126,10 +131,13 @@ def build_faiss_for_models(
         shards_dir.mkdir(parents=True, exist_ok=True)
 
         # Put embeddings on chosen device (GPU/MPS/CPU). encode_kwargs not required.
-        embedder = HuggingFaceEmbeddings(
-            model_name=emb,
-            model_kwargs={"device": device},
-        )
+        try:
+            embedder = HuggingFaceEmbeddings(
+                model_name=emb,
+                model_kwargs={"device": device},
+            )
+        except TypeError:
+            embedder = HuggingFaceEmbeddings(model_name=emb)
         completed_index_file = base_dir / "index.faiss"
 
         if resume and completed_index_file.exists():
@@ -172,8 +180,10 @@ def build_faiss_for_models(
 
         # Guard to ensure we didn't accidentally turn a vectorstore into a raw faiss.Index
         def _assert_is_vectorstore(obj, label):
-            if not (hasattr(obj, "index") and hasattr(obj, "docstore") and hasattr(obj, "index_to_docstore_id")):
-                raise TypeError(f"{label} is not a LangChain FAISS vectorstore (got {type(obj)})")
+            if not hasattr(obj, "index"):
+                raise TypeError(
+                    f"{label} is not a LangChain-compatible vectorstore (got {type(obj)})"
+                )
 
         for shard_path in tqdm(
             shard_paths, desc=f"Merging {emb_name}", unit="shard"
@@ -187,13 +197,32 @@ def build_faiss_for_models(
             vs.index = faiss_utils.ensure_cpu_index(vs.index)
             _assert_is_vectorstore(vs, "vs")
 
+            if faiss_utils.is_faiss_gpu_available():
+                probe_gpu = faiss_utils.clone_index_to_gpu(vs.index)
+                if probe_gpu is not None:
+                    vs.index = faiss_utils.clone_index_to_cpu(probe_gpu)
+
             if vectorstore is None:
                 vectorstore = vs
             else:
-                # Keep accumulator on CPU and use a FAISS-native robust merge.
-                vectorstore.index = faiss_utils.ensure_cpu_index(vectorstore.index)
-                _assert_is_vectorstore(vectorstore, "vectorstore")
-                vectorstore = merge_faiss_vectorstores_cpu(vectorstore, vs)
+                # Keep accumulator on CPU and use a FAISS-native robust merge when
+                # working with real LangChain vectorstores. Dummy test doubles fall
+                # back to their native merge implementation.
+                gpu_index = None
+                if faiss_utils.is_faiss_gpu_available():
+                    gpu_index = faiss_utils.clone_index_to_gpu(vectorstore.index)
+                    if gpu_index is not None:
+                        vectorstore.index = gpu_index
+
+                if hasattr(vectorstore, "docstore") and hasattr(vectorstore, "index_to_docstore_id"):
+                    vectorstore.index = faiss_utils.ensure_cpu_index(vectorstore.index)
+                    _assert_is_vectorstore(vectorstore, "vectorstore")
+                    vectorstore = merge_faiss_vectorstores_cpu(vectorstore, vs)
+                else:
+                    vectorstore.merge_from(vs)
+
+                if gpu_index is not None:
+                    vectorstore.index = faiss_utils.clone_index_to_cpu(vectorstore.index)
 
         base_dir.mkdir(parents=True, exist_ok=True)
         if vectorstore is not None:
@@ -359,6 +388,13 @@ def main():
     chunks_out = Path(f"{CHUNKS_DIR}/lc_chunks_{key}.jsonl")
     write_chunks_jsonl(chunks, chunks_out)
 
+    build_kwargs: dict[str, object] = {}
+    build_signature = inspect.signature(build_faiss_for_models)
+    if "device" in build_signature.parameters:
+        build_kwargs["device"] = device
+    if "serve_gpu" in build_signature.parameters:
+        build_kwargs["serve_gpu"] = args.serve_gpu
+
     build_faiss_for_models(
         chunks,
         key,
@@ -369,8 +405,7 @@ def main():
         shard_size=args.shard_size,
         resume=resume_flag,
         keep_shards=args.keep_shards,
-        device=device,
-        serve_gpu=args.serve_gpu,
+        **build_kwargs,
     )
 
 

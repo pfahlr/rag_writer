@@ -1,0 +1,2 @@
+# Neuroplasticity — Definition & Scope
+Neuroplasticity (aka neural plasticity) is the brain’s capacity to reorganize its structure and connections in response to learning, experience, injury, or environmental change. Changes range from synaptic adjustments and pathway rewiring to cortical remapping. The phenomenon persists into adulthood (not only childhood) and includes patterns like homologous area adaptation, cross‑modal reassignment, map expansion, and compensatory masquerade.

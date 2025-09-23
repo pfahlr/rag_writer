@@ -20,7 +20,13 @@ mcp_stub.client = client_mod
 sys.modules.setdefault("mcp", mcp_stub)
 sys.modules.setdefault("mcp.client", client_mod)
 
-from src.tool import Tool, ToolSpec, ToolRegistry, create_rag_retrieve_tool, run_agent
+from src.tool import (
+    Tool,
+    ToolSpec,
+    ToolRegistry,
+    create_rag_retrieve_tool,
+    run_agent,
+)
 
 
 def test_tool_registry_basic():
@@ -75,6 +81,34 @@ def test_rag_tool(monkeypatch):
     out = tool.run(query="hello", k=1)
     assert out["docs"][0]["text"] == "answer"
     assert out["docs"][0]["source_id"] == "1"
+
+
+def test_rag_tool_accepts_custom_index_dir(monkeypatch, tmp_path):
+    captured = {}
+
+    class DummyFactory:
+        def __init__(self, *args, **kwargs):
+            captured["root_dir"] = kwargs.get("root_dir")
+            captured["storage_dir"] = kwargs.get("storage_dir")
+
+        def create_hybrid_retriever(self, config):
+            return DummyRetriever()
+
+        def create_vector_retriever(self, config):  # pragma: no cover - not used
+            return DummyRetriever()
+
+        def create_bm25_retriever(self, config):  # pragma: no cover - not used
+            return DummyRetriever()
+
+    monkeypatch.setattr("src.tool.rag_tool.RetrieverFactory", DummyFactory)
+
+    custom_index = tmp_path / "indices"
+    tool = create_rag_retrieve_tool("key", index_dir=custom_index)
+    result = tool.run(query="hello")
+
+    assert result["docs"][0]["text"] == "answer"
+    assert captured["storage_dir"] == custom_index
+    assert captured["root_dir"] is None
 
 
 def test_run_agent_basic():

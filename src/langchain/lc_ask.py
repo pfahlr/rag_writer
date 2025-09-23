@@ -37,6 +37,15 @@ def main():
     parser.add_argument("--json", dest="json_path", help="JSON job file containing 'question'")
     parser.add_argument("--key", required=True, help="collection key used at index time")
     parser.add_argument(
+        "--index",
+        dest="index_dir",
+        default=None,
+        help=(
+            "Directory containing FAISS index folders. Defaults to ./storage relative to the"
+            " project root."
+        ),
+    )
+    parser.add_argument(
         "--mode",
         default="faiss",
         choices=[
@@ -54,6 +63,8 @@ def main():
     parser.add_argument("--embed-model", default="BAAI/bge-small-en-v1.5")
     args = parser.parse_args()
 
+    repo_root = Path(__file__).resolve().parents[2]
+
     if args.json_path:
         with open(args.json_path, "r", encoding="utf-8") as f:
             job = json.load(f)
@@ -68,7 +79,7 @@ def main():
     if not question:
         raise SystemExit("No question provided")
 
-    chunks_path = Path(f"data_processed/lc_chunks_{args.key}.jsonl")
+    chunks_path = repo_root / "data_processed" / f"lc_chunks_{args.key}.jsonl"
     if not chunks_path.exists():
         raise SystemExit(
             f"[lc_ask] chunks not found: {chunks_path} – run lc_build_index for KEY={args.key}"
@@ -76,7 +87,14 @@ def main():
     docs = _load_chunks_jsonl(chunks_path)
 
     emb_name_safe = re.sub(r"[^a-zA-Z0-9._-]+", "-", args.embed_model)
-    base_dir = Path(f"storage/faiss_{args.key}__{emb_name_safe}")
+    if args.index_dir:
+        index_dir = Path(args.index_dir)
+        if not index_dir.is_absolute():
+            index_dir = (repo_root / index_dir).resolve()
+    else:
+        index_dir = repo_root / "storage"
+
+    base_dir = index_dir / f"faiss_{args.key}__{emb_name_safe}"
     repacked_dir = Path(str(base_dir) + "_repacked")
 
     # Prefer a repacked/merged index if available

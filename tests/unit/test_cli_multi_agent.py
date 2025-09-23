@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from typer.testing import CliRunner
 
 from src.cli import multi_agent
@@ -19,11 +21,13 @@ def test_cli_invokes_agent_with_tools(monkeypatch):
     registry = DummyRegistry()
     monkeypatch.setattr(multi_agent, "ToolRegistry", lambda: registry)
 
-    def fake_create_tool(key: str):
-        fake_create_tool.called_with = key
+    def fake_create_tool(key: str, *, index_dir=None):
+        fake_create_tool.called_key = key
+        fake_create_tool.called_index = index_dir
         return object()
 
-    fake_create_tool.called_with = None
+    fake_create_tool.called_key = None
+    fake_create_tool.called_index = None
     monkeypatch.setattr(multi_agent, "create_rag_retrieve_tool", fake_create_tool)
 
     mock_llm = object()
@@ -49,4 +53,6 @@ def test_cli_invokes_agent_with_tools(monkeypatch):
     assert "done" in result.stdout
     assert registry.registered_tool is not None
     assert registry.mcp_url == "server"
-    assert fake_create_tool.called_with == "paper"
+    assert fake_create_tool.called_key == "paper"
+    expected_index = Path(multi_agent.__file__).resolve().parents[2] / "storage"
+    assert fake_create_tool.called_index == expected_index

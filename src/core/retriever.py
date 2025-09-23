@@ -108,16 +108,30 @@ class RetrieverConfig:
 class RetrieverFactory:
     """Factory for creating various types of retrievers with consistent configuration."""
 
-    def __init__(self, root_dir: Optional[Path] = None):
-        """Initialize the factory with root directory."""
+    def __init__(
+        self,
+        root_dir: Optional[Path] = None,
+        storage_dir: Optional[Path] = None,
+    ):
+        """Initialize the factory with root directory and optional storage override."""
+
         if root_dir is None:
-            # Calculate root relative to this file (two levels up)
-            root_dir = Path(__file__).parent.parent.parent
+            root_dir = Path(__file__).resolve().parents[2]
+        else:
+            root_dir = Path(root_dir)
         self.root_dir = root_dir
+
+        if storage_dir is None:
+            storage_path = self.root_dir / "storage"
+        else:
+            storage_path = Path(storage_dir)
+            if not storage_path.is_absolute():
+                storage_path = (self.root_dir / storage_path).resolve()
+        self.storage_dir = storage_path
 
     def _get_storage_path(self, key: str) -> Path:
         """Get the storage path for a given collection key."""
-        return self.root_dir / "storage" / f"faiss_{key}"
+        return self.storage_dir / f"faiss_{key}"
 
     def _load_embeddings(self, model_name: str) -> HuggingFaceEmbeddings:
         """Load and return the embedding model."""
