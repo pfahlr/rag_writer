@@ -1,2 +1,0 @@
-# Applications — Rehabilitation
-Neuroplasticity underpins recovery from brain injury and is leveraged in therapies like constraint‑induced movement therapy, functional electrical stimulation, treadmill training with body‑weight support, virtual‑reality therapy, and robot‑assisted therapy. Evidence for specific mechanisms varies; clinical outcomes often correlate with experience‑dependent reorganization.

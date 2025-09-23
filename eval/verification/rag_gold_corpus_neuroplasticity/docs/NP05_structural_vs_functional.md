@@ -1,2 +1,0 @@
-# Structural vs Functional Plasticity
-Structural plasticity: alterations in connections, grey‑matter proportion, and sometimes adult neurogenesis (robust in animal models; not convincingly demonstrated in humans). Functional plasticity: reassignment or reweighting of functions across circuits via patterns such as homologous area adaptation, map expansion, cross‑modal reassignment, and compensatory masquerade.
