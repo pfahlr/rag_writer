@@ -1,4 +1,5 @@
 from __future__ import annotations
+import time
 from typing import List, Optional, Tuple
 from langchain_core.documents import Document
 from langchain_community.vectorstores import FAISS
@@ -38,6 +39,82 @@ try:
 except Exception:
     CrossEncoderReranker = None  # type: ignore
     HuggingFaceCrossEncoder = None  # type: ignore
+
+try:
+    from .trace import TraceEmitter
+except Exception:  # pragma: no cover - allows usage without trace module
+    TraceEmitter = None  # type: ignore
+
+
+class _TracingRetriever:
+    def __init__(
+        self,
+        retriever,
+        *,
+        emitter: TraceEmitter | None,
+        backend: str,
+        top_k: int,
+        context: dict | None = None,
+    ) -> None:
+        self._retriever = retriever
+        self._emitter = emitter
+        self._backend = backend
+        self._top_k = top_k
+        self._context = context or {}
+
+    def get_relevant_documents(self, query: str):  # type: ignore[override]
+        if not self._emitter or not getattr(self._emitter, "enabled", False):
+            return self._retriever.get_relevant_documents(query)
+        qid = self._context.get("qid")
+        parent = self._context.get("parent")
+        span = self._emitter.make_span("vector.query", parent=parent)
+        self._emitter.emit(
+            {
+                "qid": qid,
+                "span": span,
+                "parent": parent or "root",
+                "role": "retriever",
+                "type": "vector.query",
+                "name": f"{self._backend}.search",
+                "detail": {
+                    "backend": self._backend,
+                    "top_k": self._top_k,
+                    "query_text": query,
+                },
+            }
+        )
+        start = time.perf_counter()
+        docs = self._retriever.get_relevant_documents(query)
+        latency_ms = (time.perf_counter() - start) * 1000
+        hits = []
+        for idx, doc in enumerate(docs):
+            meta = doc.metadata or {}
+            hits.append(
+                {
+                    "rank": idx + 1,
+                    "doc_id": meta.get("doc_id") or meta.get("source") or meta.get("doc"),
+                    "title": meta.get("title"),
+                    "score": meta.get("score"),
+                    "chunk_id": meta.get("chunk_id"),
+                    "offset": meta.get("offset"),
+                }
+            )
+        self._emitter.emit(
+            {
+                "qid": qid,
+                "span": span,
+                "parent": parent or "root",
+                "role": "retriever",
+                "type": "vector.results",
+                "name": f"{self._backend}.search",
+                "detail": {"hits": hits},
+                "metrics": {"latency_ms": round(latency_ms, 2)},
+            }
+        )
+        return docs
+
+    def __getattr__(self, name):
+        return getattr(self._retriever, name)
 
 def _build_faiss(vectorstore: FAISS, k: int):
     return vectorstore.as_retriever(search_kwargs={"k": k})
@@ -81,6 +158,8 @@ def make_retriever(
     k: int = 10,
     rerank: Optional[str] = None,
     ce_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    trace_emitter: TraceEmitter | None = None,
+    trace_context: dict | None = None,
 ):
     """
     mode: 'faiss' | 'bm25' | 'hybrid' | 'parent' | 'faiss+compression' | 'hybrid+compression'
@@ -105,5 +184,16 @@ def make_retriever(
         raise ValueError(f"Unknown retriever mode: {mode}")
 
     if rerank == "ce":
-        return _build_ce_compression(base, ce_model)
+        base = _build_ce_compression(base, ce_model)
+    if trace_emitter is not None:
+        context = dict(trace_context or {})
+        context.setdefault("backend", mode)
+        context.setdefault("top_k", k)
+        base = _TracingRetriever(
+            base,
+            emitter=trace_emitter,
+            backend=context.get("backend", mode),
+            top_k=context.get("top_k", k),
+            context=context,
+        )
     return base

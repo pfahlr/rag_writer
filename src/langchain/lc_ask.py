@@ -3,7 +3,12 @@
 
 from __future__ import annotations
 
-import argparse, json, re, sys
+import argparse
+import json
+import os
+import re
+import sys
+import time
 from pathlib import Path
 
 from langchain_core.documents import Document
@@ -20,6 +25,7 @@ from langchain.chains import RetrievalQA
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.langchain.retriever_factory import make_retriever
+from src.langchain.trace import configure_emitter
 
 
 def _load_chunks_jsonl(path: Path) -> list[Document]:
@@ -52,7 +58,15 @@ def main():
     parser.add_argument("--ce-model", default="cross-encoder/ms-marco-MiniLM-L-6-v2")
     parser.add_argument("--k", type=int, default=10)
     parser.add_argument("--embed-model", default="BAAI/bge-small-en-v1.5")
+    parser.add_argument("--trace", action="store_true", help="Emit TRACE events to stderr")
+    parser.add_argument(
+        "--trace-file",
+        help="Optional path to tee TRACE events to disk",
+    )
     args = parser.parse_args()
+
+    emitter = configure_emitter(args.trace, trace_file=args.trace_file)
+    qid = os.getenv("TRACE_QID")
 
     if args.json_path:
         with open(args.json_path, "r", encoding="utf-8") as f:
@@ -112,12 +126,55 @@ def main():
         k=args.k,
         rerank=(None if args.rerank == "none" else args.rerank),
         ce_model=args.ce_model,
+        trace_emitter=emitter,
+        trace_context={"qid": qid, "backend": args.mode, "top_k": args.k},
     )
 
     llm = ChatOpenAI(temperature=0)
-    chain = RetrievalQA.from_chain_type(llm, retriever=retriever, return_source_documents=True)
-    result = chain.invoke({"query": question})
-    answer = result["result"]
+    chain = RetrievalQA.from_chain_type(
+        llm,
+        retriever=retriever,
+        return_source_documents=True,
+    )
+
+    with emitter:
+        span_id = emitter.make_span("llm.ask") if emitter.enabled else None
+        if emitter.enabled:
+            emitter.emit(
+                {
+                    "qid": qid,
+                    "span": span_id,
+                    "parent": "root",
+                    "role": "user",
+                    "type": "llm.prompt",
+                    "name": "langchain.RetrievalQA",
+                    "detail": {
+                        "model": getattr(llm, "model_name", "unknown"),
+                        "messages": [
+                            {"role": "system", "content": "RetrievalQA"},
+                            {"role": "user", "content": question},
+                        ],
+                        "params": {"temperature": getattr(llm, "temperature", None)},
+                    },
+                }
+            )
+        start = time.perf_counter()
+        result = chain.invoke({"query": question})
+        latency_ms = (time.perf_counter() - start) * 1000
+        answer = result["result"]
+        if emitter.enabled:
+            emitter.emit(
+                {
+                    "qid": qid,
+                    "span": span_id,
+                    "parent": "root",
+                    "role": "assistant",
+                    "type": "llm.completion",
+                    "name": "langchain.RetrievalQA",
+                    "detail": {"content": answer, "finish_reason": "stop"},
+                    "metrics": {"latency_ms": round(latency_ms, 2)},
+                }
+            )
     sources = result.get("source_documents", [])
 
     output = {
