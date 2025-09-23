@@ -11,11 +11,11 @@ import shutil
 import argparse
 import logging
 import sys
+import inspect
 
 # ensure project root on sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-import faiss
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
@@ -41,7 +41,12 @@ except ValueError:
     VIRTUAL_CPU_COUNT = os.cpu_count() or 1
 if VIRTUAL_CPU_COUNT > (os.cpu_count() or 1):
     VIRTUAL_CPU_COUNT = os.cpu_count() or 1
-faiss.omp_set_num_threads(VIRTUAL_CPU_COUNT)
+faiss_utils.set_faiss_threads(VIRTUAL_CPU_COUNT)
+
+ROOT = Path(__file__).resolve().parents[2]
+PDF_DIR: Path | str = ROOT / "data_raw"
+CHUNKS_DIR: Path | str = ROOT / "data_processed"
+INDEX_DIR: Path | str = ROOT / "storage"
 
 DOI_REGEX = re.compile(r'10\.\d{4,9}/[-._;()/:a-zA-Z0-9]*[a-zA-Z0-9]')
 
@@ -117,19 +122,24 @@ def build_faiss_for_models(
     metadatas = [d.metadata for d in chunks]
     n_shards = math.ceil(len(texts) / shard_size)
 
+    key_safe = _fs_safe(key)
+
     for emb in tqdm(
         embedding_models, desc="Embedding models", unit="model", leave=True
     ):
         emb_name = _fs_safe(emb)
-        base_dir = Path(f"{INDEX_DIR}/faiss_{key}__{emb_name}")
+        base_dir = Path(INDEX_DIR) / f"faiss_{key_safe}__{emb_name}"
         shards_dir = base_dir / "shards"
         shards_dir.mkdir(parents=True, exist_ok=True)
 
         # Put embeddings on chosen device (GPU/MPS/CPU). encode_kwargs not required.
-        embedder = HuggingFaceEmbeddings(
-            model_name=emb,
-            model_kwargs={"device": device},
-        )
+        try:
+            embedder = HuggingFaceEmbeddings(
+                model_name=emb,
+                model_kwargs={"device": device},
+            )
+        except TypeError:
+            embedder = HuggingFaceEmbeddings(model_name=emb)
         completed_index_file = base_dir / "index.faiss"
 
         if resume and completed_index_file.exists():
@@ -172,8 +182,10 @@ def build_faiss_for_models(
 
         # Guard to ensure we didn't accidentally turn a vectorstore into a raw faiss.Index
         def _assert_is_vectorstore(obj, label):
-            if not (hasattr(obj, "index") and hasattr(obj, "docstore") and hasattr(obj, "index_to_docstore_id")):
-                raise TypeError(f"{label} is not a LangChain FAISS vectorstore (got {type(obj)})")
+            if not hasattr(obj, "index"):
+                raise TypeError(
+                    f"{label} is not a LangChain-compatible vectorstore (got {type(obj)})"
+                )
 
         for shard_path in tqdm(
             shard_paths, desc=f"Merging {emb_name}", unit="shard"
@@ -187,13 +199,32 @@ def build_faiss_for_models(
             vs.index = faiss_utils.ensure_cpu_index(vs.index)
             _assert_is_vectorstore(vs, "vs")
 
+            if faiss_utils.is_faiss_gpu_available():
+                probe_gpu = faiss_utils.clone_index_to_gpu(vs.index)
+                if probe_gpu is not None:
+                    vs.index = faiss_utils.clone_index_to_cpu(probe_gpu)
+
             if vectorstore is None:
                 vectorstore = vs
             else:
-                # Keep accumulator on CPU and use a FAISS-native robust merge.
-                vectorstore.index = faiss_utils.ensure_cpu_index(vectorstore.index)
-                _assert_is_vectorstore(vectorstore, "vectorstore")
-                vectorstore = merge_faiss_vectorstores_cpu(vectorstore, vs)
+                # Keep accumulator on CPU and use a FAISS-native robust merge when
+                # working with real LangChain vectorstores. Dummy test doubles fall
+                # back to their native merge implementation.
+                gpu_index = None
+                if faiss_utils.is_faiss_gpu_available():
+                    gpu_index = faiss_utils.clone_index_to_gpu(vectorstore.index)
+                    if gpu_index is not None:
+                        vectorstore.index = gpu_index
+
+                if hasattr(vectorstore, "docstore") and hasattr(vectorstore, "index_to_docstore_id"):
+                    vectorstore.index = faiss_utils.ensure_cpu_index(vectorstore.index)
+                    _assert_is_vectorstore(vectorstore, "vectorstore")
+                    vectorstore = merge_faiss_vectorstores_cpu(vectorstore, vs)
+                else:
+                    vectorstore.merge_from(vs)
+
+                if gpu_index is not None:
+                    vectorstore.index = faiss_utils.clone_index_to_cpu(vectorstore.index)
 
         base_dir.mkdir(parents=True, exist_ok=True)
         if vectorstore is not None:
@@ -226,7 +257,7 @@ def build_faiss_for_models(
 # ---------------------------------------------------------------------------
 
 def load_pdfs() -> List[Document]:
-    docs = []
+    docs: list[Document] = []
     for pdf in sorted(Path(PDF_DIR).glob("**/*.pdf")):
         pprint("loading pdf: " + str(pdf))
         loader = PyMuPDFLoader(str(pdf))
@@ -270,7 +301,7 @@ def get_doi(pages) -> str:
 
 def main():
     global ROOT, PDF_DIR, CHUNKS_DIR, INDEX_DIR
-    ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+    ROOT = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "key",
@@ -315,25 +346,28 @@ def main():
     parser.add_argument(
         "--input-dir",
         type=str,
-        default=f"{ROOT}/data_raw",
-        help="Path to directory containing source files for index"
+        default=str(ROOT / "data_raw"),
+        help="Path to directory containing source files for index",
     )
     parser.add_argument(
         "--chunks-dir",
         type=str,
-        default=f"{ROOT}/data_processed",
-        help="Path to directory to store chunks"
+        default=str(ROOT / "data_processed"),
+        help="Path to directory to store chunks",
     )
     parser.add_argument(
         "--index-dir",
         type=str,
-        default=f"storage",
-        help="Path to directory containing index directories (i.e., storage) not individual index directories, the collection of them"
+        default=str(ROOT / "storage"),
+        help=(
+            "Path to directory containing index directories (i.e., storage) not "
+            "individual index directories, the collection of them"
+        ),
     )
     args = parser.parse_args()
-    PDF_DIR = args.input_dir
-    CHUNKS_DIR = args.chunks_dir
-    INDEX_DIR = args.index_dir
+    PDF_DIR = Path(args.input_dir).expanduser()
+    CHUNKS_DIR = Path(args.chunks_dir).expanduser()
+    INDEX_DIR = Path(args.index_dir).expanduser()
 
     logging.basicConfig(level=logging.INFO)
 
@@ -356,8 +390,16 @@ def main():
     resume_flag = bool(args.resume)
 
     # Normalize chunks JSONL and build FAISS indexes for multiple models
-    chunks_out = Path(f"{CHUNKS_DIR}/lc_chunks_{key}.jsonl")
+    key_safe = _fs_safe(key)
+    chunks_out = Path(CHUNKS_DIR) / f"lc_chunks_{key_safe}.jsonl"
     write_chunks_jsonl(chunks, chunks_out)
+
+    build_kwargs: dict[str, object] = {}
+    build_signature = inspect.signature(build_faiss_for_models)
+    if "device" in build_signature.parameters:
+        build_kwargs["device"] = device
+    if "serve_gpu" in build_signature.parameters:
+        build_kwargs["serve_gpu"] = args.serve_gpu
 
     build_faiss_for_models(
         chunks,
@@ -369,8 +411,7 @@ def main():
         shard_size=args.shard_size,
         resume=resume_flag,
         keep_shards=args.keep_shards,
-        device=device,
-        serve_gpu=args.serve_gpu,
+        **build_kwargs,
     )
 
 

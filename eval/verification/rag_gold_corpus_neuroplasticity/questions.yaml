@@ -1,0 +1,141 @@
+meta:
+  theme: Neuroplasticity (gold corpus)
+  source: Derived from Neuroplasticity.md upload
+  version: v1.0
+questions:
+- id: Q01
+  type: direct
+  question: Define neuroplasticity in one sentence.
+  gold_doc: NP01_definition_scope.md
+  answer: "The brain’s ability to reorganize its structure and function by forming, strengthening, weakening, or rerouting neural connections in response to experience, development, or injury."
+
+- id: Q02
+  type: direct
+  question: Who first reported long-term potentiation (LTP) and in what year?
+  gold_doc: NP04_ltp_ltd.md
+  answer: "Terje Lømo and Tim Bliss, 1973."
+
+- id: Q03
+  type: direct
+  question: Name two cellular mechanisms that underlie synaptic plasticity.
+  gold_doc: NP03_synaptic_plasticity_basics.md
+  answer: "Activity-dependent AMPA receptor trafficking/phosphorylation and changes in presynaptic glutamate release probability via NMDA-Ca²⁺ signaling cascades."
+
+- id: Q04
+  type: direct
+  question: List two therapy modalities that leverage neuroplasticity in stroke or brain-injury rehab.
+  gold_doc: NP06_applications_rehab.md
+  answer: "Constraint-induced movement therapy and functional electrical stimulation."
+
+- id: Q05
+  type: direct
+  question: Which neurotrophic factors increase with aerobic exercise and what domains of cognition often improve?
+  gold_doc: NP10_exercise_bdnf.md
+  answer: "BDNF, IGF-1, and VEGF increase; spatial memory and executive function commonly improve."
+
+- id: Q06
+  type: ambiguous
+  question: Tell me about plasticity from training.
+  gold_doc: NP09_meditation_art_music.md
+  clarify: Do you mean meditation, artistic training, music therapy, or physical exercise?
+  answer: "Meditation, artistic practice, music-supported therapy, and aerobic exercise all induce measurable structural/functional changes in attention, emotion, sensorimotor, and memory networks."
+
+- id: Q07
+  type: ambiguous
+  question: Explain sensory reassignment.
+  gold_doc: NP11_sensory_loss_reassignment.md
+  clarify: Should I focus on deafness, blindness, or human echolocation?
+  answer: "After sensory loss, deprived cortex can be repurposed to process inputs from other senses (cross-modal reassignment), e.g., auditory cortex supporting vision/touch in deafness or visual cortex supporting echolocation in blindness."
+
+- id: Q08
+  type: synthesis
+  question: Contrast structural and functional plasticity and give one example of each.
+  gold_docs:
+  - NP05_structural_vs_functional.md
+  - NP03_synaptic_plasticity_basics.md
+  answer: "Structural plasticity changes anatomy (e.g., gray-matter redistribution or neurogenesis); functional plasticity reroutes information flow (e.g., cross-modal reassignment or map expansion). Examples: hippocampal changes with learning (structural); reassignment after sensory deprivation (functional)."
+
+- id: Q09
+  type: synthesis
+  question: How do meditation and aerobic exercise each relate to brain plasticity?
+  gold_docs:
+  - NP09_meditation_art_music.md
+  - NP10_exercise_bdnf.md
+  answer: "Meditation is linked to thicker/denser cortex in attention–emotion circuits and altered connectivity; aerobic exercise upregulates BDNF/IGF-1/VEGF, enlarges hippocampal/prefrontal structures, and improves executive control and memory."
+
+- id: Q10
+  type: synthesis
+  question: Summarize the sensitive period concept using the cochlear implant case and connect it to functional reassignment.
+  gold_docs:
+  - NP14_cochlear_implants_sensitive_period.md
+  - NP11_sensory_loss_reassignment.md
+  answer: "Early cochlear implantation in prelingually deaf children (≈ first 2–4 years) supports typical language; outside this window, auditory cortex may be repurposed for other modalities, reducing implant benefit—an example of functional reassignment."
+
+- id: Q11
+  type: conflict
+  question: What proportion of amputees experience phantom limb sensations?
+  gold_docs:
+  - NP07_phantom_limb.md
+  - NP15_conflict_range_example.md
+  note: "Expect a range (60–80%) with caveat."
+  answer: "About 60–80% report phantom limb sensations; phantom pain correlates with maladaptive cortical reorganization."
+
+- id: Q12
+  type: freshness
+  question: What is the most up-to-date perspective on adult neurogenesis in humans from this corpus?
+  gold_doc: NP05_structural_vs_functional.md
+  note: "Answer should reflect 'not convincingly demonstrated in humans' in this corpus."
+  answer: "Adult neurogenesis has not been convincingly demonstrated in humans (per this corpus)."
+
+- id: Q13
+  type: direct
+  question: Name two homeostatic processes that stabilize neural network activity during plastic changes.
+  gold_doc: NP03_synaptic_plasticity_basics.md
+  answer: "Synaptic scaling and metaplasticity."
+
+- id: Q14
+  type: direct
+  question: Which proteins correlate with structural stabilization after LTP?
+  gold_doc: NP04_ltp_ltd.md
+  answer: "Increased postsynaptic scaffolds PSD-95 and Homer1c correlate with stabilization of synaptic enlargement after LTP."
+
+- id: Q15
+  type: direct
+  question: Give one cognitive benefit observed in multilinguals and one neural correlate.
+  gold_doc: NP12_multilingualism.md
+  answer: "Improved executive control; increased gray-matter density in inferior parietal cortex (and greater white-matter myelination with active use)."
+
+- id: Q16
+  type: multiturn
+  question: Discuss how plasticity explains recovery after brain injury.
+  gold_doc: NP06_applications_rehab.md
+  followups:
+  - Name one therapy and the likely mechanism.
+  - What evidence or limitations are noted?
+  answer: "Recovery reflects functional reorganization and recruitment of alternate pathways; targeted training (e.g., CIMT, FES) drives use-dependent cortical remapping and network strengthening, though mechanisms and evidence strength vary by modality."
+
+- id: Q17
+  type: synthesis
+  question: Relate chronic pain and phantom limb phenomena to cortical map reorganization.
+  gold_docs:
+  - NP08_chronic_pain.md
+  - NP07_phantom_limb.md
+  answer: "Both involve maladaptive remapping: persistent nociception and central sensitization distort somatotopic maps in chronic pain; post-amputation remapping and reduced representation spacing correlate with phantom sensations/pain."
+
+- id: Q18
+  type: direct
+  question: "Mention two key 20th-century figures or experiments that shaped modern views on plasticity."
+  gold_doc: NP02_history_milestones.md
+  answer: "Hubel & Wiesel’s critical-period work with monocular deprivation; Bliss & Lømo’s discovery of hippocampal LTP."
+
+- id: Q19
+  type: direct
+  question: Define metaplasticity in one sentence.
+  gold_doc: NP03_synaptic_plasticity_basics.md
+  answer: "A higher-order regulation of plasticity that adjusts the thresholds/conditions for inducing LTP or LTD to prevent saturation and stabilize overall activity."
+
+- id: Q20
+  type: direct
+  question: What term has been proposed for compounds that rapidly promote plasticity with therapeutic benefit for depression?
+  gold_doc: NP13_depression_psychoplastogens.md
+  answer: "Psychoplastogens."
