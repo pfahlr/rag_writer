@@ -22,7 +22,10 @@ def create_rag_retrieve_tool(key: str, index_dir: Path | None = None) -> Tool:
         Directory containing FAISS index directories. Defaults to ``[repo]/storage``.
     """
 
-    factory = RetrieverFactory(root_dir=index_dir.parent if index_dir else None)
+    factory = RetrieverFactory(
+        root_dir=index_dir.parent if index_dir else None,
+        storage_dir=index_dir if index_dir else None,
+    )
 
     def _run(
         query: str,
