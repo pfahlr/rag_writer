@@ -81,6 +81,7 @@ def test_build_question_invocation_for_asker_uses_key_and_index(tmp_path: Path) 
     assert route == "asker"
     assert "--key" in command
     assert "--index-dir" in command
+    assert str(tmp_path / "index") in command
     assert "--chunks-dir" in command
     assert "--embed-model" in command
 
