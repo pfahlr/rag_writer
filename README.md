@@ -799,7 +799,7 @@ over MCP:
 
 ```bash
 python -m src.cli.multi_agent "Find papers on transformers and call the time tool" \
-  --key default --mcp ./tools/mcp_server.py
+  --key default --mcp ./tools/mcp_server.py --index ./storage
 ```
 
 The command registers the `rag_retrieve` tool for vector search and loads any

@@ -5,11 +5,16 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from pathlib import Path
+
 import typer
 
 from ..core.llm import LLMFactory
 from ..tool import ToolRegistry, create_rag_retrieve_tool, run_agent
 from ..langchain.trace import configure_emitter
+
+
+DEFAULT_INDEX_DIR = Path(__file__).resolve().parents[2] / "storage"
 
 app = typer.Typer(add_completion=False)
 
@@ -20,6 +25,11 @@ def ask(
     key: str = typer.Option("default", "--key", "-k", help="FAISS index key"),
     mcp: str | None = typer.Option(
         None, "--mcp", help="Path to MCP server executable to register tools from"
+    ),
+    index: Path = typer.Option(
+        DEFAULT_INDEX_DIR,
+        "--index",
+        help="Directory containing FAISS index directories (default: [repo]/storage)",
     ),
     trace: bool = typer.Option(False, "--trace", help="Emit TRACE events"),
     trace_file: str | None = typer.Option(
@@ -33,7 +43,7 @@ def ask(
     qid = os.getenv("TRACE_QID")
 
     registry = ToolRegistry()
-    registry.register(create_rag_retrieve_tool(key))
+    registry.register(create_rag_retrieve_tool(key, index_dir=index))
     if mcp:
         asyncio.run(registry.register_mcp_server(mcp))
 
