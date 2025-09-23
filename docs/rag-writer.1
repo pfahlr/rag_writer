@@ -158,7 +158,6 @@ Start with specific collection:
 [\fB\-\-task\fR \fITASK\fR]
 [\fB\-\-json\fR \fIFILE\fR]
 [\fB\-\-key\fR \fIKEY\fR]
-[\fB\-\-index\fR \fIPATH\fR]
 [\fB\-\-k\fR \fINUM\fR]
 [\fB\-\-chunks-file\fR \fIFILE\fR]
 [\fB\-\-output\fR \fIFILE\fR]
@@ -175,10 +174,7 @@ The task/prompt for the LLM
 JSON file with job specification
 .TP
 .B \-\-key \fIKEY\fR
-Collection key for RAG (default: default). One of \fB--key\fR or \fB--index\fR is required.
-.TP
-.B \-\-index \fIPATH\fR
-Path to a FAISS index directory (or \fIindex.faiss\fR) when addressing an explicit index location.
+Collection key for RAG (default: default). This key must match the embedding model used when building the index.
 .TP
 .B \-\-k \fINUM\fR
 Top-k results for retrieval (default: 30)
