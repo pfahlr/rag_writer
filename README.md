@@ -239,7 +239,9 @@ make repack-faiss FAISS_DIR=storage/faiss_science__BAAI-bge-small-en-v1.5 OUT=st
 - `--ce-model`: cross encoder model (default: `cross-encoder/ms-marco-MiniLM-L-6-v2`)
 - `--chunks-dir`: directory containing the chunk JSONL written by `lc_build_index`
 - `--chunks-file`: explicit path to a chunk JSONL file (skips `--chunks-dir` lookup)
+- `--chunks-dir`: directory containing chunk metadata generated at index build time (default: `<repo>/data_processed`)
 - `--index-dir`: directory containing FAISS index folders (usually the same `--index-dir` passed to `lc_build_index`)
+
 
 **Usage**:
 
@@ -344,6 +346,7 @@ make lc-batch FILE="examples/sample_jobs_1A1.jsonl" KEY="biology" PARALLEL=4
 - `--input-dir`: Directory containing source PDFs to ingest (default: `data_raw/`)
 - `--chunks-dir`: Directory for normalized chunk JSONL output (default: `data_processed/`)
 - `--index-dir`: Directory that will contain FAISS index folders (default: `storage/`)
+
 
 **Usage**:
 ```bash

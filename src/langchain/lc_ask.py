@@ -22,7 +22,8 @@ from langchain_openai import ChatOpenAI
 from langchain.chains import RetrievalQA
 
 # Ensure project root ('/app') is on sys.path so we can import 'src.*'
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+project_root = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(project_root))
 
 from src.langchain.retriever_factory import make_retriever
 from src.langchain.trace import configure_emitter
@@ -30,6 +31,73 @@ from src.langchain.trace import configure_emitter
 
 def _fs_safe(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9._-]+", "-", value)
+
+ROOT = project_root
+
+
+def _fs_safe(value: str) -> str:
+    """Return a filesystem-safe slug for embedding model names."""
+
+    return re.sub(r"[^a-zA-Z0-9._-]+", "-", value)
+
+
+def _resolve_paths(
+    key: str,
+    embed_model: str,
+    *,
+    chunks_dir: Path,
+    index_dir: Path,
+) -> tuple[Path, Path, Path]:
+    """Derive chunk metadata and FAISS directories based on CLI arguments."""
+
+    chunk_path = Path(chunks_dir) / f"lc_chunks_{key}.jsonl"
+    base_dir = Path(index_dir) / f"faiss_{key}__{_fs_safe(embed_model)}"
+    repacked_dir = base_dir.parent / f"{base_dir.name}_repacked"
+    return chunk_path, base_dir, repacked_dir
+
+
+def _get_embedding_dimension(embedder: HuggingFaceEmbeddings) -> int | None:
+    """Return the output dimension for a HuggingFace embedding model."""
+
+    client = getattr(embedder, "client", None)
+    if client is None:
+        return None
+
+    getter = getattr(client, "get_sentence_embedding_dimension", None)
+    if callable(getter):
+        try:
+            return int(getter())
+        except Exception:
+            return None
+
+    # Fallback for SentenceTransformer-like clients that expose `embedding_dim`
+    dim = getattr(client, "embedding_dim", None)
+    if isinstance(dim, int):
+        return dim
+
+    return None
+
+
+def _validate_index_embedding_compatibility(
+    embedder: HuggingFaceEmbeddings, vectorstore: FAISS, index_path: Path
+) -> None:
+    """Ensure the FAISS index dimension matches the embedding model output."""
+
+    index_dim = getattr(getattr(vectorstore, "index", None), "d", None)
+    embed_dim = _get_embedding_dimension(embedder)
+
+    if index_dim is None or embed_dim is None:
+        return
+
+    if index_dim != embed_dim:
+        model_name = getattr(embedder, "model_name", "(unknown)")
+        raise SystemExit(
+            "[lc_ask] Embedding dimension mismatch: "
+            f"index at {index_path} expects dimension {index_dim}, "
+            f"but embedding model '{model_name}' produces {embed_dim}.\n"
+            "  • Pass --embed-model with the model used to build the index, "
+            "or rebuild the index for the requested model."
+        )
 
 
 def _load_chunks_jsonl(path: Path) -> list[Document]:
@@ -176,10 +244,24 @@ def main():
         dest="chunks_file",
         help="Explicit path to chunk JSONL (overrides --chunks-dir lookup)",
     )
+
+    parser.add_argument("--embed-model", default="BAAI/bge-small-en-v1.5")
+    parser.add_argument(
+        "--input-dir",
+        type=str,
+        default=str(ROOT / "data_raw"),
+        help="Path to directory containing source files for index",
+    )
+
     parser.add_argument(
         "--index-dir",
-        default=str(root / "storage"),
-        help="Directory containing FAISS index outputs",
+        type=str,
+        default=str(ROOT / "storage"),
+        help=(
+            "Path to directory containing index directories (i.e., storage) not "
+            "individual index directories, the collection of them"
+        ),
+
     )
     args = parser.parse_args()
 
@@ -213,6 +295,8 @@ def main():
         base_dir = index_dir / f"faiss_{key_safe}__{emb_name_safe}"
         repacked_dir = base_dir.parent / f"{base_dir.name}_repacked"
 
+        # Prefer a repacked/merged index if available
+        faiss_dir = None
         for cand in (repacked_dir, base_dir):
             if (cand / "index.faiss").exists():
                 faiss_dir = cand
@@ -235,18 +319,25 @@ def main():
     else:
         faiss_dir, key_safe = _resolve_faiss_directory(Path(args.index_path).expanduser())
 
-    chunks_path = _locate_chunks_file(
-        explicit_path=args.chunks_file,
-        chunks_dir=chunks_dir,
-        key_safe=key_safe,
-        index_dir=faiss_dir,
+    chunks_path, base_dir, repacked_dir = _resolve_paths(
+        key=args.key,
+        embed_model=args.embed_model,
+        chunks_dir=Path(args.chunks_dir),
+        index_dir=Path(args.index_dir),
     )
     if chunks_path is not None:
         docs = _load_chunks_jsonl(chunks_path)
+
+    if not chunks_path.exists():
+        raise SystemExit(
+            f"[lc_ask] chunks not found: {chunks_path} – run lc_build_index for KEY={args.key}"
+        )
+ 
     embedder = HuggingFaceEmbeddings(model_name=args.embed_model)
     vectorstore = FAISS.load_local(
         str(faiss_dir), embeddings=embedder, allow_dangerous_deserialization=True
     )
+    _validate_index_embedding_compatibility(embedder, vectorstore, faiss_dir)
 
     if docs is None:
         docs = _extract_docs_from_vectorstore(vectorstore)
