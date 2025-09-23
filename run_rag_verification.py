@@ -597,9 +597,13 @@ def script_help_text(script: Path) -> str:
 def determine_flag(script: Path, candidates: Sequence[str]) -> str | None:
     help_text = script_help_text(script)
     advertised = _advertised_flags(help_text)
+    try:
+        source = script.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
     for flag in candidates:
-        if flag and flag in advertised:
-            return flag
+        if flag and flag in source:
+          return flag
     return None
 
 
@@ -625,7 +629,7 @@ def build_question_command(
     """
 
     argv: List[str] = [sys.executable, str(script), *base_args]
-    flag = _script_supports_flag(script, ["--question", "-q"])
+    flag = determine_flag(script, ["--question", "-q"])
     if flag:
         argv.extend([flag, prompt])
     else:
@@ -845,16 +849,16 @@ def build_question_invocation(
     route = "multi" if use_multi else "asker"
     if not use_multi:
         base_args: List[str] = []
-        key_flag = determine_flag(asker, ["--key"]) or "--key"
+        key_flag = determine_flag(asker, ["--key"])
         if key_flag:
             base_args.extend([key_flag, index_key])
-        index_flag = determine_flag(asker, ["--index-dir", "--index"]) or "--index-dir"
+        index_flag = determine_flag(asker, ["--index-dir", "--index"])
         if index_flag:
             base_args.extend([index_flag, str(index_dir)])
-        chunks_flag = determine_flag(asker, ["--chunks-dir"]) or "--chunks-dir"
+        chunks_flag = determine_flag(asker, ["--chunks-dir"])
         if chunks_flag:
             base_args.extend([chunks_flag, str(chunks_dir)])
-        embed_flag = determine_flag(asker, ["--embed-model"]) or "--embed-model"
+        embed_flag = determine_flag(asker, ["--embed-model"])
         if embed_flag:
             base_args.extend([embed_flag, embed_model])
         command = build_question_command(asker, question.prompt, base_args)
@@ -867,10 +871,10 @@ def build_question_invocation(
                 command.extend([topk_flag, str(topk)])
     else:
         base_args: list[str] = []
-        key_flag = determine_flag(multi, ["--key", "-k"]) or "--key"
+        key_flag = determine_flag(multi, ["--key", "-k"])
         if key_flag:
             base_args.extend([key_flag, index_key])
-        index_flag = determine_flag(multi, ["--index-dir", "--index"]) or "--index-dir"
+        index_flag = determine_flag(multi, ["--index-dir", "--index"])
         if index_flag:
             base_args.extend([index_flag, str(index_dir)])
         command = build_question_command(script, question.prompt, base_args)
