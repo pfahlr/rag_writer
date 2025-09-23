@@ -177,7 +177,6 @@ def run_multi_agent(
     command = [
         sys.executable,
         str(script_path),
-        "ask",
         question,
         "--key",
         key,

@@ -107,10 +107,10 @@ def test_run_lc_ask_invokes_cli_with_question_and_key(
     assert captured["cwd"] == repo_root
 
 
-def test_run_multi_agent_invokes_ask_subcommand(
+def test_run_multi_agent_invokes_cli_directly(
     monkeypatch: pytest.MonkeyPatch, repo_root: Path
 ) -> None:
-    """``run_multi_agent`` should execute the Typer ``ask`` sub-command."""
+    """``run_multi_agent`` should execute the Typer CLI with question and key."""
 
     captured: dict[str, object] = {}
 
@@ -139,14 +139,7 @@ def test_run_multi_agent_invokes_ask_subcommand(
         cwd=repo_root,
     )
 
-    expected = [
-        sys.executable,
-        str(script_path),
-        "ask",
-        question,
-        "--key",
-        key,
-    ]
+    expected = [sys.executable, str(script_path), question, "--key", key]
     assert captured["command"] == expected
     assert captured["cwd"] == repo_root
 
