@@ -28,6 +28,10 @@ from src.langchain.retriever_factory import make_retriever
 from src.langchain.trace import configure_emitter
 
 
+def _fs_safe(value: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9._-]+", "-", value)
+
+
 def _load_chunks_jsonl(path: Path) -> list[Document]:
     docs = []
     with path.open("r", encoding="utf-8") as f:
@@ -38,6 +42,8 @@ def _load_chunks_jsonl(path: Path) -> list[Document]:
 
 
 def main():
+    root = Path(__file__).resolve().parents[2]
+
     parser = argparse.ArgumentParser()
     parser.add_argument("question", nargs="?", metavar="QUESTION", help="Question to ask")
     parser.add_argument(
@@ -69,6 +75,16 @@ def main():
         "--trace-file",
         help="Optional path to tee TRACE events to disk",
     )
+    parser.add_argument(
+        "--chunks-dir",
+        default=str(root / "data_processed"),
+        help="Directory containing lc_build_index chunk outputs",
+    )
+    parser.add_argument(
+        "--index-dir",
+        default=str(root / "storage"),
+        help="Directory containing FAISS index outputs",
+    )
     args = parser.parse_args()
 
     emitter = configure_emitter(args.trace, trace_file=args.trace_file)
@@ -88,7 +104,11 @@ def main():
     if not question:
         raise SystemExit("No question provided")
 
-    chunks_path = Path(f"data_processed/lc_chunks_{args.key}.jsonl")
+    chunks_dir = Path(args.chunks_dir).expanduser()
+    index_dir = Path(args.index_dir).expanduser()
+
+    key_safe = _fs_safe(args.key)
+    chunks_path = chunks_dir / f"lc_chunks_{key_safe}.jsonl"
     if not chunks_path.exists():
         raise SystemExit(
             f"[lc_ask] chunks not found: {chunks_path} – run lc_build_index for KEY={args.key}"
@@ -96,8 +116,8 @@ def main():
     docs = _load_chunks_jsonl(chunks_path)
 
     emb_name_safe = re.sub(r"[^a-zA-Z0-9._-]+", "-", args.embed_model)
-    base_dir = Path(f"storage/faiss_{args.key}__{emb_name_safe}")
-    repacked_dir = Path(str(base_dir) + "_repacked")
+    base_dir = index_dir / f"faiss_{key_safe}__{emb_name_safe}"
+    repacked_dir = base_dir.parent / f"{base_dir.name}_repacked"
 
     # Prefer a repacked/merged index if available
     faiss_dir = None

@@ -236,6 +236,8 @@ make repack-faiss FAISS_DIR=storage/faiss_science__BAAI-bge-small-en-v1.5 OUT=st
 - `--k`: number of results to return from vector database
 - `--embed-model`: the model index to query (default:`BAAI/bge-small-en-v1.5`)
 - `--ce-model`: cross encoder model (default: `cross-encoder/ms-marco-MiniLM-L-6-v2`)
+- `--chunks-dir`: directory containing the chunk JSONL written by `lc_build_index`
+- `--index-dir`: directory containing FAISS index folders (usually the same `--index-dir` passed to `lc_build_index`)
 
 **Usage**:
 
@@ -334,6 +336,9 @@ make lc-batch FILE="examples/sample_jobs_1A1.jsonl" KEY="biology" PARALLEL=4
 - `--no-gpu`: Force embeddings to run on CPU even if accelerators are available
 - `--serve-gpu`: After saving, copy the in-memory FAISS index to GPU for serving
 - `--faiss-threads`: Override FAISS build thread count (default: host CPU count)
+- `--input-dir`: Directory containing source PDFs to ingest (default: `data_raw/`)
+- `--chunks-dir`: Directory for normalized chunk JSONL output (default: `data_processed/`)
+- `--index-dir`: Directory that will contain FAISS index folders (default: `storage/`)
 
 **Usage**:
 ```bash
