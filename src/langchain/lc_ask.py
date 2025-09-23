@@ -210,8 +210,6 @@ def main():
     parser.add_argument("--json", dest="json_path", help="JSON job file containing 'question'")
     key_group = parser.add_mutually_exclusive_group(required=True)
     key_group.add_argument("--key", help="collection key used at index time")
-
-
     parser.add_argument("--embed-model", default="BAAI/bge-small-en-v1.5")
 
     parser.add_argument(
@@ -245,7 +243,6 @@ def main():
         help="Explicit path to chunk JSONL (overrides --chunks-dir lookup)",
     )
 
-    parser.add_argument("--embed-model", default="BAAI/bge-small-en-v1.5")
     parser.add_argument(
         "--input-dir",
         type=str,
@@ -255,13 +252,14 @@ def main():
 
     parser.add_argument(
         "--index-dir",
+        "--index",
+        dest="index_dir",
         type=str,
         default=str(ROOT / "storage"),
         help=(
             "Path to directory containing index directories (i.e., storage) not "
             "individual index directories, the collection of them"
         ),
-
     )
     args = parser.parse_args()
 
