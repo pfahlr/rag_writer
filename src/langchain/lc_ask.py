@@ -35,6 +35,8 @@ def _fs_safe(value: str) -> str:
 
 ROOT = project_root
 
+MODES_REQUIRING_CHUNKS = {"bm25", "hybrid", "parent", "hybrid+compression"}
+
 
 def _resolve_paths(
     key: str,
@@ -282,7 +284,7 @@ def main():
     )
     if chunks_path is not None:
         docs = _load_chunks_jsonl(chunks_path)
-    else:
+    elif args.mode in MODES_REQUIRING_CHUNKS:
         raise SystemExit(
             f"[lc_ask] chunks not found: {expected_chunks} – run lc_build_index for KEY={args.key}"
         )
@@ -297,8 +299,7 @@ def main():
         docs = _extract_docs_from_vectorstore(vectorstore)
 
     docs_for_retriever = docs or []
-    modes_requiring_docs = {"bm25", "hybrid", "parent", "hybrid+compression"}
-    if not docs_for_retriever and args.mode in modes_requiring_docs:
+    if not docs_for_retriever and args.mode in MODES_REQUIRING_CHUNKS:
         raise SystemExit(
             f"[lc_ask] Document chunks required for mode '{args.mode}'. Provide --key or --chunks-file"
         )
