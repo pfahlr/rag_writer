@@ -857,7 +857,7 @@ def build_question_invocation(
             if topk_flag:
                 command.extend([topk_flag, str(topk)])
     else:
-        base_args: list[str] = ["ask"]
+        base_args: list[str] = []
         key_flag = determine_flag(multi, ["--key", "-k"]) or "--key"
         if key_flag:
             base_args.extend([key_flag, index_key])

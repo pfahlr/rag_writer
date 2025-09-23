@@ -85,7 +85,9 @@ def test_build_question_invocation_for_asker_uses_key_and_index(tmp_path: Path) 
     assert "--embed-model" in command
 
 
-def test_build_question_invocation_for_multi_agent_includes_subcommand(tmp_path: Path) -> None:
+def test_build_question_invocation_for_multi_agent_omits_legacy_subcommand(
+    tmp_path: Path,
+) -> None:
     asker = Path("src/langchain/lc_ask.py").resolve()
     multi = Path("src/cli/multi_agent.py").resolve()
     question = Question(
@@ -108,6 +110,6 @@ def test_build_question_invocation_for_multi_agent_includes_subcommand(tmp_path:
     )
 
     assert route == "multi"
-    assert command[2] == "ask"
+    assert "ask" not in command
     assert "--key" in command
     assert "--index" in command
