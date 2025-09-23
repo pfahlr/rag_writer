@@ -180,6 +180,15 @@ Top-k results for retrieval (default: 30)
 .TP
 .B \-\-output \fIFILE\fR
 Output file path
+.TP
+.B \-\-chunks-dir \fIDIR\fR
+Directory containing chunk metadata produced at index build time (default: repo/data_processed)
+.TP
+.B \-\-index-dir \fIDIR\fR
+Directory containing FAISS index directories (default: repo/storage)
+.TP
+.B \-\-input-dir \fIDIR\fR
+Directory containing the raw corpus used when building the index (default: repo/data_raw)
 .SS EXAMPLES
 .TP
 Ask a simple question:

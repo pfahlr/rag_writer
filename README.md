@@ -236,6 +236,9 @@ make repack-faiss FAISS_DIR=storage/faiss_science__BAAI-bge-small-en-v1.5 OUT=st
 - `--k`: number of results to return from vector database
 - `--embed-model`: the model index to query (default:`BAAI/bge-small-en-v1.5`)
 - `--ce-model`: cross encoder model (default: `cross-encoder/ms-marco-MiniLM-L-6-v2`)
+- `--chunks-dir`: directory containing chunk metadata generated at index build time (default: `<repo>/data_processed`)
+- `--index-dir`: directory holding FAISS index directories (default: `<repo>/storage`)
+- `--input-dir`: source corpus directory used during indexing (default: `<repo>/data_raw`)
 
 **Usage**:
 
