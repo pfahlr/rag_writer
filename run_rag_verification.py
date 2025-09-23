@@ -38,6 +38,7 @@ SUPPORTED_TYPES = {
 }
 
 ANSI_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+_FLAG_PATTERN = re.compile(r"(?<![\w-])(-{1,2}[A-Za-z0-9][A-Za-z0-9-]*)(?![\w-])")
 
 
 def _pdf_escape(text: str) -> str:
@@ -588,6 +589,8 @@ def script_base_command(script: Path) -> list[str]:
 
     return [sys.executable, str(script)]
 
+def _advertised_flags(help_text: str) -> set[str]:
+    return {match.group(1) for match in _FLAG_PATTERN.finditer(help_text)}
 
 @lru_cache(maxsize=None)
 def script_help_text(script: Path) -> str:
@@ -606,9 +609,14 @@ def script_help_text(script: Path) -> str:
 
 def determine_flag(script: Path, candidates: Sequence[str]) -> str | None:
     help_text = script_help_text(script)
+    advertised = _advertised_flags(help_text)
+    try:
+        source = script.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
     for flag in candidates:
-        if flag and flag in help_text:
-            return flag
+        if flag and flag in source:
+          return flag
     return None
 
 
@@ -618,8 +626,9 @@ def _script_supports_flag(
     """Return the first flag advertised by the script's help output."""
 
     help_text = script_help_text(script)
+    advertised = _advertised_flags(help_text)
     for flag in flag_candidates:
-        if flag and flag in help_text:
+        if flag and flag in advertised:
             return flag
     return None
 
@@ -632,8 +641,10 @@ def build_question_command(
     If the script advertises a question flag, use it; otherwise pass the prompt positionally.
     """
 
+
     argv: List[str] = [*script_base_command(script), *base_args]
     flag = _script_supports_flag(script, ["--question", "-q"])
+
     if flag:
         argv.extend([flag, prompt])
     else:
@@ -850,20 +861,23 @@ def build_question_invocation(
     if script is None:
         raise RuntimeError("No asker script available")
     route = "multi" if use_multi else "asker"
+    def _append_flag(script_path: Path, args: list[str], candidates: list[str], value: str) -> None:
+        flag = determine_flag(script_path, candidates)
+        if not flag:
+            # Typer-based CLIs such as multi_agent.py require running via ``-m`` to
+            # expose subcommand help. When invoked as a script from the harness the
+            # ``--help`` probe used by ``determine_flag`` fails, so fall back to the
+            # primary candidate.
+            flag = candidates[0]
+        args.extend([flag, value])
+
     if not use_multi:
         base_args: List[str] = []
-        key_flag = determine_flag(asker, ["--key"]) or "--key"
-        if key_flag:
-            base_args.extend([key_flag, index_key])
-        index_flag = determine_flag(asker, ["--index-dir", "--index"]) or "--index-dir"
-        if index_flag:
-            base_args.extend([index_flag, str(index_dir)])
-        chunks_flag = determine_flag(asker, ["--chunks-dir"]) or "--chunks-dir"
-        if chunks_flag:
-            base_args.extend([chunks_flag, str(chunks_dir)])
-        embed_flag = determine_flag(asker, ["--embed-model"]) or "--embed-model"
-        if embed_flag:
-            base_args.extend([embed_flag, embed_model])
+        _append_flag(asker, base_args, ["--key"], index_key)
+        _append_flag(asker, base_args, ["--index-dir", "--index"], str(index_dir))
+        _append_flag(asker, base_args, ["--chunks-dir"], str(chunks_dir))
+        _append_flag(asker, base_args, ["--embed-model"], embed_model)
+
         command = build_question_command(asker, question.prompt, base_args)
         docs_flag = determine_flag(asker, ["--docs", "--doc", "--gold"])
         if docs_flag:
@@ -874,12 +888,9 @@ def build_question_invocation(
                 command.extend([topk_flag, str(topk)])
     else:
         base_args: list[str] = []
-        key_flag = determine_flag(multi, ["--key", "-k"]) or "--key"
-        if key_flag:
-            base_args.extend([key_flag, index_key])
-        index_flag = determine_flag(multi, ["--index-dir", "--index"]) or "--index-dir"
-        if index_flag:
-            base_args.extend([index_flag, str(index_dir)])
+        _append_flag(multi, base_args, ["--key", "-k"], index_key)
+        _append_flag(multi, base_args, ["--index-dir", "--index"], str(index_dir))
+
         command = build_question_command(script, question.prompt, base_args)
         if question.clarify:
             clarify_flag = determine_flag(
