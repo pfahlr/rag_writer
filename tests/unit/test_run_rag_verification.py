@@ -113,3 +113,48 @@ def test_build_question_invocation_for_multi_agent_omits_legacy_subcommand(
     assert "ask" not in command
     assert "--key" in command
     assert "--index-dir" in command
+
+
+def test_build_question_invocation_skips_missing_optional_flags(tmp_path: Path) -> None:
+    script = tmp_path / "simple_asker.py"
+    script.write_text(
+        """
+import argparse
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--question", required=False)
+    parser.parse_args()
+
+
+if __name__ == "__main__":
+    main()
+""",
+        encoding="utf-8",
+    )
+
+    question = Question(
+        qid="q3",
+        qtype="single",
+        prompt="Where is the library?",
+        gold_docs=[],
+        answer="",
+    )
+
+    command, route = build_question_invocation(
+        question=question,
+        index_dir=tmp_path / "index",
+        chunks_dir=tmp_path / "chunks",
+        asker=script,
+        multi=None,
+        topk=None,
+        index_key="local",
+        embed_model="intentionally-unused",
+    )
+
+    assert route == "asker"
+    assert command[:2] == [sys.executable, str(script)]
+    assert command[-2:] == ["--question", question.prompt]
+    for forbidden in ("--key", "--index-dir", "--chunks-dir", "--embed-model"):
+        assert forbidden not in command
