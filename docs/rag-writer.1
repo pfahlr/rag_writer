@@ -476,6 +476,12 @@ The index builder CLI supports the following arguments:
 \fB--serve-gpu\fP — after saving, copy the in-memory FAISS index to GPU for serving
 .IP \[bu] 2
 \fB--faiss-threads\fP \fIN\fP — override FAISS thread count (defaults to host CPU count)
+.IP \[bu] 2
+\fB--input-dir\fP \fIPATH\fP — directory containing source PDFs (defaults to \fIdata_raw\fP)
+.IP \[bu] 2
+\fB--chunks-dir\fP \fIPATH\fP — directory for normalized chunk JSONL output (defaults to \fIdata_processed\fP)
+.IP \[bu] 2
+\fB--index-dir\fP \fIPATH\fP — directory that holds FAISS index folders (defaults to \fIstorage\fP)
 .sp
 .nf
 

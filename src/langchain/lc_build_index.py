@@ -44,9 +44,9 @@ if VIRTUAL_CPU_COUNT > (os.cpu_count() or 1):
 faiss_utils.set_faiss_threads(VIRTUAL_CPU_COUNT)
 
 ROOT = Path(__file__).resolve().parents[2]
-PDF_DIR = str(ROOT / "data_raw")
-CHUNKS_DIR = str(ROOT / "data_processed")
-INDEX_DIR = str(ROOT / "storage")
+PDF_DIR: Path | str = ROOT / "data_raw"
+CHUNKS_DIR: Path | str = ROOT / "data_processed"
+INDEX_DIR: Path | str = ROOT / "storage"
 
 DOI_REGEX = re.compile(r'10\.\d{4,9}/[-._;()/:a-zA-Z0-9]*[a-zA-Z0-9]')
 
@@ -122,11 +122,13 @@ def build_faiss_for_models(
     metadatas = [d.metadata for d in chunks]
     n_shards = math.ceil(len(texts) / shard_size)
 
+    key_safe = _fs_safe(key)
+
     for emb in tqdm(
         embedding_models, desc="Embedding models", unit="model", leave=True
     ):
         emb_name = _fs_safe(emb)
-        base_dir = Path(f"{INDEX_DIR}/faiss_{key}__{emb_name}")
+        base_dir = Path(INDEX_DIR) / f"faiss_{key_safe}__{emb_name}"
         shards_dir = base_dir / "shards"
         shards_dir.mkdir(parents=True, exist_ok=True)
 
@@ -255,7 +257,7 @@ def build_faiss_for_models(
 # ---------------------------------------------------------------------------
 
 def load_pdfs() -> List[Document]:
-    docs = []
+    docs: list[Document] = []
     for pdf in sorted(Path(PDF_DIR).glob("**/*.pdf")):
         pprint("loading pdf: " + str(pdf))
         loader = PyMuPDFLoader(str(pdf))
@@ -299,7 +301,7 @@ def get_doi(pages) -> str:
 
 def main():
     global ROOT, PDF_DIR, CHUNKS_DIR, INDEX_DIR
-    ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+    ROOT = Path(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "key",
@@ -344,25 +346,28 @@ def main():
     parser.add_argument(
         "--input-dir",
         type=str,
-        default=f"{ROOT}/data_raw",
-        help="Path to directory containing source files for index"
+        default=str(ROOT / "data_raw"),
+        help="Path to directory containing source files for index",
     )
     parser.add_argument(
         "--chunks-dir",
         type=str,
-        default=f"{ROOT}/data_processed",
-        help="Path to directory to store chunks"
+        default=str(ROOT / "data_processed"),
+        help="Path to directory to store chunks",
     )
     parser.add_argument(
         "--index-dir",
         type=str,
-        default=f"storage",
-        help="Path to directory containing index directories (i.e., storage) not individual index directories, the collection of them"
+        default=str(ROOT / "storage"),
+        help=(
+            "Path to directory containing index directories (i.e., storage) not "
+            "individual index directories, the collection of them"
+        ),
     )
     args = parser.parse_args()
-    PDF_DIR = args.input_dir
-    CHUNKS_DIR = args.chunks_dir
-    INDEX_DIR = args.index_dir
+    PDF_DIR = Path(args.input_dir).expanduser()
+    CHUNKS_DIR = Path(args.chunks_dir).expanduser()
+    INDEX_DIR = Path(args.index_dir).expanduser()
 
     logging.basicConfig(level=logging.INFO)
 
@@ -385,7 +390,8 @@ def main():
     resume_flag = bool(args.resume)
 
     # Normalize chunks JSONL and build FAISS indexes for multiple models
-    chunks_out = Path(f"{CHUNKS_DIR}/lc_chunks_{key}.jsonl")
+    key_safe = _fs_safe(key)
+    chunks_out = Path(CHUNKS_DIR) / f"lc_chunks_{key_safe}.jsonl"
     write_chunks_jsonl(chunks, chunks_out)
 
     build_kwargs: dict[str, object] = {}
