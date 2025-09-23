@@ -197,9 +197,9 @@ def test_lc_ask_supports_question_flag(monkeypatch, tmp_path):
     monkeypatch.setattr(lc_ask.FAISS, "load_local", lambda *args, **kwargs: DummyVectorStore())
     monkeypatch.setattr(lc_ask, "make_retriever", lambda **kwargs: object())
     monkeypatch.setattr(
-        lc_ask.RetrievalQA,
-        "from_chain_type",
-        lambda *args, **kwargs: DummyChain(),
+        lc_ask,
+        "RetrievalQA",
+        SimpleNamespace(from_chain_type=lambda *args, **kwargs: DummyChain()),
     )
     monkeypatch.setattr(lc_ask, "ChatOpenAI", lambda **kwargs: DummyLLM())
 
@@ -261,7 +261,9 @@ def test_lc_ask_accepts_custom_directories(monkeypatch, tmp_path):
 
     def fake_load_chunks(path):
         chunk_call["path"] = Path(path)
-        return [lc_ask.Document("Sample", {})]
+        return [
+            lc_ask.Document(page_content="Sample", metadata={})
+        ]
 
     def fake_load_local(path, *args, **kwargs):
         faiss_call["path"] = Path(path)
@@ -280,9 +282,9 @@ def test_lc_ask_accepts_custom_directories(monkeypatch, tmp_path):
         temperature = 0
 
     monkeypatch.setattr(
-        lc_ask.RetrievalQA,
-        "from_chain_type",
-        lambda *args, **kwargs: DummyChain(),
+        lc_ask,
+        "RetrievalQA",
+        SimpleNamespace(from_chain_type=lambda *args, **kwargs: DummyChain()),
     )
     monkeypatch.setattr(lc_ask, "ChatOpenAI", lambda **kwargs: DummyLLM())
 
@@ -308,82 +310,4 @@ def test_lc_ask_accepts_custom_directories(monkeypatch, tmp_path):
     assert chunk_call["path"] == chunk_file
     assert faiss_call["path"] == faiss_dir
 
-
-def test_lc_ask_accepts_index_path(monkeypatch, tmp_path):
-    _install_dummy_langchain_modules(monkeypatch)
-    lc_ask = importlib.import_module("src.langchain.lc_ask")
-
-    key = "custom/index"
-    question = "What is neuroplasticity?"
-
-    chunks_dir = tmp_path / "chunks"
-    chunks_dir.mkdir()
-    safe_key = "custom-index"
-    chunk_file = chunks_dir / f"lc_chunks_{safe_key}.jsonl"
-    chunk_file.write_text(
-        json.dumps({"text": "Sample", "metadata": {}}) + "\n",
-        encoding="utf-8",
-    )
-
-    index_root = tmp_path / "index"
-    faiss_dir = index_root / f"faiss_{safe_key}__BAAI-bge-small-en-v1.5"
-    faiss_dir.mkdir(parents=True, exist_ok=True)
-    (faiss_dir / "index.faiss").write_text("", encoding="utf-8")
-
-    class DummyEmbeddings:
-        pass
-
-    class DummyVectorStore:
-        pass
-
-    chunk_call = {}
-    faiss_call = {}
-
-    monkeypatch.setattr(lc_ask, "HuggingFaceEmbeddings", lambda model_name: DummyEmbeddings())
-
-    def fake_load_chunks(path):
-        chunk_call["path"] = Path(path)
-        return [lc_ask.Document("Sample", {})]
-
-    def fake_load_local(path, *args, **kwargs):
-        faiss_call["path"] = Path(path)
-        return DummyVectorStore()
-
-    monkeypatch.setattr(lc_ask, "_load_chunks_jsonl", fake_load_chunks)
-    monkeypatch.setattr(lc_ask.FAISS, "load_local", fake_load_local)
-    monkeypatch.setattr(lc_ask, "make_retriever", lambda **kwargs: object())
-
-    class DummyChain:
-        def invoke(self, payload):
-            return {"result": "ok", "source_documents": []}
-
-    class DummyLLM:
-        model_name = "dummy"
-        temperature = 0
-
-    monkeypatch.setattr(
-        lc_ask.RetrievalQA,
-        "from_chain_type",
-        lambda *args, **kwargs: DummyChain(),
-    )
-    monkeypatch.setattr(lc_ask, "ChatOpenAI", lambda **kwargs: DummyLLM())
-    monkeypatch.setenv("TRACE_QID", "test-qid")
-    monkeypatch.setattr(
-        lc_ask.sys,
-        "argv",
-        [
-            "lc_ask.py",
-            "--index",
-            str(faiss_dir),
-            "--question",
-            question,
-            "--chunks-dir",
-            str(chunks_dir),
-        ],
-    )
-
-    lc_ask.main()
-
-    assert chunk_call["path"] == chunk_file
-    assert faiss_call["path"] == faiss_dir
 

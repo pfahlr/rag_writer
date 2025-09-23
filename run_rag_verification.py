@@ -839,7 +839,7 @@ def build_question_invocation(
         key_flag = determine_flag(asker, ["--key"]) or "--key"
         if key_flag:
             base_args.extend([key_flag, index_key])
-        index_flag = determine_flag(asker, ["--index", "--index-dir"]) or "--index-dir"
+        index_flag = determine_flag(asker, ["--index-dir", "--index"]) or "--index-dir"
         if index_flag:
             base_args.extend([index_flag, str(index_dir)])
         chunks_flag = determine_flag(asker, ["--chunks-dir"]) or "--chunks-dir"
@@ -861,7 +861,7 @@ def build_question_invocation(
         key_flag = determine_flag(multi, ["--key", "-k"]) or "--key"
         if key_flag:
             base_args.extend([key_flag, index_key])
-        index_flag = determine_flag(multi, ["--index", "--index-dir"]) or "--index"
+        index_flag = determine_flag(multi, ["--index-dir", "--index"]) or "--index-dir"
         if index_flag:
             base_args.extend([index_flag, str(index_dir)])
         command = build_question_command(script, question.prompt, base_args)

@@ -80,7 +80,7 @@ def test_build_question_invocation_for_asker_uses_key_and_index(tmp_path: Path) 
 
     assert route == "asker"
     assert "--key" in command
-    assert "--index" in command
+    assert "--index-dir" in command
     assert "--chunks-dir" in command
     assert "--embed-model" in command
 
@@ -110,4 +110,4 @@ def test_build_question_invocation_for_multi_agent_includes_subcommand(tmp_path:
     assert route == "multi"
     assert command[2] == "ask"
     assert "--key" in command
-    assert "--index" in command
+    assert "--index-dir" in command

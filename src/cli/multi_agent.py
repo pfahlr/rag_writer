@@ -28,6 +28,7 @@ def ask(
     ),
     index: Path = typer.Option(
         DEFAULT_INDEX_DIR,
+        "--index-dir",
         "--index",
         help="Directory containing FAISS index directories (default: [repo]/storage)",
     ),

@@ -27,18 +27,13 @@ sys.path.insert(0, str(project_root))
 
 from src.langchain.retriever_factory import make_retriever
 from src.langchain.trace import configure_emitter
-
-
-def _fs_safe(value: str) -> str:
-    return re.sub(r"[^a-zA-Z0-9._-]+", "-", value)
-
-ROOT = project_root
-
-
 def _fs_safe(value: str) -> str:
     """Return a filesystem-safe slug for embedding model names."""
 
     return re.sub(r"[^a-zA-Z0-9._-]+", "-", value)
+
+
+ROOT = project_root
 
 
 def _resolve_paths(
@@ -48,7 +43,11 @@ def _resolve_paths(
     chunks_dir: Path,
     index_dir: Path,
 ) -> tuple[Path, Path, Path]:
-    """Derive chunk metadata and FAISS directories based on CLI arguments."""
+    """Derive chunk metadata and FAISS directories based on CLI arguments.
+
+    The ``key`` argument should already be sanitized via :func:`_fs_safe` to
+    mirror how index directories are named on disk.
+    """
 
     chunk_path = Path(chunks_dir) / f"lc_chunks_{key}.jsonl"
     base_dir = Path(index_dir) / f"faiss_{key}__{_fs_safe(embed_model)}"
@@ -107,44 +106,6 @@ def _load_chunks_jsonl(path: Path) -> list[Document]:
             rec = json.loads(line)
             docs.append(Document(page_content=rec["text"], metadata=rec.get("metadata", {})))
     return docs
-
-
-def _infer_key_from_index_dir(path: Path) -> str | None:
-    name = path.name
-    if name == "index.faiss":
-        name = path.parent.name
-    if name.endswith("_repacked"):
-        name = name[: -len("_repacked")]
-    if name.startswith("faiss_"):
-        name = name[len("faiss_") :]
-        if "__" in name:
-            name = name.split("__", 1)[0]
-    if not name:
-        return None
-    return _fs_safe(name)
-
-
-def _resolve_faiss_directory(path: Path) -> tuple[Path, str | None]:
-    if not path.exists():
-        raise SystemExit(f"[lc_ask] index path not found: {path}")
-    if path.is_file():
-        if path.name != "index.faiss":
-            raise SystemExit(
-                "[lc_ask] --index must point to a directory or index.faiss file"
-            )
-        path = path.parent
-    if (path / "index.faiss").exists():
-        return path, _infer_key_from_index_dir(path)
-    candidates = [p for p in path.iterdir() if p.is_dir() and (p / "index.faiss").exists()]
-    if len(candidates) == 1:
-        return candidates[0], _infer_key_from_index_dir(candidates[0])
-    if not candidates:
-        raise SystemExit(
-            f"[lc_ask] index.faiss not found in {path}. Provide --index pointing to the directory containing index.faiss"
-        )
-    raise SystemExit(
-        "[lc_ask] multiple FAISS directories found; pass --index with the desired directory"
-    )
 
 
 def _locate_chunks_file(
@@ -208,8 +169,7 @@ def main():
         help="Question to ask (overrides positional QUESTION)",
     )
     parser.add_argument("--json", dest="json_path", help="JSON job file containing 'question'")
-    key_group = parser.add_mutually_exclusive_group(required=True)
-    key_group.add_argument("--key", help="collection key used at index time")
+    parser.add_argument("--key", required=True, help="collection key used at index time")
     parser.add_argument("--embed-model", default="BAAI/bge-small-en-v1.5")
 
     parser.add_argument(
@@ -284,51 +244,47 @@ def main():
     index_dir = Path(args.index_dir).expanduser()
 
     docs: list[Document] | None = None
-    faiss_dir: Path | None = None
-    key_safe: str | None = None
-
-    if args.key:
-        key_safe = _fs_safe(args.key)
-        emb_name_safe = re.sub(r"[^a-zA-Z0-9._-]+", "-", args.embed_model)
-        base_dir = index_dir / f"faiss_{key_safe}__{emb_name_safe}"
-        repacked_dir = base_dir.parent / f"{base_dir.name}_repacked"
-
-        # Prefer a repacked/merged index if available
-        faiss_dir = None
-        for cand in (repacked_dir, base_dir):
-            if (cand / "index.faiss").exists():
-                faiss_dir = cand
-                break
-
-        if faiss_dir is None:
-            if base_dir.exists():
-                shards = [p for p in base_dir.iterdir() if p.is_dir()]
-                if shards:
-                    raise SystemExit(
-                        f"[lc_ask] FAISS shards found but no merged index: {base_dir}\n"
-                        "  • Merge shards before querying (merge step not completed)"
-                    )
-            raise SystemExit(
-                "[lc_ask] FAISS dir not found: "
-                f"{base_dir} (or repacked: {repacked_dir}).\n"
-                f"  • If you upgraded LangChain, try: make repack-faiss KEY={args.key} EMBED_MODEL={args.embed_model}\n"
-                f"  • Or rebuild the index: python src/langchain/lc_build_index.py {args.key}"
-            )
-    else:
-        faiss_dir, key_safe = _resolve_faiss_directory(Path(args.index_path).expanduser())
-
-    chunks_path, base_dir, repacked_dir = _resolve_paths(
-        key=args.key,
+    key_safe = _fs_safe(args.key)
+    expected_chunks, base_dir, repacked_dir = _resolve_paths(
+        key=key_safe,
         embed_model=args.embed_model,
-        chunks_dir=Path(args.chunks_dir),
-        index_dir=Path(args.index_dir),
+        chunks_dir=chunks_dir,
+        index_dir=index_dir,
+    )
+
+    # Prefer a repacked/merged index if available
+    faiss_dir: Path | None = None
+    for cand in (repacked_dir, base_dir):
+        if (cand / "index.faiss").exists():
+            faiss_dir = cand
+            break
+
+    if faiss_dir is None:
+        if base_dir.exists():
+            shards = [p for p in base_dir.iterdir() if p.is_dir()]
+            if shards:
+                raise SystemExit(
+                    f"[lc_ask] FAISS shards found but no merged index: {base_dir}\n"
+                    "  • Merge shards before querying (merge step not completed)"
+                )
+        raise SystemExit(
+            "[lc_ask] FAISS dir not found: "
+            f"{base_dir} (or repacked: {repacked_dir}).\n"
+            f"  • If you upgraded LangChain, try: make repack-faiss KEY={args.key} EMBED_MODEL={args.embed_model}\n"
+            f"  • Or rebuild the index: python src/langchain/lc_build_index.py {args.key}"
+        )
+
+    chunks_path = _locate_chunks_file(
+        explicit_path=args.chunks_file,
+        chunks_dir=chunks_dir,
+        key_safe=key_safe,
+        index_dir=faiss_dir,
     )
     if chunks_path is not None:
         docs = _load_chunks_jsonl(chunks_path)
-
-    if not chunks_path.exists():
+    else:
         raise SystemExit(
-            f"[lc_ask] chunks not found: {chunks_path} – run lc_build_index for KEY={args.key}"
+            f"[lc_ask] chunks not found: {expected_chunks} – run lc_build_index for KEY={args.key}"
         )
  
     embedder = HuggingFaceEmbeddings(model_name=args.embed_model)
