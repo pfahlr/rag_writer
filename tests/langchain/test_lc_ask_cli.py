@@ -226,6 +226,86 @@ def test_lc_ask_supports_question_flag(monkeypatch, tmp_path):
     assert captured["payload"]["query"] == question
 
 
+def test_lc_ask_falls_back_to_vectorstore_docs_for_faiss(monkeypatch, tmp_path):
+    _install_dummy_langchain_modules(monkeypatch)
+    lc_ask = importlib.import_module("src.langchain.lc_ask")
+
+    key = "missing-chunks"
+    question = "How do neurons adapt?"
+
+    monkeypatch.chdir(tmp_path)
+
+    chunks_dir = tmp_path / "data_processed"
+    chunks_dir.mkdir(exist_ok=True)
+
+    emb_safe = "BAAI-bge-small-en-v1.5"
+    faiss_dir = (tmp_path / "storage") / f"faiss_{key}__{emb_safe}"
+    faiss_dir.mkdir(parents=True, exist_ok=True)
+    (faiss_dir / "index.faiss").write_text("", encoding="utf-8")
+
+    class DummyEmbeddings:
+        pass
+
+    class DummyVectorStore:
+        pass
+
+    docs_seen: dict[str, list] = {}
+
+    monkeypatch.setattr(lc_ask, "HuggingFaceEmbeddings", lambda model_name: DummyEmbeddings())
+    monkeypatch.setattr(lc_ask.FAISS, "load_local", lambda *args, **kwargs: DummyVectorStore())
+    monkeypatch.setattr(
+        lc_ask,
+        "_extract_docs_from_vectorstore",
+        lambda vectorstore: [lc_ask.Document(page_content="vector", metadata={})],
+    )
+
+    def fake_make_retriever(**kwargs):
+        docs_seen["docs"] = kwargs.get("docs")
+        return object()
+
+    class DummyChain:
+        def invoke(self, payload):
+            return {"result": "ok", "source_documents": []}
+
+    class DummyLLM:
+        model_name = "dummy"
+        temperature = 0
+
+    monkeypatch.setattr(lc_ask, "make_retriever", fake_make_retriever)
+    monkeypatch.setattr(
+        lc_ask,
+        "RetrievalQA",
+        SimpleNamespace(from_chain_type=lambda *args, **kwargs: DummyChain()),
+    )
+    monkeypatch.setattr(lc_ask, "ChatOpenAI", lambda **kwargs: DummyLLM())
+
+    monkeypatch.setenv("TRACE_QID", "test-qid")
+
+    monkeypatch.setattr(
+        lc_ask.sys,
+        "argv",
+        [
+            "lc_ask.py",
+            "--key",
+            key,
+            "--question",
+            question,
+            "--chunks-dir",
+            str(chunks_dir),
+            "--index-dir",
+            str(tmp_path / "storage"),
+            "--mode",
+            "faiss",
+        ],
+    )
+
+    lc_ask.main()
+
+    assert len(docs_seen["docs"]) == 1
+    assert docs_seen["docs"][0].page_content == "vector"
+    assert getattr(docs_seen["docs"][0], "metadata", {}) == {}
+
+
 def test_lc_ask_accepts_custom_directories(monkeypatch, tmp_path):
     _install_dummy_langchain_modules(monkeypatch)
     lc_ask = importlib.import_module("src.langchain.lc_ask")
@@ -322,10 +402,28 @@ def test_lc_ask_accepts_index_argument(monkeypatch, tmp_path):
     chunks_dir = tmp_path / "chunks"
     chunks_dir.mkdir()
     chunk_file = chunks_dir / f"lc_chunks_{safe_key}.jsonl"
+
+def test_lc_ask_accepts_explicit_index_directory(monkeypatch, tmp_path):
+    _install_dummy_langchain_modules(monkeypatch)
+    lc_ask = importlib.import_module("src.langchain.lc_ask")
+
+    question = "What is neuroplasticity?"
+    embed_model = "BAAI/bge-small-en-v1.5"
+    embed_safe = "BAAI-bge-small-en-v1.5"
+    safe_key = "papers"
+
+    chunks_dir = tmp_path / "chunks"
+    chunks_dir.mkdir()
+
+    index_dir = tmp_path / "index"
+    faiss_dir = index_dir / f"faiss_{safe_key}__{embed_safe}"
+    faiss_dir.mkdir(parents=True, exist_ok=True)
+    (faiss_dir / "index.faiss").write_text("", encoding="utf-8")
     chunk_file.write_text(
         json.dumps({"text": "Sample", "metadata": {}}) + "\n",
         encoding="utf-8",
     )
+
 
     storage_dir = tmp_path / "storage"
     faiss_dir = storage_dir / f"faiss_{safe_key}__BAAI-bge-small-en-v1.5"
@@ -338,16 +436,22 @@ def test_lc_ask_accepts_index_argument(monkeypatch, tmp_path):
     class DummyVectorStore:
         pass
 
-    chunk_call = {}
-    faiss_call = {}
 
     monkeypatch.setattr(lc_ask, "HuggingFaceEmbeddings", lambda model_name: DummyEmbeddings())
 
+    chunk_call: dict[str, Path] = {}
+    faiss_call: dict[str, Path] = {}
+
+    monkeypatch.setattr(
+        lc_ask,
+        "HuggingFaceEmbeddings",
+        lambda model_name: DummyEmbeddings(),
+    )
+
     def fake_load_chunks(path):
         chunk_call["path"] = Path(path)
-        return [
-            lc_ask.Document(page_content="Sample", metadata={})
-        ]
+        return [lc_ask.Document(page_content="Sample", metadata={})]
+
 
     def fake_load_local(path, *args, **kwargs):
         faiss_call["path"] = Path(path)
@@ -384,6 +488,8 @@ def test_lc_ask_accepts_index_argument(monkeypatch, tmp_path):
             question,
             "--chunks-dir",
             str(chunks_dir),
+            "--embed-model",
+            embed_model,
         ],
     )
 

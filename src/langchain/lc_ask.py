@@ -50,6 +50,8 @@ def _infer_key_from_faiss_dir(path: Path) -> str | None:
 
 ROOT = project_root
 
+MODES_REQUIRING_CHUNKS = {"bm25", "hybrid", "parent", "hybrid+compression"}
+
 
 def _resolve_paths(
     key: str,
@@ -68,6 +70,68 @@ def _resolve_paths(
     base_dir = Path(index_dir) / f"faiss_{key}__{_fs_safe(embed_model)}"
     repacked_dir = base_dir.parent / f"{base_dir.name}_repacked"
     return chunk_path, base_dir, repacked_dir
+
+
+def _infer_key_from_index_dir(index_dir: Path, embed_model: str) -> str | None:
+    """Infer the collection key from an index directory name."""
+
+    name = index_dir.name
+    if name.endswith("_repacked"):
+        name = name[: -len("_repacked")]
+
+    prefix = "faiss_"
+    if not name.startswith(prefix):
+        return None
+
+    embed_safe = _fs_safe(embed_model)
+    marker = f"__{embed_safe}"
+    if not name.endswith(marker):
+        return None
+
+    key_part = name[len(prefix) : -len(marker)]
+    return key_part or None
+
+
+def _prepare_index_locations(
+    *,
+    key_safe: str | None,
+    index_path: str | None,
+    embed_model: str,
+    chunks_dir: Path,
+    index_dir: Path,
+) -> tuple[Path, Path, Path, str | None]:
+    """Derive expected chunk path and FAISS directories based on CLI arguments."""
+
+    if index_path:
+        faiss_dir = Path(index_path).expanduser()
+        if not faiss_dir.exists():
+            raise SystemExit(f"[lc_ask] Provided --index directory not found: {faiss_dir}")
+
+        base_dir = faiss_dir
+        repacked_dir = faiss_dir.parent / f"{faiss_dir.name}_repacked"
+        if faiss_dir.name.endswith("_repacked"):
+            base_dir = faiss_dir.with_name(faiss_dir.name[: -len("_repacked")])
+            repacked_dir = faiss_dir
+
+        inferred_key = _infer_key_from_index_dir(base_dir, embed_model)
+        key_safe = key_safe or inferred_key
+        expected_chunks = (
+            chunks_dir / f"lc_chunks_{key_safe}.jsonl"
+            if key_safe
+            else base_dir / "lc_chunks.jsonl"
+        )
+        return expected_chunks, base_dir, repacked_dir, key_safe
+
+    if key_safe is None:
+        raise SystemExit("[lc_ask] Either --key or --index must be provided")
+
+    expected_chunks, base_dir, repacked_dir = _resolve_paths(
+        key=key_safe,
+        embed_model=embed_model,
+        chunks_dir=chunks_dir,
+        index_dir=index_dir,
+    )
+    return expected_chunks, base_dir, repacked_dir, key_safe
 
 
 def _get_embedding_dimension(embedder: HuggingFaceEmbeddings) -> int | None:
@@ -184,12 +248,14 @@ def main():
         help="Question to ask (overrides positional QUESTION)",
     )
     parser.add_argument("--json", dest="json_path", help="JSON job file containing 'question'")
+
     key_group = parser.add_mutually_exclusive_group(required=True)
     key_group.add_argument("--key", help="collection key used at index time")
     key_group.add_argument(
         "--index",
         dest="index_path",
-        help="Path to a FAISS index directory (faiss_<KEY>__<MODEL>[_repacked])",
+
+        help="Path to FAISS index directory (faiss_<key>__<embed_model>)",
     )
     parser.add_argument("--embed-model", default="BAAI/bge-small-en-v1.5")
 
@@ -264,7 +330,20 @@ def main():
     index_dir = Path(args.index_dir).expanduser()
 
     docs: list[Document] | None = None
+
     key_safe: str | None = _fs_safe(args.key) if args.key else None
+
+    key_arg = args.key
+    expected_chunks, base_dir, repacked_dir, key_safe = _prepare_index_locations(
+        key_safe=key_safe,
+        index_path=args.index_path,
+        embed_model=args.embed_model,
+        chunks_dir=chunks_dir,
+        index_dir=index_dir,
+    )
+
+    # Prefer a repacked/merged index if available
+
     faiss_dir: Path | None = None
     expected_chunks: Path | None = None
 
@@ -322,15 +401,24 @@ def main():
     )
     if chunks_path is not None:
         docs = _load_chunks_jsonl(chunks_path)
+
+    elif args.mode in MODES_REQUIRING_CHUNKS:
+       raise SystemExit(
+            f"[lc_ask] chunks not found: {expected_chunks} – run lc_build_index for KEY={args.key}"
+        )
     else:
         if expected_chunks is None:
             raise SystemExit(
                 f"[lc_ask] chunks not found for index at {faiss_dir}. Provide --chunks-file"
             )
+        key_hint = key_arg or (key_safe if key_safe is not None else str(faiss_dir))
         display_key = args.key if args.key else key_safe
         raise SystemExit(
-            f"[lc_ask] chunks not found: {expected_chunks} – run lc_build_index for KEY={display_key}"
+            "[lc_ask] chunks not found: "
+            f"{expected_chunks} – run lc_build_index for {key_hint}"
+
         )
+
  
     embedder = HuggingFaceEmbeddings(model_name=args.embed_model)
     vectorstore = FAISS.load_local(
@@ -342,8 +430,7 @@ def main():
         docs = _extract_docs_from_vectorstore(vectorstore)
 
     docs_for_retriever = docs or []
-    modes_requiring_docs = {"bm25", "hybrid", "parent", "hybrid+compression"}
-    if not docs_for_retriever and args.mode in modes_requiring_docs:
+    if not docs_for_retriever and args.mode in MODES_REQUIRING_CHUNKS:
         raise SystemExit(
             f"[lc_ask] Document chunks required for mode '{args.mode}'. Provide --key or --chunks-file"
         )

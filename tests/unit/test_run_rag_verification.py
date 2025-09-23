@@ -11,6 +11,7 @@ from run_rag_verification import (
     Question,
     build_builder_command,
     build_question_invocation,
+    determine_flag,
     prepare_pdf_corpus,
 )
 
@@ -49,7 +50,8 @@ def test_build_builder_command_targets_pdf_and_chunks(tmp_path: Path) -> None:
         index_dir=index_dir,
     )
 
-    assert command[:2] == [sys.executable, str(builder)]
+    assert command[0] == sys.executable
+    assert command[1:3] == ["-m", "src.langchain.lc_build_index"]
     assert "--input-dir" in command
     assert str(pdf_dir) in command
     assert "--chunks-dir" in command
@@ -79,8 +81,11 @@ def test_build_question_invocation_for_asker_uses_key_and_index(tmp_path: Path) 
     )
 
     assert route == "asker"
+    assert command[0] == sys.executable
+    assert command[1:3] == ["-m", "src.langchain.lc_ask"]
     assert "--key" in command
     assert "--index-dir" in command
+    assert str(tmp_path / "index") in command
     assert "--chunks-dir" in command
     assert "--embed-model" in command
 
@@ -110,6 +115,79 @@ def test_build_question_invocation_for_multi_agent_omits_legacy_subcommand(
     )
 
     assert route == "multi"
+    assert command[0] == sys.executable
+    assert command[1:3] == ["-m", "src.cli.multi_agent"]
     assert "ask" not in command
     assert "--key" in command
     assert "--index-dir" in command
+
+
+def test_build_question_invocation_skips_missing_optional_flags(tmp_path: Path) -> None:
+    script = tmp_path / "simple_asker.py"
+    script.write_text(
+        """
+import argparse
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--question", required=False)
+    parser.parse_args()
+
+
+if __name__ == "__main__":
+    main()
+""",
+        encoding="utf-8",
+    )
+
+    question = Question(
+        qid="q3",
+        qtype="single",
+        prompt="Where is the library?",
+        gold_docs=[],
+        answer="",
+    )
+
+    command, route = build_question_invocation(
+        question=question,
+        index_dir=tmp_path / "index",
+        chunks_dir=tmp_path / "chunks",
+        asker=script,
+        multi=None,
+        topk=None,
+        index_key="local",
+        embed_model="intentionally-unused",
+    )
+
+    assert route == "asker"
+    assert command[:2] == [sys.executable, str(script)]
+    assert command[-2:] == ["--question", question.prompt]
+    for forbidden in ("--key", "--index-dir", "--chunks-dir", "--embed-model"):
+        assert forbidden not in command
+
+        
+def test_determine_flag_matches_full_option(tmp_path: Path) -> None:
+    script = tmp_path / "cli.py"
+    script.write_text(
+        """
+import argparse
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--index-dir")
+    parser.add_argument("--chunks-dir")
+    parser.parse_args()
+
+
+if __name__ == "__main__":
+    main()
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    flag = determine_flag(script, ["--index", "--index-dir"])
+
+    assert flag == "--index-dir"
