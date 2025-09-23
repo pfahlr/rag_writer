@@ -20,6 +20,7 @@ SUPPORTED_DIRECT_TYPES = {"direct", "synthesis", "conflict", "freshness"}
 SUPPORTED_MULTI_TYPES = {"ambiguous", "multiturn"}
 CITATION_PATTERN = re.compile(r"NP\d{2}")
 SUMMARY_LINE_TEMPLATE = "{status:<5}  {qid:<4} {note}"
+DEFAULT_INDEX_KEY = "verification_tmp"
 
 
 class CommandError(RuntimeError):
@@ -38,7 +39,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument(
         "--keep-index",
         action="store_true",
-        help="Do not delete ./tmp_index after verification completes.",
+        help="Do not delete generated index artefacts after verification completes.",
     )
     return parser.parse_args(argv)
 
@@ -119,26 +120,25 @@ def extract_citations(text: str) -> List[str]:
     return sorted(set(CITATION_PATTERN.findall(text)))
 
 
-def ensure_tmp_index(tmp_index: Path) -> None:
-    if tmp_index.exists():
-        shutil.rmtree(tmp_index)
-    tmp_index.mkdir(parents=True, exist_ok=True)
-
-
 def build_index(
     script_path: Path,
     corpus_docs: Path,
-    index_dir: Path,
     *,
+    key: str,
+    chunks_dir: Path,
+    index_dir: Path,
     verbose: bool,
     cwd: Path,
 ) -> None:
     command = [
         sys.executable,
         str(script_path),
-        "--corpus",
+        key,
+        "--input-dir",
         str(corpus_docs),
-        "--out",
+        "--chunks-dir",
+        str(chunks_dir),
+        "--index-dir",
         str(index_dir),
     ]
     result = run_command(command, verbose=verbose, cwd=cwd)
@@ -148,23 +148,51 @@ def build_index(
         )
 
 
-def run_query(
+def run_lc_ask(
     script_path: Path,
-    index_dir: Path,
-    query: str,
     *,
+    key: str,
+    question: str,
     verbose: bool,
     cwd: Path,
 ) -> subprocess.CompletedProcess[str]:
     command = [
         sys.executable,
         str(script_path),
-        "--index",
-        str(index_dir),
-        "--query",
-        query,
+        question,
+        "--key",
+        key,
     ]
     return run_command(command, verbose=verbose, cwd=cwd)
+
+
+def run_multi_agent(
+    script_path: Path,
+    *,
+    key: str,
+    question: str,
+    verbose: bool,
+    cwd: Path,
+) -> subprocess.CompletedProcess[str]:
+    command = [
+        sys.executable,
+        str(script_path),
+        "ask",
+        question,
+        "--key",
+        key,
+    ]
+    return run_command(command, verbose=verbose, cwd=cwd)
+
+
+def cleanup_index_outputs(key: str, chunks_dir: Path, index_dir: Path) -> None:
+    chunk_file = chunks_dir / f"lc_chunks_{key}.jsonl"
+    if chunk_file.exists():
+        chunk_file.unlink()
+
+    for candidate in index_dir.glob(f"faiss_{key}__*"):
+        if candidate.exists():
+            shutil.rmtree(candidate, ignore_errors=True)
 
 
 def evaluate_answer(
@@ -221,6 +249,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
     repo_root = Path(__file__).resolve().parent
     cwd = repo_root
+    chunks_dir = repo_root / "data_processed"
+    index_dir = repo_root / "storage"
+    chunks_dir.mkdir(parents=True, exist_ok=True)
+    index_dir.mkdir(parents=True, exist_ok=True)
+    index_key = DEFAULT_INDEX_KEY
 
     try:
         lc_build = resolve_script(
@@ -244,7 +277,6 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     corpus_dir = repo_root / "eval/verification" / "rag_gold_corpus_neuroplasticity" / "docs"
     questions_path = repo_root / "eval/verification" / "rag_gold_corpus_neuroplasticity" / "questions.yaml"
-    tmp_index = repo_root / "tmp_index"
 
     if not corpus_dir.exists():
         print(f"Corpus directory not found: {corpus_dir}", file=sys.stderr)
@@ -253,119 +285,101 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Questions file not found: {questions_path}", file=sys.stderr)
         return 1
 
-    ensure_tmp_index(tmp_index)
+    cleanup_index_outputs(index_key, chunks_dir, index_dir)
+    cleanup_requested = not args.keep_index
+
     try:
         build_index(
             lc_build,
             corpus_dir,
-            tmp_index,
+            key=index_key,
+            chunks_dir=chunks_dir,
+            index_dir=index_dir,
             verbose=args.verbose,
             cwd=cwd,
         )
     except CommandError as exc:
         print(str(exc), file=sys.stderr)
+        if cleanup_requested:
+            cleanup_index_outputs(index_key, chunks_dir, index_dir)
         return 1
 
-    questions = load_questions(questions_path)
-    log_records: List[dict] = []
-    summary_lines: List[str] = []
-    all_passed = True
+    try:
+        questions = load_questions(questions_path)
+        log_records: List[dict] = []
+        summary_lines: List[str] = []
+        all_passed = True
 
-    for entry in questions:
-        qid = str(entry.get("id") or entry.get("qid") or "?").strip() or "?"
-        question_text = (
-            str(entry.get("question") or entry.get("query") or "").strip()
-        )
-        question_type = str(entry.get("type") or "").strip().lower()
-        expected_docs = [doc.upper() for doc in normalize_expected_docs(entry)]
-        followups = normalize_followups(entry)
-
-        if not question_text:
-            summary_lines.append(
-                SUMMARY_LINE_TEMPLATE.format(
-                    status="FAIL", qid=qid, note="missing question text"
-                )
+        for entry in questions:
+            qid = str(entry.get("id") or entry.get("qid") or "?").strip() or "?"
+            question_text = (
+                str(entry.get("question") or entry.get("query") or "").strip()
             )
-            log_records.append(
-                {
-                    "qid": qid,
-                    "query": question_text,
-                    "stdout": "",
-                    "pass": False,
-                    "notes": "missing question text",
-                }
-            )
-            all_passed = False
-            continue
+            question_type = str(entry.get("type") or "").strip().lower()
+            expected_docs = [doc.upper() for doc in normalize_expected_docs(entry)]
+            followups = normalize_followups(entry)
 
-        stdout_segments: List[str] = []
-        final_stdout = ""
-
-        if question_type in SUPPORTED_DIRECT_TYPES:
-            result = run_query(
-                lc_ask,
-                tmp_index,
-                question_text,
-                verbose=args.verbose,
-                cwd=cwd,
-            )
-            if result.returncode != 0:
-                note = f"lc_ask.py failed: {result.stderr.strip()}"
+            if not question_text:
                 summary_lines.append(
-                    SUMMARY_LINE_TEMPLATE.format(status="FAIL", qid=qid, note=note)
+                    SUMMARY_LINE_TEMPLATE.format(
+                        status="FAIL", qid=qid, note="missing question text"
+                    )
                 )
                 log_records.append(
                     {
                         "qid": qid,
                         "query": question_text,
-                        "stdout": result.stdout,
+                        "stdout": "",
                         "pass": False,
-                        "notes": note,
+                        "notes": "missing question text",
                     }
                 )
                 all_passed = False
                 continue
-            final_stdout = result.stdout
-            stdout_segments.append(result.stdout)
-        elif question_type in SUPPORTED_MULTI_TYPES:
-            current_query = question_text
-            outputs: List[str] = []
-            result = run_query(
-                multi_agent,
-                tmp_index,
-                current_query,
-                verbose=args.verbose,
-                cwd=cwd,
-            )
-            if result.returncode != 0:
-                note = f"multi_agent.py failed: {result.stderr.strip()}"
-                summary_lines.append(
-                    SUMMARY_LINE_TEMPLATE.format(status="FAIL", qid=qid, note=note)
-                )
-                log_records.append(
-                    {
-                        "qid": qid,
-                        "query": current_query,
-                        "stdout": result.stdout,
-                        "pass": False,
-                        "notes": note,
-                    }
-                )
-                all_passed = False
-                continue
-            outputs.append(result.stdout)
 
-            for follow in followups:
-                current_query = f"{current_query}\n{follow}"
-                follow_result = run_query(
-                    multi_agent,
-                    tmp_index,
-                    current_query,
+            stdout_segments: List[str] = []
+            final_stdout = ""
+
+            if question_type in SUPPORTED_DIRECT_TYPES:
+                result = run_lc_ask(
+                    lc_ask,
+                    key=index_key,
+                    question=question_text,
                     verbose=args.verbose,
                     cwd=cwd,
                 )
-                if follow_result.returncode != 0:
-                    note = f"multi_agent.py follow-up failed: {follow_result.stderr.strip()}"
+                if result.returncode != 0:
+                    note = f"lc_ask.py failed: {result.stderr.strip()}"
+                    summary_lines.append(
+                        SUMMARY_LINE_TEMPLATE.format(
+                            status="FAIL", qid=qid, note=note
+                        )
+                    )
+                    log_records.append(
+                        {
+                            "qid": qid,
+                            "query": question_text,
+                            "stdout": result.stdout,
+                            "pass": False,
+                            "notes": note,
+                        }
+                    )
+                    all_passed = False
+                    continue
+                final_stdout = result.stdout
+                stdout_segments.append(result.stdout)
+            elif question_type in SUPPORTED_MULTI_TYPES:
+                current_query = question_text
+                outputs: List[str] = []
+                result = run_multi_agent(
+                    multi_agent,
+                    key=index_key,
+                    question=current_query,
+                    verbose=args.verbose,
+                    cwd=cwd,
+                )
+                if result.returncode != 0:
+                    note = f"multi_agent.py failed: {result.stderr.strip()}"
                     summary_lines.append(
                         SUMMARY_LINE_TEMPLATE.format(
                             status="FAIL", qid=qid, note=note
@@ -375,75 +389,106 @@ def main(argv: Sequence[str] | None = None) -> int:
                         {
                             "qid": qid,
                             "query": current_query,
-                            "stdout": follow_result.stdout,
+                            "stdout": result.stdout,
                             "pass": False,
                             "notes": note,
                         }
                     )
                     all_passed = False
-                    break
-                outputs.append(follow_result.stdout)
-            else:
-                final_stdout = outputs[-1] if outputs else ""
-                stdout_segments.extend(outputs)
-                # fall through to evaluation
-                pass
+                    continue
+                outputs.append(result.stdout)
 
-            if not final_stdout:
-                # follow-up loop may break on error
+                for follow in followups:
+                    current_query = f"{current_query}\n{follow}"
+                    follow_result = run_multi_agent(
+                        multi_agent,
+                        key=index_key,
+                        question=current_query,
+                        verbose=args.verbose,
+                        cwd=cwd,
+                    )
+                    if follow_result.returncode != 0:
+                        note = (
+                            "multi_agent.py follow-up failed: "
+                            f"{follow_result.stderr.strip()}"
+                        )
+                        summary_lines.append(
+                            SUMMARY_LINE_TEMPLATE.format(
+                                status="FAIL", qid=qid, note=note
+                            )
+                        )
+                        log_records.append(
+                            {
+                                "qid": qid,
+                                "query": current_query,
+                                "stdout": follow_result.stdout,
+                                "pass": False,
+                                "notes": note,
+                            }
+                        )
+                        all_passed = False
+                        break
+                    outputs.append(follow_result.stdout)
+                else:
+                    final_stdout = outputs[-1] if outputs else ""
+                    stdout_segments.extend(outputs)
+
+                if not final_stdout:
+                    continue
+            else:
+                note = f"unsupported question type '{question_type}'"
+                summary_lines.append(
+                    SUMMARY_LINE_TEMPLATE.format(status="FAIL", qid=qid, note=note)
+                )
+                log_records.append(
+                    {
+                        "qid": qid,
+                        "query": question_text,
+                        "stdout": "",
+                        "pass": False,
+                        "notes": note,
+                    }
+                )
+                all_passed = False
                 continue
-        else:
-            note = f"unsupported question type '{question_type}'"
+
+            passed, note = evaluate_answer(
+                qid,
+                final_stdout,
+                expected_docs,
+                question_type=question_type,
+            )
+            status = "PASS" if passed else "FAIL"
             summary_lines.append(
-                SUMMARY_LINE_TEMPLATE.format(status="FAIL", qid=qid, note=note)
+                SUMMARY_LINE_TEMPLATE.format(status=status, qid=qid, note=note)
             )
             log_records.append(
                 {
                     "qid": qid,
                     "query": question_text,
-                    "stdout": "",
-                    "pass": False,
+                    "stdout": "\n---\n".join(stdout_segments),
+                    "pass": passed,
                     "notes": note,
                 }
             )
-            all_passed = False
-            continue
+            all_passed = all_passed and passed
 
-        passed, note = evaluate_answer(
-            qid,
-            final_stdout,
-            expected_docs,
-            question_type=question_type,
-        )
-        status = "PASS" if passed else "FAIL"
-        summary_lines.append(
-            SUMMARY_LINE_TEMPLATE.format(status=status, qid=qid, note=note)
-        )
-        log_records.append(
-            {
-                "qid": qid,
-                "query": question_text,
-                "stdout": "\n---\n".join(stdout_segments),
-                "pass": passed,
-                "notes": note,
-            }
-        )
-        all_passed = all_passed and passed
+        logs_dir = repo_root / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        logs_path = logs_dir / "rag_verification.jsonl"
+        with logs_path.open("w", encoding="utf-8") as log_file:
+            for record in log_records:
+                log_file.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-    logs_dir = repo_root / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    logs_path = logs_dir / "rag_verification.jsonl"
-    with logs_path.open("w", encoding="utf-8") as log_file:
-        for record in log_records:
-            log_file.write(json.dumps(record, ensure_ascii=False) + "\n")
+        for line in summary_lines:
+            print(line)
 
-    for line in summary_lines:
-        print(line)
+        exit_code = 0 if all_passed else 1
+    finally:
+        if cleanup_requested:
+            cleanup_index_outputs(index_key, chunks_dir, index_dir)
 
-    if not args.keep_index and tmp_index.exists():
-        shutil.rmtree(tmp_index)
-
-    return 0 if all_passed else 1
+    return exit_code
 
 
 if __name__ == "__main__":
