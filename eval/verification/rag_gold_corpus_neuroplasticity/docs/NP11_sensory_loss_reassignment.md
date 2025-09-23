@@ -1,0 +1,2 @@
+# Sensory Loss & Cross‑Modal Reassignment
+With deafness, auditory cortex often repurposes for visual and somatosensory tasks; behavioral effects include enhanced peripheral visual attention and specific motion‑change detection. With blindness, the visual cortex can participate in processing other modalities (e.g., sound localization, human echolocation), though some studies also note weakened performance for certain sensory judgments—effects are context‑dependent.
