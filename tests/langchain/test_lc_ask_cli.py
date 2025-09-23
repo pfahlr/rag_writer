@@ -391,6 +391,18 @@ def test_lc_ask_accepts_custom_directories(monkeypatch, tmp_path):
     assert faiss_call["path"] == faiss_dir
 
 
+def test_lc_ask_accepts_index_argument(monkeypatch, tmp_path):
+    _install_dummy_langchain_modules(monkeypatch)
+    lc_ask = importlib.import_module("src.langchain.lc_ask")
+
+    key = "custom/index"
+    safe_key = "custom-index"
+    question = "How does neuroplasticity work?"
+
+    chunks_dir = tmp_path / "chunks"
+    chunks_dir.mkdir()
+    chunk_file = chunks_dir / f"lc_chunks_{safe_key}.jsonl"
+
 def test_lc_ask_accepts_explicit_index_directory(monkeypatch, tmp_path):
     _install_dummy_langchain_modules(monkeypatch)
     lc_ask = importlib.import_module("src.langchain.lc_ask")
@@ -407,17 +419,25 @@ def test_lc_ask_accepts_explicit_index_directory(monkeypatch, tmp_path):
     faiss_dir = index_dir / f"faiss_{safe_key}__{embed_safe}"
     faiss_dir.mkdir(parents=True, exist_ok=True)
     (faiss_dir / "index.faiss").write_text("", encoding="utf-8")
-    chunk_file = faiss_dir / f"lc_chunks_{safe_key}.jsonl"
     chunk_file.write_text(
         json.dumps({"text": "Sample", "metadata": {}}) + "\n",
         encoding="utf-8",
     )
+
+
+    storage_dir = tmp_path / "storage"
+    faiss_dir = storage_dir / f"faiss_{safe_key}__BAAI-bge-small-en-v1.5"
+    faiss_dir.mkdir(parents=True, exist_ok=True)
+    (faiss_dir / "index.faiss").write_text("", encoding="utf-8")
 
     class DummyEmbeddings:
         pass
 
     class DummyVectorStore:
         pass
+
+
+    monkeypatch.setattr(lc_ask, "HuggingFaceEmbeddings", lambda model_name: DummyEmbeddings())
 
     chunk_call: dict[str, Path] = {}
     faiss_call: dict[str, Path] = {}
@@ -431,6 +451,7 @@ def test_lc_ask_accepts_explicit_index_directory(monkeypatch, tmp_path):
     def fake_load_chunks(path):
         chunk_call["path"] = Path(path)
         return [lc_ask.Document(page_content="Sample", metadata={})]
+
 
     def fake_load_local(path, *args, **kwargs):
         faiss_call["path"] = Path(path)

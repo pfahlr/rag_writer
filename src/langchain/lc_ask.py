@@ -27,10 +27,25 @@ sys.path.insert(0, str(project_root))
 
 from src.langchain.retriever_factory import make_retriever
 from src.langchain.trace import configure_emitter
+_FAISS_DIR_PATTERN = re.compile(r"^faiss_(?P<key>.+?)__(?P<embed>.+)$")
+
+
 def _fs_safe(value: str) -> str:
     """Return a filesystem-safe slug for embedding model names."""
 
     return re.sub(r"[^a-zA-Z0-9._-]+", "-", value)
+
+
+def _infer_key_from_faiss_dir(path: Path) -> str | None:
+    """Attempt to infer the sanitized key from a FAISS directory name."""
+
+    name = path.name
+    if name.endswith("_repacked"):
+        name = name[: -len("_repacked")]
+    match = _FAISS_DIR_PATTERN.match(name)
+    if match:
+        return match.group("key")
+    return None
 
 
 ROOT = project_root
@@ -239,6 +254,7 @@ def main():
     key_group.add_argument(
         "--index",
         dest="index_path",
+
         help="Path to FAISS index directory (faiss_<key>__<embed_model>)",
     )
     parser.add_argument("--embed-model", default="BAAI/bge-small-en-v1.5")
@@ -314,8 +330,10 @@ def main():
     index_dir = Path(args.index_dir).expanduser()
 
     docs: list[Document] | None = None
+
+    key_safe: str | None = _fs_safe(args.key) if args.key else None
+
     key_arg = args.key
-    key_safe = _fs_safe(key_arg) if key_arg else None
     expected_chunks, base_dir, repacked_dir, key_safe = _prepare_index_locations(
         key_safe=key_safe,
         index_path=args.index_path,
@@ -325,26 +343,55 @@ def main():
     )
 
     # Prefer a repacked/merged index if available
+
     faiss_dir: Path | None = None
-    for cand in (repacked_dir, base_dir):
-        if (cand / "index.faiss").exists():
-            faiss_dir = cand
-            break
+    expected_chunks: Path | None = None
+
+    if args.index_path:
+        faiss_dir = Path(args.index_path).expanduser()
+        if not faiss_dir.exists():
+            raise SystemExit(f"[lc_ask] FAISS dir not found: {faiss_dir}")
+        if not (faiss_dir / "index.faiss").exists():
+            raise SystemExit(
+                f"[lc_ask] index.faiss not found in {faiss_dir}. Provide a merged FAISS directory"
+            )
+        inferred_key = _infer_key_from_faiss_dir(faiss_dir)
+        if inferred_key:
+            key_safe = inferred_key
+        if key_safe:
+            expected_chunks = chunks_dir / f"lc_chunks_{key_safe}.jsonl"
+    else:
+        key_safe = _fs_safe(args.key)
+        expected_chunks, base_dir, repacked_dir = _resolve_paths(
+            key=key_safe,
+            embed_model=args.embed_model,
+            chunks_dir=chunks_dir,
+            index_dir=index_dir,
+        )
+
+        # Prefer a repacked/merged index if available
+        for cand in (repacked_dir, base_dir):
+            if (cand / "index.faiss").exists():
+                faiss_dir = cand
+                break
+
+        if faiss_dir is None:
+            if base_dir.exists():
+                shards = [p for p in base_dir.iterdir() if p.is_dir()]
+                if shards:
+                    raise SystemExit(
+                        f"[lc_ask] FAISS shards found but no merged index: {base_dir}\n"
+                        "  • Merge shards before querying (merge step not completed)"
+                    )
+            raise SystemExit(
+                "[lc_ask] FAISS dir not found: "
+                f"{base_dir} (or repacked: {repacked_dir}).\n"
+                f"  • If you upgraded LangChain, try: make repack-faiss KEY={args.key} EMBED_MODEL={args.embed_model}\n"
+                f"  • Or rebuild the index: python src/langchain/lc_build_index.py {args.key}"
+            )
 
     if faiss_dir is None:
-        if base_dir.exists():
-            shards = [p for p in base_dir.iterdir() if p.is_dir()]
-            if shards:
-                raise SystemExit(
-                    f"[lc_ask] FAISS shards found but no merged index: {base_dir}\n"
-                    "  • Merge shards before querying (merge step not completed)"
-                )
-        raise SystemExit(
-            "[lc_ask] FAISS dir not found: "
-            f"{base_dir} (or repacked: {repacked_dir}).\n"
-            f"  • If you upgraded LangChain, try: make repack-faiss KEY={args.key} EMBED_MODEL={args.embed_model}\n"
-            f"  • Or rebuild the index: python src/langchain/lc_build_index.py {args.key}"
-        )
+        raise SystemExit("[lc_ask] Unable to resolve FAISS directory")
 
     chunks_path = _locate_chunks_file(
         explicit_path=args.chunks_file,
@@ -360,10 +407,16 @@ def main():
             f"[lc_ask] chunks not found: {expected_chunks} – run lc_build_index for KEY={args.key}"
         )
     else:
+        if expected_chunks is None:
+            raise SystemExit(
+                f"[lc_ask] chunks not found for index at {faiss_dir}. Provide --chunks-file"
+            )
         key_hint = key_arg or (key_safe if key_safe is not None else str(faiss_dir))
+        display_key = args.key if args.key else key_safe
         raise SystemExit(
             "[lc_ask] chunks not found: "
             f"{expected_chunks} – run lc_build_index for {key_hint}"
+
         )
 
  
