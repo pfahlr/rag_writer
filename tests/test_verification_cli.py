@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -43,10 +44,18 @@ if __name__ == "__main__":
 
 def _write_asker_script(path: Path) -> None:
     path.write_text(
-        """
+        r"""
 import argparse
 import json
+import os
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
+
+
+def emit(event: dict) -> None:
+    sys.stderr.write("TRACE: " + json.dumps(event) + "\n")
+    sys.stderr.flush()
 
 
 def main() -> None:
@@ -60,12 +69,49 @@ def main() -> None:
     data = json.loads((Path(args.index) / "index.json").read_text(encoding="utf-8"))
     question = args.question.lower()
 
+    secret = os.environ.get("FAKE_SECRET", "sk-TEST-SECRET")
+    span = "stub-span"
+    timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    emit(
+        {
+            "v": 1,
+            "ts": timestamp,
+            "qid": os.environ.get("TRACE_QID", "q1"),
+            "span": span,
+            "role": "user",
+            "type": "llm.prompt",
+            "name": "stub.llm",
+            "detail": {
+                "messages": [
+                    {"role": "user", "content": f"Question: {args.question} {secret}"}
+                ]
+            },
+            "metrics": {"latency_ms": 5},
+        }
+    )
+
     if "beta" in question or "follow" in question:
-        print("Beta follows alpha in the Greek alphabet.")
+        answer = "Beta follows alpha in the Greek alphabet."
     elif "alpha" in question:
-        print("Alpha is the first letter of the Greek alphabet.")
+        answer = "Alpha is the first letter of the Greek alphabet."
     else:
-        print("No answer available.")
+        answer = "No answer available."
+
+    emit(
+        {
+            "v": 1,
+            "ts": timestamp,
+            "qid": os.environ.get("TRACE_QID", "q1"),
+            "span": span,
+            "role": "assistant",
+            "type": "llm.completion",
+            "name": "stub.llm",
+            "detail": {"content": answer, "finish_reason": "stop"},
+            "metrics": {"tokens_out": 10},
+        }
+    )
+
+    print(answer)
 
 
 if __name__ == "__main__":
@@ -118,6 +164,11 @@ def test_run_rag_verification_cli(tmp_path: Path) -> None:
     jsonl_out = tmp_path / "results.jsonl"
     outputs_dir = tmp_path / "outputs"
 
+    env = os.environ.copy()
+    env["FAKE_SECRET"] = "sk-FAKESECRET1234567890ABCDE"
+    env["TRACE_QID"] = "q1"
+    env["NO_COLOR"] = "1"
+
     result = subprocess.run(
         [
             sys.executable,
@@ -137,10 +188,13 @@ def test_run_rag_verification_cli(tmp_path: Path) -> None:
             "--save-outputs",
             str(outputs_dir),
             "--require-answers",
+            "--verbose",
+            "--trace",
         ],
         capture_output=True,
         text=True,
         check=False,
+        env=env,
     )
 
     assert result.returncode == 0, result.stderr
@@ -160,4 +214,31 @@ def test_run_rag_verification_cli(tmp_path: Path) -> None:
         assert record["qid"] in {"q1", "q2"}
         assert record["pass"] is True
         assert isinstance(record["score"], float)
+
+    transcripts_dir = workdir / "transcripts"
+    all_transcript = transcripts_dir / "all.ndjson"
+    q1_transcript = transcripts_dir / "q1.ndjson"
+    assert all_transcript.exists()
+    assert q1_transcript.exists()
+
+    def _read_events(path: Path) -> list[dict]:
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    events = _read_events(all_transcript)
+    q1_events = _read_events(q1_transcript)
+
+    assert any(evt.get("type") == "llm.prompt" for evt in q1_events)
+    assert any(evt.get("type") == "llm.completion" for evt in q1_events)
+
+    prompt_events = [evt for evt in events if evt.get("type") == "llm.prompt"]
+    assert prompt_events, "Expected llm.prompt events"
+    for evt in prompt_events:
+        detail = evt.get("detail", {})
+        if isinstance(detail, dict):
+            detail_str = json.dumps(detail)
+            assert "sk-FAKE-TOKEN" not in detail_str
+
+    stdout_text = result.stdout
+    assert "llm.prompt" in stdout_text
+    assert "llm.completion" in stdout_text
 

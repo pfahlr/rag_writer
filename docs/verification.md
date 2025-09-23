@@ -71,3 +71,46 @@ Each question yields a JSON object written to `--jsonl-out` with the keys:
 
 A summary table is printed at the end and the process exits non-zero when any
 graded item fails unless `--no-fail-on-error` is supplied.
+
+## TRACE transcripts and Rich live view
+
+`run_rag_verification.py` now streams structured TRACE events from the builder,
+asker, and optional multi-agent CLI while they run. By default tracing is
+enabled; pass `--no-trace` to suppress it. Key command-line additions:
+
+* `--trace / --no-trace` – toggle live rendering and transcript capture
+* `--include-context` – when present, retrieved chunk snippets are shown below
+  the retrieval tables in the Rich view
+* `--transcript-out <dir>` – override the NDJSON transcript directory
+  (defaults to `<workdir>/transcripts`)
+* `--transcript-md <path>` – write an optional, human-readable Markdown
+  transcript stitched from the NDJSON events
+* `--redact=false` – disable secret redaction in saved transcripts (redaction is
+  on by default)
+
+The Rich output renders each TRACE event in a compact panel. Prompts and
+completions show their message content (truncated to 500 characters) and vector
+searches display a small table of the top hits with scores. Latencies and token
+metrics appear in the panel title when provided by the emitting CLI. Non-TRACE
+stderr is still written to `logs/` and shown as dim text in verbose mode.
+
+### TRACE protocol
+
+TRACE events are newline-delimited JSON objects prefixed with `TRACE: ` on
+stderr so that the harness can distinguish them from ordinary logs. The harness
+captures every event, adds missing `qid` values when necessary, redacts secrets
+matching known patterns, and writes them to:
+
+* `transcripts/all.ndjson` – master log of every event
+* `transcripts/<QID>.ndjson` – per-question slices
+
+Example event emitted by the asker CLI:
+
+```json
+TRACE: {"v":1,"ts":"2025-01-01T00:00:00.123Z","qid":"Q01","span":"9c1f6d5a","role":"user","type":"llm.prompt","name":"langchain.RetrievalQA","detail":{"model":"gpt-4o-mini","messages":[{"role":"system","content":"RetrievalQA"},{"role":"user","content":"Explain alpha?"}]}}
+```
+
+The transcripts honour the 3 000 character truncation and redaction rules for
+strings that resemble API keys, passwords, or bearer tokens. To inspect the
+full detail without redaction, rerun with `--redact=false` and review the
+transcripts in a secure environment.

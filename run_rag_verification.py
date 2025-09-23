@@ -11,12 +11,20 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, Sequence
 
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
 import yaml
+
+from src.langchain.trace import TRACE_PREFIX, redact as trace_redact
 
 
 SUPPORTED_TYPES = {
@@ -30,6 +38,138 @@ SUPPORTED_TYPES = {
 
 ANSI_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 
+
+class TraceRecorder:
+    def __init__(
+        self,
+        *,
+        enabled: bool,
+        directory: Path,
+        console: Console | None,
+        redact: bool,
+        include_context: bool,
+    ) -> None:
+        self.enabled = enabled
+        self.directory = directory
+        self.console = console
+        self.redact = redact
+        self.include_context = include_context
+        self.events: list[dict] = []
+        self.events_by_qid: dict[str, list[dict]] = {}
+        self._file_handles: dict[str, object] = {}
+        self.master_path = directory / "all.ndjson"
+        directory.mkdir(parents=True, exist_ok=True)
+        if enabled:
+            self._master_handle = self.master_path.open("w", encoding="utf-8")
+        else:
+            self._master_handle = None
+            self.master_path.touch()
+
+    def close(self) -> None:
+        if self._master_handle:
+            self._master_handle.close()
+        for handle in self._file_handles.values():
+            try:
+                handle.close()
+            except Exception:  # pragma: no cover - defensive
+                pass
+        self._file_handles.clear()
+
+    def handle_event(self, event: dict, *, default_qid: str | None = None) -> None:
+        if not self.enabled:
+            return
+        payload = dict(event)
+        qid = payload.get("qid") or default_qid or "general"
+        payload["qid"] = qid
+        if self.redact:
+            payload = trace_redact(payload)
+        line = json.dumps(payload, ensure_ascii=False)
+        if self._master_handle:
+            self._master_handle.write(line + "\n")
+            self._master_handle.flush()
+        file_handle = self._file_handles.get(qid)
+        if file_handle is None:
+            path = self.directory / f"{qid}.ndjson"
+            file_handle = path.open("a", encoding="utf-8")
+            self._file_handles[qid] = file_handle
+        file_handle.write(line + "\n")
+        file_handle.flush()
+        self.events.append(payload)
+        self.events_by_qid.setdefault(qid, []).append(payload)
+        if self.console:
+            self._render_event(payload)
+
+    def start_question(self, question: Question) -> None:
+        if not self.enabled or not self.console:
+            return
+        title = f"{question.qid} — {question.prompt}"
+        self.console.print(Panel(Text(title), title="Question", expand=False, border_style="cyan"))
+
+    def _render_event(self, event: dict) -> None:
+        qid = event.get("qid", "general")
+        event_type = event.get("type", "")
+        name = event.get("name", "")
+        detail = event.get("detail") or {}
+        metrics = event.get("metrics") or {}
+        lines: list[str] = []
+        if event_type == "llm.prompt" and isinstance(detail, dict):
+            messages = detail.get("messages", [])
+            for msg in messages:
+                if isinstance(msg, dict):
+                    role = msg.get("role", "")
+                    content = (msg.get("content", "") or "")[:500]
+                    lines.append(f"{role}: {content}")
+        elif event_type == "llm.completion" and isinstance(detail, dict):
+            content = (detail.get("content", "") or "")[:500]
+            lines.append(content)
+        elif event_type == "vector.query" and isinstance(detail, dict):
+            query_text = (detail.get("query_text", "") or "")[:500]
+            backend = detail.get("backend")
+            lines.append(f"backend={backend}, top_k={detail.get('top_k')}\n{query_text}")
+        elif event_type == "vector.results" and isinstance(detail, dict):
+            hits = detail.get("hits", [])
+            table = Table(show_header=True, header_style="bold", expand=False)
+            table.add_column("Rank", justify="right")
+            table.add_column("Doc ID")
+            table.add_column("Score")
+            for hit in hits[:5]:
+                if isinstance(hit, dict):
+                    table.add_row(
+                        str(hit.get("rank") or ""),
+                        str(hit.get("doc_id") or ""),
+                        str(hit.get("score") or ""),
+                    )
+                    if self.include_context:
+                        snippet = hit.get("text") or hit.get("snippet") or ""
+                        if snippet:
+                            lines.append(snippet[:400])
+            if hits:
+                self.console.print(table)
+        elif isinstance(detail, dict) and detail:
+            lines.append(json.dumps(detail, ensure_ascii=False)[:500])
+        text_lines = "\n".join(lines)
+        metrics_line = ""
+        if metrics:
+            metrics_line = " | " + ", ".join(
+                f"{key}={value}" for key, value in metrics.items() if value is not None
+            )
+        body = Text(text_lines or name or event_type)
+        title = f"{qid} — {event_type}{metrics_line}"
+        self.console.print(Panel(body, title=title, expand=False))
+
+    def write_markdown(self, path: Path) -> None:
+        if not self.enabled:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w", encoding="utf-8") as handle:
+            for qid, events in self.events_by_qid.items():
+                handle.write(f"## {qid}\n\n")
+                for event in events:
+                    title = f"### {event.get('type', '')} — {event.get('name', '')}\n"
+                    handle.write(title)
+                    handle.write("```json\n")
+                    handle.write(json.dumps(event, ensure_ascii=False, indent=2))
+                    handle.write("\n```\n\n")
 
 @dataclass(slots=True)
 class Question:
@@ -49,6 +189,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run the RAG verification harness against a corpus",
     )
+    parser.set_defaults(trace=True)
     parser.add_argument("--verbose", action="store_true", help="Echo subprocesses")
     parser.add_argument(
         "--keep-index",
@@ -119,7 +260,50 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Abort immediately when a subprocess exits with a non-zero status",
     )
+    parser.add_argument(
+        "--trace",
+        dest="trace",
+        action="store_true",
+        help="Enable live TRACE rendering and transcripts (default)",
+    )
+    parser.add_argument(
+        "--no-trace",
+        dest="trace",
+        action="store_false",
+        help="Disable TRACE rendering and transcript capture",
+    )
+    parser.add_argument(
+        "--include-context",
+        action="store_true",
+        help="Show retrieved text snippets in the live view",
+    )
+    parser.add_argument(
+        "--transcript-out",
+        help="Directory for NDJSON trace transcripts (default: <workdir>/transcripts)",
+    )
+    parser.add_argument(
+        "--transcript-md",
+        help="Optional Markdown transcript output path",
+    )
+    parser.add_argument(
+        "--redact",
+        default="true",
+        help="Control redaction of secrets in transcripts (true/false)",
+    )
     return parser.parse_args(list(argv) if argv is not None else sys.argv[1:])
+
+
+def parse_bool(value: str, *, default: bool = True) -> bool:
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"", "default"}:
+        return default
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
 
 
 def strip_ansi(text: str) -> str:
@@ -331,6 +515,77 @@ def write_log(path: Path, stdout: str, stderr: str, *, command: Sequence[str] | 
                 handle.write("\n")
 
 
+def run_traceable_subprocess(
+    command: Sequence[str],
+    *,
+    env: dict[str, str] | None,
+    timeout: float,
+    recorder: TraceRecorder | None,
+    default_qid: str | None,
+    verbose: bool,
+    console: Console | None,
+) -> tuple[int, str, str]:
+    proc = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+        bufsize=1,
+    )
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
+
+    def _read_stdout() -> None:
+        if proc.stdout is None:
+            return
+        for line in proc.stdout:
+            stdout_lines.append(line)
+            if verbose and console:
+                console.print(line.rstrip("\n"))
+
+    def _read_stderr() -> None:
+        if proc.stderr is None:
+            return
+        for raw in proc.stderr:
+            stripped = raw.rstrip("\n")
+            if stripped.startswith(TRACE_PREFIX):
+                payload = stripped[len(TRACE_PREFIX) :].strip()
+                try:
+                    event = json.loads(payload)
+                except json.JSONDecodeError:
+                    stderr_lines.append(raw)
+                    if verbose and console:
+                        console.print(stripped, style="dim")
+                    continue
+                if recorder:
+                    recorder.handle_event(event, default_qid=default_qid)
+            else:
+                stderr_lines.append(raw)
+                if verbose and console:
+                    console.print(stripped, style="dim")
+
+    stdout_thread = threading.Thread(target=_read_stdout, daemon=True)
+    stderr_thread = threading.Thread(target=_read_stderr, daemon=True)
+    stdout_thread.start()
+    stderr_thread.start()
+
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        proc.kill()
+        stdout_thread.join()
+        stderr_thread.join()
+        raise subprocess.TimeoutExpired(command, timeout, output="".join(stdout_lines), stderr="".join(stderr_lines)) from exc
+
+    stdout_thread.join()
+    stderr_thread.join()
+
+    stdout_text = "".join(stdout_lines)
+    stderr_text = "".join(stderr_lines)
+    return proc.returncode, stdout_text, stderr_text
+
+
 def run_builder(
     *,
     builder: Path,
@@ -339,6 +594,9 @@ def run_builder(
     logs_dir: Path,
     timeout: float,
     verbose: bool,
+    trace: bool,
+    recorder: TraceRecorder | None,
+    console: Console | None,
 ) -> None:
     if index_dir.exists():
         shutil.rmtree(index_dir)
@@ -355,32 +613,33 @@ def run_builder(
     if verbose:
         print("$", " ".join(shlex.quote(part) for part in command))
     log_path = logs_dir / "build_index.log"
+    env = os.environ.copy()
+    if trace:
+        env["RAG_TRACE"] = "1"
     try:
-        proc = subprocess.run(
+        returncode, stdout_raw, stderr_raw = run_traceable_subprocess(
             command,
-            capture_output=True,
-            text=True,
+            env=env,
             timeout=timeout,
-            check=True,
+            recorder=recorder if trace else None,
+            default_qid=None,
+            verbose=verbose,
+            console=console,
         )
     except subprocess.TimeoutExpired as exc:
-        stdout = strip_ansi(exc.stdout or "")
-        stderr = strip_ansi(exc.stderr or "")
+        stdout = strip_ansi(getattr(exc, "output", "") or "")
+        stderr = strip_ansi(getattr(exc, "stderr", "") or "")
         write_log(log_path, stdout, stderr, command=command)
         raise RuntimeError(
             f"Builder timed out after {timeout} seconds. See {log_path}",
         ) from exc
-    except subprocess.CalledProcessError as exc:
-        stdout = strip_ansi(exc.stdout or "")
-        stderr = strip_ansi(exc.stderr or "")
-        write_log(log_path, stdout, stderr, command=command)
+    stdout = strip_ansi(stdout_raw)
+    stderr = strip_ansi(stderr_raw)
+    write_log(log_path, stdout, stderr, command=command)
+    if returncode != 0:
         raise RuntimeError(
-            f"Builder exited with status {exc.returncode}. See {log_path}",
-        ) from exc
-    else:
-        stdout = strip_ansi(proc.stdout or "")
-        stderr = strip_ansi(proc.stderr or "")
-        write_log(log_path, stdout, stderr, command=command)
+            f"Builder exited with status {returncode}. See {log_path}",
+        )
 
 
 def extract_model_answer(stdout: str) -> str:
@@ -452,6 +711,9 @@ def run_question(
     logs_dir: Path,
     strict: bool,
     verbose: bool,
+    trace: bool,
+    recorder: TraceRecorder | None,
+    console: Console | None,
 ) -> tuple[str, str, int]:
     command, route = build_question_command(
         question=question,
@@ -462,21 +724,27 @@ def run_question(
     )
     if verbose:
         print("$", " ".join(shlex.quote(part) for part in command))
+    env = os.environ.copy()
+    if trace:
+        env["RAG_TRACE"] = "1"
+        env["TRACE_QID"] = question.qid
     try:
-        proc = subprocess.run(
+        returncode, stdout_raw, stderr_raw = run_traceable_subprocess(
             command,
-            capture_output=True,
-            text=True,
+            env=env,
             timeout=timeout,
-            check=False,
+            recorder=recorder if trace else None,
+            default_qid=question.qid,
+            verbose=verbose,
+            console=console,
         )
-        stdout = strip_ansi(proc.stdout or "")
-        stderr = strip_ansi(proc.stderr or "")
-        returncode = proc.returncode
     except subprocess.TimeoutExpired as exc:
-        stdout = strip_ansi(exc.stdout or "")
-        stderr = strip_ansi(exc.stderr or "")
+        stdout = strip_ansi(getattr(exc, "output", "") or "")
+        stderr = strip_ansi(getattr(exc, "stderr", "") or "")
         returncode = -1
+    else:
+        stdout = strip_ansi(stdout_raw)
+        stderr = strip_ansi(stderr_raw)
     output_path = outputs_dir / f"{question.qid}.txt"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(stdout, encoding="utf-8")
@@ -544,81 +812,105 @@ def main(argv: Sequence[str] | None = None) -> int:
     logs_dir = workdir / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     outputs_dir = ensure_outputs_dir(workdir, args.save_outputs)
+    console = Console(highlight=False)
+    redact = parse_bool(args.redact, default=True)
+    trace_dir = Path(args.transcript_out) if args.transcript_out else workdir / "transcripts"
+    recorder = TraceRecorder(
+        enabled=args.trace,
+        directory=trace_dir,
+        console=console if args.trace else None,
+        redact=redact,
+        include_context=args.include_context,
+    )
 
-    builder_path = resolve_script(args.builder, default="lc_build_index.py")
-    if builder_path is None:
-        raise SystemExit(f"Unable to locate builder script: {args.builder}")
-    asker_path = resolve_script(args.asker, default="lc_ask.py")
-    if asker_path is None:
-        raise SystemExit(f"Unable to locate asker script: {args.asker}")
-    multi_path = resolve_script(args.multi, default="multi_agent.py")
-
+    should_fail = False
     try:
-        questions = load_questions(questions_path, require_answers=args.require_answers)
-    except Exception as exc:  # noqa: BLE001
-        raise SystemExit(f"Failed to load questions: {exc}") from exc
+        builder_path = resolve_script(args.builder, default="lc_build_index.py")
+        if builder_path is None:
+            raise SystemExit(f"Unable to locate builder script: {args.builder}")
+        asker_path = resolve_script(args.asker, default="lc_ask.py")
+        if asker_path is None:
+            raise SystemExit(f"Unable to locate asker script: {args.asker}")
+        multi_path = resolve_script(args.multi, default="multi_agent.py")
 
-    try:
-        run_builder(
-            builder=builder_path,
-            corpus_dir=corpus_dir,
-            index_dir=index_dir,
-            logs_dir=logs_dir,
-            timeout=args.timeout,
-            verbose=args.verbose,
-        )
-    except RuntimeError as exc:
-        raise SystemExit(str(exc)) from exc
-
-    results: list[dict] = []
-    for question in questions:
         try:
-            stdout, route, returncode = run_question(
-                question=question,
+            questions = load_questions(questions_path, require_answers=args.require_answers)
+        except Exception as exc:  # noqa: BLE001
+            raise SystemExit(f"Failed to load questions: {exc}") from exc
+
+        try:
+            run_builder(
+                builder=builder_path,
+                corpus_dir=corpus_dir,
                 index_dir=index_dir,
-                asker=asker_path,
-                multi=multi_path,
-                topk=args.topk,
-                timeout=args.timeout,
-                outputs_dir=outputs_dir,
                 logs_dir=logs_dir,
-                strict=args.strict_errors,
+                timeout=args.timeout,
                 verbose=args.verbose,
+                trace=args.trace,
+                recorder=recorder if args.trace else None,
+                console=console,
             )
         except RuntimeError as exc:
-            print(str(exc), file=sys.stderr)
-            if args.strict_errors:
-                raise SystemExit(1) from exc
-            stdout = ""
-            route = "asker"
-            returncode = 1
-        model_answer = extract_model_answer(stdout)
-        passed, score = score_answer(question.answer, model_answer)
-        record: dict[str, object] = {
-            "qid": question.qid,
-            "type": question.qtype,
-            "question": question.prompt,
-            "gold_answer": question.answer,
-            "model_answer": model_answer,
-            "pass": passed,
-            "score": score,
-            "route": route,
-        }
-        if question.answer is None:
-            record["note"] = "no gold answer"
-        elif returncode != 0:
-            record["note"] = f"command exit code {returncode}"
-        results.append(record)
+            raise SystemExit(str(exc)) from exc
 
-    jsonl_path = Path(args.jsonl_out)
-    jsonl_path.parent.mkdir(parents=True, exist_ok=True)
-    with jsonl_path.open("w", encoding="utf-8") as handle:
-        for rec in results:
-            handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        results: list[dict] = []
+        for question in questions:
+            if args.trace:
+                recorder.start_question(question)
+            try:
+                stdout, route, returncode = run_question(
+                    question=question,
+                    index_dir=index_dir,
+                    asker=asker_path,
+                    multi=multi_path,
+                    topk=args.topk,
+                    timeout=args.timeout,
+                    outputs_dir=outputs_dir,
+                    logs_dir=logs_dir,
+                    strict=args.strict_errors,
+                    verbose=args.verbose,
+                    trace=args.trace,
+                    recorder=recorder if args.trace else None,
+                    console=console,
+                )
+            except RuntimeError as exc:
+                print(str(exc), file=sys.stderr)
+                if args.strict_errors:
+                    raise SystemExit(1) from exc
+                stdout = ""
+                route = "asker"
+                returncode = 1
+            model_answer = extract_model_answer(stdout)
+            passed, score = score_answer(question.answer, model_answer)
+            record: dict[str, object] = {
+                "qid": question.qid,
+                "type": question.qtype,
+                "question": question.prompt,
+                "gold_answer": question.answer,
+                "model_answer": model_answer,
+                "pass": passed,
+                "score": score,
+                "route": route,
+            }
+            if question.answer is None:
+                record["note"] = "no gold answer"
+            elif returncode != 0:
+                record["note"] = f"command exit code {returncode}"
+            results.append(record)
 
-    counts = summary_counts(results)
-    print_summary(counts)
-    should_fail = counts["failed"] > 0 and not args.no_fail_on_error
+        jsonl_path = Path(args.jsonl_out)
+        jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+        with jsonl_path.open("w", encoding="utf-8") as handle:
+            for rec in results:
+                handle.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+        counts = summary_counts(results)
+        print_summary(counts)
+        if args.transcript_md:
+            recorder.write_markdown(Path(args.transcript_md))
+        should_fail = counts["failed"] > 0 and not args.no_fail_on_error
+    finally:
+        recorder.close()
     if not args.keep_index:
         pass  # index retention currently default behaviour
     return 1 if should_fail else 0
