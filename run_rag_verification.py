@@ -329,6 +329,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Optional multi-turn CLI script (defaults to multi_agent.py if present)",
     )
     parser.add_argument(
+        "--index-key",
+        default="verification",
+        help="Storage key used when building and querying the FAISS index",
+    )
+    parser.add_argument(
+        "--embed-model",
+        default="BAAI/bge-small-en-v1.5",
+        help="Embedding model name forwarded to the asker CLI",
+    )
+    parser.add_argument(
         "--topk",
         type=int,
         help="Optional retrieval depth to forward to the asker if supported",
@@ -614,40 +624,27 @@ def build_question_command(
     return argv
 
 
-def determine_builder_flags(builder: Path) -> tuple[str, str]:
-    corpus_flag = os.getenv("RAG_VERIFICATION_BUILDER_CORPUS_FLAG")
-    out_flag = os.getenv("RAG_VERIFICATION_BUILDER_OUT_FLAG")
-    if corpus_flag and out_flag:
-        return corpus_flag, out_flag
-    help_text = script_help_text(builder)
-    corpus_candidates = [
-        corpus_flag,
-        "--corpus",
-        "--docs",
-        "--source",
-        "--input",
-        "--path",
+def build_builder_command(
+    *,
+    builder: Path,
+    index_key: str,
+    pdf_dir: Path,
+    chunks_dir: Path,
+    index_dir: Path,
+) -> list[str]:
+    """Construct the lc_build_index command for the verification run."""
+
+    return [
+        sys.executable,
+        str(builder),
+        index_key,
+        "--input-dir",
+        str(pdf_dir),
+        "--chunks-dir",
+        str(chunks_dir),
+        "--index-dir",
+        str(index_dir),
     ]
-    out_candidates = [
-        out_flag,
-        "--out",
-        "--output",
-        "--index",
-        "--dest",
-    ]
-    for cand in corpus_candidates:
-        if cand and cand in help_text:
-            corpus_flag = cand
-            break
-    else:
-        corpus_flag = corpus_flag or "--corpus"
-    for cand in out_candidates:
-        if cand and cand in help_text:
-            out_flag = cand
-            break
-    else:
-        out_flag = out_flag or "--out"
-    return corpus_flag, out_flag
 
 
 def write_log(
@@ -746,8 +743,10 @@ def run_traceable_subprocess(
 def run_builder(
     *,
     builder: Path,
-    corpus_dir: Path,
+    pdf_dir: Path,
+    chunks_dir: Path,
     index_dir: Path,
+    index_key: str,
     logs_dir: Path,
     timeout: float,
     verbose: bool,
@@ -758,15 +757,16 @@ def run_builder(
     if index_dir.exists():
         shutil.rmtree(index_dir)
     index_dir.mkdir(parents=True, exist_ok=True)
-    corpus_flag, out_flag = determine_builder_flags(builder)
-    command = [
-        sys.executable,
-        str(builder),
-        corpus_flag,
-        str(corpus_dir),
-        out_flag,
-        str(index_dir),
-    ]
+    if chunks_dir.exists():
+        shutil.rmtree(chunks_dir)
+    chunks_dir.mkdir(parents=True, exist_ok=True)
+    command = build_builder_command(
+        builder=builder,
+        index_key=index_key,
+        pdf_dir=pdf_dir,
+        chunks_dir=chunks_dir,
+        index_dir=index_dir,
+    )
     if verbose:
         print("$", " ".join(shlex.quote(part) for part in command))
     log_path = logs_dir / "build_index.log"
@@ -819,9 +819,12 @@ def build_question_invocation(
     *,
     question: Question,
     index_dir: Path,
+    chunks_dir: Path,
     asker: Path,
     multi: Path | None,
     topk: int | None,
+    index_key: str,
+    embed_model: str,
 ) -> tuple[list[str], str]:
     use_multi = bool(
         multi
@@ -832,10 +835,19 @@ def build_question_invocation(
         raise RuntimeError("No asker script available")
     route = "multi" if use_multi else "asker"
     if not use_multi:
-        index_flag = (
-            determine_flag(asker, ["--index-dir", "--key", "--collection"]) or "--index-dir"
-        )
-        base_args: List[str] = [index_flag, str(index_dir)]
+        base_args: List[str] = []
+        key_flag = determine_flag(asker, ["--key"]) or "--key"
+        if key_flag:
+            base_args.extend([key_flag, index_key])
+        index_flag = determine_flag(asker, ["--index-dir", "--index"]) or "--index-dir"
+        if index_flag:
+            base_args.extend([index_flag, str(index_dir)])
+        chunks_flag = determine_flag(asker, ["--chunks-dir"]) or "--chunks-dir"
+        if chunks_flag:
+            base_args.extend([chunks_flag, str(chunks_dir)])
+        embed_flag = determine_flag(asker, ["--embed-model"]) or "--embed-model"
+        if embed_flag:
+            base_args.extend([embed_flag, embed_model])
         command = build_question_command(asker, question.prompt, base_args)
         docs_flag = determine_flag(asker, ["--docs", "--doc", "--gold"])
         if docs_flag:
@@ -845,7 +857,11 @@ def build_question_invocation(
             if topk_flag:
                 command.extend([topk_flag, str(topk)])
     else:
-        command = build_question_command(script, question.prompt, [])
+        base_args: list[str] = ["ask"]
+        key_flag = determine_flag(multi, ["--key", "-k"]) or "--key"
+        if key_flag:
+            base_args.extend([key_flag, index_key])
+        command = build_question_command(script, question.prompt, base_args)
         if question.clarify:
             clarify_flag = determine_flag(
                 multi, ["--clarify", "--followup", "--context"]
@@ -865,9 +881,12 @@ def run_question(
     *,
     question: Question,
     index_dir: Path,
+    chunks_dir: Path,
     asker: Path,
     multi: Path | None,
     topk: int | None,
+    index_key: str,
+    embed_model: str,
     timeout: float,
     outputs_dir: Path,
     logs_dir: Path,
@@ -880,9 +899,12 @@ def run_question(
     command, route = build_question_invocation(
         question=question,
         index_dir=index_dir,
+        chunks_dir=chunks_dir,
         asker=asker,
         multi=multi,
         topk=topk,
+        index_key=index_key,
+        embed_model=embed_model,
     )
     if verbose:
         print("$", " ".join(shlex.quote(part) for part in command))
@@ -973,6 +995,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     workdir = Path(args.workdir).resolve()
     workdir.mkdir(parents=True, exist_ok=True)
     index_dir = workdir / "index_dir"
+    chunks_dir = workdir / "chunks"
+    pdf_dir = workdir / "pdf_corpus"
     logs_dir = workdir / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     outputs_dir = ensure_outputs_dir(workdir, args.save_outputs)
@@ -1015,10 +1039,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise SystemExit(f"Failed to load questions: {exc}") from exc
 
         try:
+            if pdf_dir.exists():
+                shutil.rmtree(pdf_dir)
+            prepare_pdf_corpus(corpus_dir, pdf_dir)
+        except FileNotFoundError as exc:
+            raise SystemExit(str(exc)) from exc
+
+        try:
             run_builder(
                 builder=builder_path,
-                corpus_dir=corpus_dir,
+                pdf_dir=pdf_dir,
+                chunks_dir=chunks_dir,
                 index_dir=index_dir,
+                index_key=args.index_key,
                 logs_dir=logs_dir,
                 timeout=args.timeout,
                 verbose=args.verbose,
@@ -1037,9 +1070,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 stdout, route, returncode = run_question(
                     question=question,
                     index_dir=index_dir,
+                    chunks_dir=chunks_dir,
                     asker=asker_path,
                     multi=multi_path,
                     topk=args.topk,
+                    index_key=args.index_key,
+                    embed_model=args.embed_model,
                     timeout=args.timeout,
                     outputs_dir=outputs_dir,
                     logs_dir=logs_dir,
