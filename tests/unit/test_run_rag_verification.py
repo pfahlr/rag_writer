@@ -11,6 +11,7 @@ from run_rag_verification import (
     Question,
     build_builder_command,
     build_question_invocation,
+    determine_flag,
     prepare_pdf_corpus,
 )
 
@@ -113,3 +114,29 @@ def test_build_question_invocation_for_multi_agent_omits_legacy_subcommand(
     assert "ask" not in command
     assert "--key" in command
     assert "--index-dir" in command
+
+
+def test_determine_flag_matches_full_option(tmp_path: Path) -> None:
+    script = tmp_path / "cli.py"
+    script.write_text(
+        """
+import argparse
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--index-dir")
+    parser.add_argument("--chunks-dir")
+    parser.parse_args()
+
+
+if __name__ == "__main__":
+    main()
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    flag = determine_flag(script, ["--index", "--index-dir"])
+
+    assert flag == "--index-dir"
