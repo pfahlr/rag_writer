@@ -149,14 +149,13 @@ class AppConfig:
     def _determine_parallel_workers(self) -> int:
         """Resolve the default parallel worker count from env or system state."""
 
-        for env_var in ("RAG_PARALLEL_WORKERS", "PARALLEL_WORKERS_COUNT"):
-            env_value = os.getenv(env_var)
-            if env_value is None or str(env_value).strip() == "":
-                continue
+        env_value = os.getenv("PARALLEL_WORKERS_COUNT", os.cpu_count())
+
+        if env_value is not None:
             try:
                 return self._clamp_parallel_workers(int(env_value))
             except (TypeError, ValueError):
-                continue
+                pass
 
         cpu_count = os.cpu_count() or 1
         return self._clamp_parallel_workers(cpu_count)

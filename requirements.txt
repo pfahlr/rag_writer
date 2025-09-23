@@ -6,7 +6,7 @@ llama-index-vector-stores-lancedb>=0.2.0,<0.3
 
 python_magic
 prompt_toolkit
-rich>=13
+rich
 textual
 textual-dev
 cryptography

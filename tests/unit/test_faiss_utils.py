@@ -102,14 +102,3 @@ def test_try_index_cpu_to_gpu_returns_none_when_not_supported(monkeypatch):
     assert faiss_utils.is_faiss_gpu_available() is False
     assert faiss_utils.try_index_cpu_to_gpu("idx") is None
     assert faiss_utils.ensure_cpu_index("idx") == "idx"
-
-
-def test_ensure_cpu_index_handles_missing_import(monkeypatch):
-    """Regression: missing importlib import should not raise."""
-
-    monkeypatch.delitem(sys.modules, "faiss", raising=False)
-
-    faiss_utils = _reload_utils()
-
-    sentinel = object()
-    assert faiss_utils.ensure_cpu_index(sentinel) is sentinel

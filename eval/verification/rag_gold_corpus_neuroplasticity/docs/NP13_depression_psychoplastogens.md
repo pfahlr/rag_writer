@@ -1,2 +1,0 @@
-# Depression & Rapid‑Acting Treatments
-A neuroplasticity perspective helps explain why classic monoaminergic antidepressants act slowly. Rapid‑acting agents (e.g., ketamine) can produce fast, durable antidepressant effects, plausibly via synaptogenesis and network connectivity restoration. The term “psychoplastogen” has been proposed for compounds that rapidly promote plasticity with therapeutic benefit.

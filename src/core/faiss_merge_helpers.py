@@ -1,80 +1,41 @@
 from __future__ import annotations
-
-from typing import Any, Tuple
-
 import numpy as np
+import faiss
 
 from src.core.faiss_utils import ensure_cpu_index  # type: ignore
-
-try:  # pragma: no cover - exercised indirectly via tests
-    import faiss as _faiss  # type: ignore
-except ModuleNotFoundError as exc:  # pragma: no cover - import guarded by tests
-    _faiss = None
-    _FAISS_IMPORT_ERROR = exc
-else:  # pragma: no cover - executed in FAISS-enabled envs
-    _FAISS_IMPORT_ERROR = None
-
-# Re-export for backwards compatibility with existing imports.
-faiss = _faiss
-
-
-def _require_faiss() -> Any:
-    """Return the FAISS module or raise a helpful error if unavailable."""
-
-    if _faiss is None:
-        message = (
-            "faiss is required for CPU vectorstore merging. Install "
-            "'faiss-cpu' (or the appropriate GPU build) to enable this "
-            "functionality."
-        )
-        raise ModuleNotFoundError(message) from _FAISS_IMPORT_ERROR
-    return _faiss
-
-
-def _flat_types(faiss_module: Any) -> Tuple[type, ...]:
-    names = ("IndexFlat", "IndexFlatIP", "IndexFlatL2")
-    types = tuple(
-        getattr(faiss_module, name) for name in names if hasattr(faiss_module, name)
-    )
-    return types
 
 
 # ----------------------------- FAISS helpers -----------------------------
 
-
-def _metric_of(index: Any) -> int:
-    faiss_module = _require_faiss()
+def _metric_of(index: faiss.Index) -> int:
     try:
         return int(getattr(index, "metric_type"))
     except Exception:
-        flat_ip = getattr(faiss_module, "IndexFlatIP", None)
-        if flat_ip is not None and isinstance(index, flat_ip):
-            return faiss_module.METRIC_INNER_PRODUCT
-        return faiss_module.METRIC_L2
+        if isinstance(index, faiss.IndexFlatIP):
+            return faiss.METRIC_INNER_PRODUCT
+        return faiss.METRIC_L2
 
 
-def _new_flat_like(acc_index: Any) -> Any:
-    faiss_module = _require_faiss()
+def _new_flat_like(acc_index: faiss.Index) -> faiss.Index:
     """
     Create an empty FLAT index with same dim + metric as acc_index.
     Supports IndexFlat, IndexFlatIP, IndexFlatL2.
     """
     d = int(acc_index.d)
     mt = _metric_of(acc_index)
-    if mt == faiss_module.METRIC_INNER_PRODUCT:
+    if mt == faiss.METRIC_INNER_PRODUCT:
         try:
-            return faiss_module.IndexFlatIP(d)
+            return faiss.IndexFlatIP(d)
         except Exception:
-            return faiss_module.IndexFlat(d, mt)
+            return faiss.IndexFlat(d, mt)
     else:
         try:
-            return faiss_module.IndexFlatL2(d)
+            return faiss.IndexFlatL2(d)
         except Exception:
-            return faiss_module.IndexFlat(d, mt)
+            return faiss.IndexFlat(d, mt)
 
 
-def _extract_flat_vectors(idx: Any) -> np.ndarray:
-    faiss_module = _require_faiss()
+def _extract_flat_vectors(idx: faiss.Index) -> np.ndarray:
     """
     Return all vectors from a *flat* index as float32 [ntotal, d].
     Handles multiple FAISS Python variants.
@@ -86,7 +47,7 @@ def _extract_flat_vectors(idx: Any) -> np.ndarray:
 
     xb = getattr(idx, "xb", None)
     if xb is not None:
-        arr = faiss_module.vector_to_array(xb)  # 1-D float32
+        arr = faiss.vector_to_array(xb)  # 1-D float32
         return arr.reshape(nt, d)
 
     rec_n = getattr(idx, "reconstruct_n", None)
@@ -106,13 +67,11 @@ def _extract_flat_vectors(idx: Any) -> np.ndarray:
     raise TypeError(f"Cannot extract vectors from index type {type(idx)}")
 
 
-def _is_flat(idx: Any) -> bool:
-    faiss_module = _require_faiss()
-    return isinstance(idx, _flat_types(faiss_module))
+def _is_flat(idx: faiss.Index) -> bool:
+    return isinstance(idx, (faiss.IndexFlat, faiss.IndexFlatIP, faiss.IndexFlatL2))
 
 
 # ----------------------- LangChain mapping merge ------------------------
-
 
 def _idmap_len(idmap) -> int:
     """Length of index_to_docstore_id whether list or dict."""
@@ -168,9 +127,7 @@ def _merge_idmaps_inplace(acc_idmap, shard_idmap):
 
 # ----------------------------- Public API -------------------------------
 
-
 def merge_faiss_vectorstores_cpu(acc_vs, shard_vs):
-    _require_faiss()
     """
     Robust, CPU-only merge for LangChain FAISS vectorstores that:
       - Assumes *FLAT* indexes (IndexFlat / IndexFlatIP / IndexFlatL2).

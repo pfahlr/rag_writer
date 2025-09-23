@@ -1,2 +1,0 @@
-# Meditation, Art, and Music
-Meditation practice has been linked to differences in cortical thickness and functional connectivity in regions involved in attention and affect regulation. Long‑term artistic training can modularize domain‑specific and domain‑general networks, increasing cognitive flexibility. Music‑supported therapy in stroke rehabilitation is associated with motor improvements and functional changes in orbitofrontal and other circuits.
