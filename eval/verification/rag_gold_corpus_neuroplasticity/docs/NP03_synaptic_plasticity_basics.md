@@ -1,0 +1,2 @@
+# Synaptic Plasticity — Core Ideas
+Synaptic plasticity is a key substrate of learning and memory. Mechanisms include changes in neurotransmitter release, receptor density (AMPA/NMDA), and receptor conductance via phosphorylation. Calcium influx through NMDA receptors is pivotal; downstream kinases (e.g., CaMKII, PKA) promote spine growth and receptor insertion. Homeostatic processes like synaptic scaling and metaplasticity maintain network stability.

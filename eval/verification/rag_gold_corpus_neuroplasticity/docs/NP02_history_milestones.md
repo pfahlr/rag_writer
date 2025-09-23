@@ -1,0 +1,2 @@
+# History — Milestones
+Early hints appeared as far back as 1793 (Malacarne’s trained animals showed larger cerebellums). William James (1890) described “plasticity” of behavior; Santiago Ramón y Cajal argued for plastic changes even in adult brains. Acceptance remained limited until the mid‑20th century. In 1964 Marian Diamond published evidence of anatomical plasticity. In the 1960s–70s, work by Bach‑y‑Rita, Merzenich, and others expanded the field; Hubel & Wiesel’s kitten experiments illuminated critical‑period dynamics.

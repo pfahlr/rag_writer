@@ -242,8 +242,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
-    corpus_dir = repo_root / "rag_gold_corpus_neuroplasticity" / "docs"
-    questions_path = repo_root / "rag_gold_corpus_neuroplasticity" / "questions.yaml"
+    corpus_dir = repo_root / "eval/verification" / "rag_gold_corpus_neuroplasticity" / "docs"
+    questions_path = repo_root / "eval/verification" / "rag_gold_corpus_neuroplasticity" / "questions.yaml"
     tmp_index = repo_root / "tmp_index"
 
     if not corpus_dir.exists():
