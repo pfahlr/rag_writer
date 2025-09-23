@@ -142,11 +142,10 @@ def main():
     parser.add_argument("--json", dest="json_path", help="JSON job file containing 'question'")
     key_group = parser.add_mutually_exclusive_group(required=True)
     key_group.add_argument("--key", help="collection key used at index time")
-    key_group.add_argument(
-        "--index",
-        dest="index_path",
-        help="Path to a FAISS index directory (or index.faiss file)",
-    )
+
+
+    parser.add_argument("--embed-model", default="BAAI/bge-small-en-v1.5")
+
     parser.add_argument(
         "--mode",
         default="faiss",
@@ -162,7 +161,6 @@ def main():
     parser.add_argument("--rerank", default="none", choices=["none", "ce"])
     parser.add_argument("--ce-model", default="cross-encoder/ms-marco-MiniLM-L-6-v2")
     parser.add_argument("--k", type=int, default=10)
-    parser.add_argument("--embed-model", default="BAAI/bge-small-en-v1.5")
     parser.add_argument("--trace", action="store_true", help="Emit TRACE events to stderr")
     parser.add_argument(
         "--trace-file",

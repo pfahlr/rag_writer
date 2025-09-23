@@ -833,7 +833,7 @@ def build_question_invocation(
     route = "multi" if use_multi else "asker"
     if not use_multi:
         index_flag = (
-            determine_flag(asker, ["--index", "--key", "--collection"]) or "--index"
+            determine_flag(asker, ["--index-dir", "--key", "--collection"]) or "--index-dir"
         )
         base_args: List[str] = [index_flag, str(index_dir)]
         command = build_question_command(asker, question.prompt, base_args)
