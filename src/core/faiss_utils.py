@@ -75,12 +75,22 @@ def ensure_cpu_index(index: Any) -> Any:
         return index
 
 
-def try_index_cpu_to_gpu(index: Any) -> Optional[Any]:
+def try_index_cpu_to_gpu(index: Any, device_id: Optional[int] = None) -> Optional[Any]:
     """Attempt to copy a CPU index to GPU memory."""
 
     faiss_module = _import_faiss()
     if faiss_module is None or not _gpu_runtime_available(faiss_module):
         return None
+
+    if device_id is not None:
+        to_gpu_device = getattr(faiss_module, "index_cpu_to_gpu", None)
+        resources_cls = getattr(faiss_module, "StandardGpuResources", None)
+        if callable(to_gpu_device) and resources_cls is not None:
+            try:
+                resources = resources_cls()
+                return to_gpu_device(resources, device_id, index)
+            except Exception:
+                return None
 
     to_gpu = getattr(faiss_module, "index_cpu_to_all_gpus", None)
     if to_gpu is None:

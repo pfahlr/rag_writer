@@ -158,7 +158,9 @@ Start with specific collection:
 [\fB\-\-task\fR \fITASK\fR]
 [\fB\-\-json\fR \fIFILE\fR]
 [\fB\-\-key\fR \fIKEY\fR]
+[\fB\-\-index\fR \fIPATH\fR]
 [\fB\-\-k\fR \fINUM\fR]
+[\fB\-\-chunks-file\fR \fIFILE\fR]
 [\fB\-\-output\fR \fIFILE\fR]
 [\fIinstruction\fR]
 .SS OPTIONS
@@ -173,10 +175,16 @@ The task/prompt for the LLM
 JSON file with job specification
 .TP
 .B \-\-key \fIKEY\fR
-Collection key for RAG (default: default)
+Collection key for RAG (default: default). One of \fB--key\fR or \fB--index\fR is required.
+.TP
+.B \-\-index \fIPATH\fR
+Path to a FAISS index directory (or \fIindex.faiss\fR) when addressing an explicit index location.
 .TP
 .B \-\-k \fINUM\fR
 Top-k results for retrieval (default: 30)
+.TP
+.B \-\-chunks-file \fIFILE\fR
+Explicit chunk JSONL file to load (overrides automatic lookup in \fB--chunks-dir\fR).
 .TP
 .B \-\-output \fIFILE\fR
 Output file path
@@ -485,6 +493,12 @@ The index builder CLI supports the following arguments:
 \fB--serve-gpu\fP — after saving, copy the in-memory FAISS index to GPU for serving
 .IP \[bu] 2
 \fB--faiss-threads\fP \fIN\fP — override FAISS thread count (defaults to host CPU count)
+.IP \[bu] 2
+\fB--input-dir\fP \fIPATH\fP — directory containing source PDFs (defaults to \fIdata_raw\fP)
+.IP \[bu] 2
+\fB--chunks-dir\fP \fIPATH\fP — directory for normalized chunk JSONL output (defaults to \fIdata_processed\fP)
+.IP \[bu] 2
+\fB--index-dir\fP \fIPATH\fP — directory that holds FAISS index folders (defaults to \fIstorage\fP)
 .sp
 .nf
 

@@ -1,0 +1,2 @@
+# LTP & LTD
+Long‑term potentiation (LTP) and long‑term depression (LTD) are enduring bidirectional changes in synaptic efficacy. LTP was first reported in 1973 by Lømo and Bliss in hippocampal pathways. Strong postsynaptic depolarization and elevated Ca²⁺ favor LTP; weaker or patterned calcium signals can induce LTD. Stabilization correlates with structural changes (boutons, spines, PSD proteins like PSD‑95 and Homer1c) and astrocyte signaling.
