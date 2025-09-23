@@ -17,9 +17,33 @@ from langchain_openai import ChatOpenAI
 from langchain.chains import RetrievalQA
 
 # Ensure project root ('/app') is on sys.path so we can import 'src.*'
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+project_root = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(project_root))
 
 from src.langchain.retriever_factory import make_retriever
+
+ROOT = project_root
+
+
+def _fs_safe(value: str) -> str:
+    """Return a filesystem-safe slug for embedding model names."""
+
+    return re.sub(r"[^a-zA-Z0-9._-]+", "-", value)
+
+
+def _resolve_paths(
+    key: str,
+    embed_model: str,
+    *,
+    chunks_dir: Path,
+    index_dir: Path,
+) -> tuple[Path, Path, Path]:
+    """Derive chunk metadata and FAISS directories based on CLI arguments."""
+
+    chunk_path = Path(chunks_dir) / f"lc_chunks_{key}.jsonl"
+    base_dir = Path(index_dir) / f"faiss_{key}__{_fs_safe(embed_model)}"
+    repacked_dir = base_dir.parent / f"{base_dir.name}_repacked"
+    return chunk_path, base_dir, repacked_dir
 
 
 def _load_chunks_jsonl(path: Path) -> list[Document]:
@@ -52,6 +76,27 @@ def main():
     parser.add_argument("--ce-model", default="cross-encoder/ms-marco-MiniLM-L-6-v2")
     parser.add_argument("--k", type=int, default=10)
     parser.add_argument("--embed-model", default="BAAI/bge-small-en-v1.5")
+    parser.add_argument(
+        "--input-dir",
+        type=str,
+        default=str(ROOT / "data_raw"),
+        help="Path to directory containing source files for index",
+    )
+    parser.add_argument(
+        "--chunks-dir",
+        type=str,
+        default=str(ROOT / "data_processed"),
+        help="Path to directory to store chunks",
+    )
+    parser.add_argument(
+        "--index-dir",
+        type=str,
+        default=str(ROOT / "storage"),
+        help=(
+            "Path to directory containing index directories (i.e., storage) not "
+            "individual index directories, the collection of them"
+        ),
+    )
     args = parser.parse_args()
 
     if args.json_path:
@@ -68,16 +113,17 @@ def main():
     if not question:
         raise SystemExit("No question provided")
 
-    chunks_path = Path(f"data_processed/lc_chunks_{args.key}.jsonl")
+    chunks_path, base_dir, repacked_dir = _resolve_paths(
+        key=args.key,
+        embed_model=args.embed_model,
+        chunks_dir=Path(args.chunks_dir),
+        index_dir=Path(args.index_dir),
+    )
     if not chunks_path.exists():
         raise SystemExit(
             f"[lc_ask] chunks not found: {chunks_path} – run lc_build_index for KEY={args.key}"
         )
     docs = _load_chunks_jsonl(chunks_path)
-
-    emb_name_safe = re.sub(r"[^a-zA-Z0-9._-]+", "-", args.embed_model)
-    base_dir = Path(f"storage/faiss_{args.key}__{emb_name_safe}")
-    repacked_dir = Path(str(base_dir) + "_repacked")
 
     # Prefer a repacked/merged index if available
     faiss_dir = None
