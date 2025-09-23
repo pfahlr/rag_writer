@@ -572,6 +572,13 @@ def load_questions(path: Path, *, require_answers: bool) -> list[Question]:
     return questions
 
 
+_FLAG_PATTERN = re.compile(r"(?<![\w-])(-{1,2}[A-Za-z0-9][A-Za-z0-9-]*)(?![\w-])")
+
+
+def _advertised_flags(help_text: str) -> set[str]:
+    return {match.group(1) for match in _FLAG_PATTERN.finditer(help_text)}
+
+
 @lru_cache(maxsize=None)
 def script_help_text(script: Path) -> str:
     try:
@@ -589,15 +596,26 @@ def script_help_text(script: Path) -> str:
 
 def determine_flag(script: Path, candidates: Sequence[str]) -> str | None:
     help_text = script_help_text(script)
-    for flag in candidates:
-        if flag and flag in help_text:
-            return flag
+    advertised = _advertised_flags(help_text)
     try:
         source = script.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None
     for flag in candidates:
         if flag and flag in source:
+          return flag
+    return None
+
+
+def _script_supports_flag(
+    script: Path, flag_candidates: Sequence[str]
+) -> Optional[str]:
+    """Return the first flag advertised by the script's help output."""
+
+    help_text = script_help_text(script)
+    advertised = _advertised_flags(help_text)
+    for flag in flag_candidates:
+        if flag and flag in advertised:
             return flag
     return None
 

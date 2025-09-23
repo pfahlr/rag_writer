@@ -11,6 +11,7 @@ from run_rag_verification import (
     Question,
     build_builder_command,
     build_question_invocation,
+    determine_flag,
     prepare_pdf_corpus,
 )
 
@@ -158,3 +159,29 @@ if __name__ == "__main__":
     assert command[-2:] == ["--question", question.prompt]
     for forbidden in ("--key", "--index-dir", "--chunks-dir", "--embed-model"):
         assert forbidden not in command
+
+        
+def test_determine_flag_matches_full_option(tmp_path: Path) -> None:
+    script = tmp_path / "cli.py"
+    script.write_text(
+        """
+import argparse
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--index-dir")
+    parser.add_argument("--chunks-dir")
+    parser.parse_args()
+
+
+if __name__ == "__main__":
+    main()
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    flag = determine_flag(script, ["--index", "--index-dir"])
+
+    assert flag == "--index-dir"
