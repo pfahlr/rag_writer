@@ -236,6 +236,7 @@ make repack-faiss FAISS_DIR=storage/faiss_science__BAAI-bge-small-en-v1.5 OUT=st
 - `--k`: number of results to return from vector database
 - `--embed-model`: the model index to query (default:`BAAI/bge-small-en-v1.5`)
 - `--ce-model`: cross encoder model (default: `cross-encoder/ms-marco-MiniLM-L-6-v2`)
+- `--index`: directory containing FAISS index directories (default: `[project_root]/storage`)
 
 **Usage**:
 
@@ -244,7 +245,7 @@ make repack-faiss FAISS_DIR=storage/faiss_science__BAAI-bge-small-en-v1.5 OUT=st
 python src/langchain/lc_ask.py ask "What is machine learning?"
 
 # Advanced query with options
-python src/langchain/lc_ask.py ask "Explain neural networks" --content-type technical_manual_writer --key science --k 20
+python src/langchain/lc_ask.py ask "Explain neural networks" --content-type technical_manual_writer --key science --k 20 --index ./storage
 
 # Query from JSON file
 python src/langchain/lc_ask.py ask --file query.json --key biology
@@ -789,7 +790,7 @@ over MCP:
 
 ```bash
 python -m src.cli.multi_agent "Find papers on transformers and call the time tool" \
-  --key default --mcp ./tools/mcp_server.py
+  --key default --mcp ./tools/mcp_server.py --index ./storage
 ```
 
 The command registers the `rag_retrieve` tool for vector search and loads any

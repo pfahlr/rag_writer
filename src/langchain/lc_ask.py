@@ -22,6 +22,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.langchain.retriever_factory import make_retriever
 
 
+DEFAULT_INDEX_DIR = Path(__file__).resolve().parents[2] / "storage"
+
+
 def _load_chunks_jsonl(path: Path) -> list[Document]:
     docs = []
     with path.open("r", encoding="utf-8") as f:
@@ -52,6 +55,12 @@ def main():
     parser.add_argument("--ce-model", default="cross-encoder/ms-marco-MiniLM-L-6-v2")
     parser.add_argument("--k", type=int, default=10)
     parser.add_argument("--embed-model", default="BAAI/bge-small-en-v1.5")
+    parser.add_argument(
+        "--index",
+        dest="index_dir",
+        default=str(DEFAULT_INDEX_DIR),
+        help="Directory containing FAISS index directories (default: [repo]/storage)",
+    )
     args = parser.parse_args()
 
     if args.json_path:
@@ -76,7 +85,8 @@ def main():
     docs = _load_chunks_jsonl(chunks_path)
 
     emb_name_safe = re.sub(r"[^a-zA-Z0-9._-]+", "-", args.embed_model)
-    base_dir = Path(f"storage/faiss_{args.key}__{emb_name_safe}")
+    index_dir = Path(args.index_dir)
+    base_dir = index_dir / f"faiss_{args.key}__{emb_name_safe}"
     repacked_dir = Path(str(base_dir) + "_repacked")
 
     # Prefer a repacked/merged index if available

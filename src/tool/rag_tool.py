@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict, List
 
 from langchain_core.documents import Document
@@ -10,16 +11,18 @@ from .base import Tool, ToolSpec
 from ..core.retriever import RetrieverFactory, RetrieverConfig
 
 
-def create_rag_retrieve_tool(key: str) -> Tool:
+def create_rag_retrieve_tool(key: str, index_dir: Path | None = None) -> Tool:
     """Create a tool that retrieves documents from the local vector database.
 
     Parameters
     ----------
     key:
         Collection key used to locate the FAISS index.
+    index_dir:
+        Directory containing FAISS index directories. Defaults to ``[repo]/storage``.
     """
 
-    factory = RetrieverFactory()
+    factory = RetrieverFactory(root_dir=index_dir.parent if index_dir else None)
 
     def _run(
         query: str,

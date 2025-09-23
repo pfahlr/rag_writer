@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from typer.testing import CliRunner
 
 from src.cli import multi_agent
@@ -19,8 +21,8 @@ def test_cli_invokes_agent_with_tools(monkeypatch):
     registry = DummyRegistry()
     monkeypatch.setattr(multi_agent, "ToolRegistry", lambda: registry)
 
-    def fake_create_tool(key: str):
-        fake_create_tool.called_with = key
+    def fake_create_tool(key: str, index_dir: Path | None = None):
+        fake_create_tool.called_with = (key, index_dir)
         return object()
 
     fake_create_tool.called_with = None
@@ -49,4 +51,4 @@ def test_cli_invokes_agent_with_tools(monkeypatch):
     assert "done" in result.stdout
     assert registry.registered_tool is not None
     assert registry.mcp_url == "server"
-    assert fake_create_tool.called_with == "paper"
+    assert fake_create_tool.called_with == ("paper", multi_agent.DEFAULT_INDEX_DIR)

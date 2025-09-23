@@ -7,8 +7,8 @@ def test_run_agent_with_retrieval_registers_tool_and_calls_agent(monkeypatch):
     """Ensure registry registers RAG tool and run_agent is invoked."""
     called = {}
 
-    def fake_create_tool(key: str) -> Tool:
-        called['key'] = key
+    def fake_create_tool(key: str, index_dir=None) -> Tool:
+        called['key'] = (key, index_dir)
         spec = ToolSpec(
             name="rag_retrieve",
             description="",
@@ -32,6 +32,7 @@ def test_run_agent_with_retrieval_registers_tool_and_calls_agent(monkeypatch):
     result = run_agent_with_retrieval("hi", DummyLLM(), "faiss_key")
 
     assert result == "ANSWER"
-    assert called['key'] == "faiss_key"
+    assert called['key'][0] == "faiss_key"
+    assert called['key'][1] is None
     assert "rag_retrieve" in called['tools']
     assert called['question'] == "hi"
