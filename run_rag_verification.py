@@ -572,6 +572,13 @@ def load_questions(path: Path, *, require_answers: bool) -> list[Question]:
     return questions
 
 
+_FLAG_PATTERN = re.compile(r"(?<![\w-])(-{1,2}[A-Za-z0-9][A-Za-z0-9-]*)(?![\w-])")
+
+
+def _advertised_flags(help_text: str) -> set[str]:
+    return {match.group(1) for match in _FLAG_PATTERN.finditer(help_text)}
+
+
 @lru_cache(maxsize=None)
 def script_help_text(script: Path) -> str:
     try:
@@ -589,9 +596,14 @@ def script_help_text(script: Path) -> str:
 
 def determine_flag(script: Path, candidates: Sequence[str]) -> str | None:
     help_text = script_help_text(script)
+    advertised = _advertised_flags(help_text)
+    try:
+        source = script.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
     for flag in candidates:
-        if flag and flag in help_text:
-            return flag
+        if flag and flag in source:
+          return flag
     return None
 
 
@@ -601,8 +613,9 @@ def _script_supports_flag(
     """Return the first flag advertised by the script's help output."""
 
     help_text = script_help_text(script)
+    advertised = _advertised_flags(help_text)
     for flag in flag_candidates:
-        if flag and flag in help_text:
+        if flag and flag in advertised:
             return flag
     return None
 
@@ -616,7 +629,7 @@ def build_question_command(
     """
 
     argv: List[str] = [sys.executable, str(script), *base_args]
-    flag = _script_supports_flag(script, ["--question", "-q"])
+    flag = determine_flag(script, ["--question", "-q"])
     if flag:
         argv.extend([flag, prompt])
     else:
@@ -850,6 +863,7 @@ def build_question_invocation(
         _append_flag(asker, base_args, ["--index-dir", "--index"], str(index_dir))
         _append_flag(asker, base_args, ["--chunks-dir"], str(chunks_dir))
         _append_flag(asker, base_args, ["--embed-model"], embed_model)
+
         command = build_question_command(asker, question.prompt, base_args)
         docs_flag = determine_flag(asker, ["--docs", "--doc", "--gold"])
         if docs_flag:
@@ -862,6 +876,7 @@ def build_question_invocation(
         base_args: list[str] = []
         _append_flag(multi, base_args, ["--key", "-k"], index_key)
         _append_flag(multi, base_args, ["--index-dir", "--index"], str(index_dir))
+
         command = build_question_command(script, question.prompt, base_args)
         if question.clarify:
             clarify_flag = determine_flag(
