@@ -1,25 +1,57 @@
+import sys
+import types
 from pathlib import Path
 
 import pytest
 
-pytest.importorskip(
-    "langchain_core.documents",
-    reason="LangChain core document classes are required for lc_ask import",
-)
-pytest.importorskip(
-    "langchain_community.vectorstores",
-    reason="LangChain community vectorstores are required for lc_ask import",
-)
-pytest.importorskip(
-    "langchain_community.embeddings",
-    reason="LangChain community embeddings are required for lc_ask import",
-)
-pytest.importorskip(
-    "langchain_openai", reason="LangChain OpenAI client is required for lc_ask import"
-)
-pytest.importorskip(
-    "langchain.chains", reason="LangChain retrieval chains are required for lc_ask import"
-)
+# Provide lightweight stubs for optional LangChain dependencies so lc_ask can import
+if "langchain_core.documents" not in sys.modules:
+    mod = types.ModuleType("langchain_core.documents")
+
+    class Document:  # pragma: no cover - stub for import-time use only
+        ...
+
+    mod.Document = Document
+    sys.modules["langchain_core.documents"] = mod
+
+if "langchain_community.vectorstores" not in sys.modules:
+    mod = types.ModuleType("langchain_community.vectorstores")
+
+    class _StubFAISS:  # pragma: no cover - stub for import-time use only
+        @staticmethod
+        def load_local(*_args, **_kwargs):
+            raise NotImplementedError
+
+    mod.FAISS = _StubFAISS
+    sys.modules["langchain_community.vectorstores"] = mod
+
+if "langchain_community.embeddings" not in sys.modules:
+    mod = types.ModuleType("langchain_community.embeddings")
+
+    class HuggingFaceEmbeddings:  # pragma: no cover - stub for import-time use only
+        def __init__(self, *args, **kwargs):  # noqa: D401 - stub
+            raise NotImplementedError
+
+    mod.HuggingFaceEmbeddings = HuggingFaceEmbeddings
+    sys.modules["langchain_community.embeddings"] = mod
+
+if "langchain_openai" not in sys.modules:
+    mod = types.ModuleType("langchain_openai")
+
+    class ChatOpenAI:  # pragma: no cover - stub for import-time use only
+        ...
+
+    mod.ChatOpenAI = ChatOpenAI
+    sys.modules["langchain_openai"] = mod
+
+if "langchain.chains" not in sys.modules:
+    mod = types.ModuleType("langchain.chains")
+
+    class RetrievalQA:  # pragma: no cover - stub for import-time use only
+        ...
+
+    mod.RetrievalQA = RetrievalQA
+    sys.modules["langchain.chains"] = mod
 
 from src.langchain import lc_ask
 
