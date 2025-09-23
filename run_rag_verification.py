@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from io import BytesIO
 import os
 import re
 import shlex
@@ -37,6 +38,103 @@ SUPPORTED_TYPES = {
 }
 
 ANSI_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
+
+
+def _pdf_escape(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def _build_pdf_stream(markdown_text: str) -> bytes:
+    lines = markdown_text.replace("\r", "").split("\n")
+    if not lines:
+        lines = [""]
+
+    content_lines = ["BT", "/F1 12 Tf", "72 720 Td"]
+    first = True
+    for line in lines:
+        escaped = _pdf_escape(line)
+        if first:
+            first = False
+        else:
+            content_lines.append("T*")
+        content_lines.append(f"({escaped}) Tj")
+    content_lines.append("ET")
+
+    stream = "\n".join(content_lines).encode("utf-8")
+
+    buffer = BytesIO()
+    buffer.write(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+
+    offsets: list[int] = []
+
+    def write_object(object_id: int, payload: bytes) -> None:
+        offsets.append(buffer.tell())
+        buffer.write(f"{object_id} 0 obj\n".encode("ascii"))
+        buffer.write(payload)
+        buffer.write(b"\nendobj\n")
+
+    write_object(1, b"<< /Type /Catalog /Pages 2 0 R >>")
+    write_object(2, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>")
+    write_object(
+        3,
+        (
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            b"/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>"
+        ),
+    )
+    write_object(
+        4,
+        b"<< /Length "
+        + str(len(stream)).encode("ascii")
+        + b" >>\nstream\n"
+        + stream
+        + b"\nendstream",
+    )
+    write_object(5, b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+
+    xref_offset = buffer.tell()
+    buffer.write(f"xref\n0 {len(offsets) + 1}\n".encode("ascii"))
+    buffer.write(b"0000000000 65535 f \n")
+    for offset in offsets:
+        buffer.write(f"{offset:010d} 00000 n \n".encode("ascii"))
+
+    buffer.write(
+        (
+            b"trailer\n<< /Size "
+            + str(len(offsets) + 1).encode("ascii")
+            + b" /Root 1 0 R >>\nstartxref\n"
+        )
+    )
+    buffer.write(str(xref_offset).encode("ascii") + b"\n%%EOF\n")
+    return buffer.getvalue()
+
+
+def prepare_pdf_corpus(markdown_dir: Path, output_dir: Path) -> list[Path]:
+    """Render Markdown files into a simple PDF corpus for verification runs."""
+
+    markdown_dir = Path(markdown_dir)
+    output_dir = Path(output_dir)
+
+    if not markdown_dir.is_dir():
+        raise FileNotFoundError(f"Markdown directory not found: {markdown_dir}")
+
+    markdown_files = sorted(
+        p for p in markdown_dir.iterdir() if p.is_file() and p.suffix.lower() == ".md"
+    )
+    if not markdown_files:
+        raise FileNotFoundError("No markdown files found to convert into PDFs")
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    generated: list[Path] = []
+    for md_path in markdown_files:
+        text = md_path.read_text(encoding="utf-8")
+        pdf_bytes = _build_pdf_stream(text)
+        pdf_path = output_dir / f"{md_path.stem}.pdf"
+        pdf_path.write_bytes(pdf_bytes)
+        generated.append(pdf_path)
+
+    return generated
 
 
 class TraceRecorder:
@@ -103,7 +201,9 @@ class TraceRecorder:
         if not self.enabled or not self.console:
             return
         title = f"{question.qid} — {question.prompt}"
-        self.console.print(Panel(Text(title), title="Question", expand=False, border_style="cyan"))
+        self.console.print(
+            Panel(Text(title), title="Question", expand=False, border_style="cyan")
+        )
 
     def _render_event(self, event: dict) -> None:
         qid = event.get("qid", "general")
@@ -125,7 +225,9 @@ class TraceRecorder:
         elif event_type == "vector.query" and isinstance(detail, dict):
             query_text = (detail.get("query_text", "") or "")[:500]
             backend = detail.get("backend")
-            lines.append(f"backend={backend}, top_k={detail.get('top_k')}\n{query_text}")
+            lines.append(
+                f"backend={backend}, top_k={detail.get('top_k')}\n{query_text}"
+            )
         elif event_type == "vector.results" and isinstance(detail, dict):
             hits = detail.get("hits", [])
             table = Table(show_header=True, header_style="bold", expand=False)
@@ -170,6 +272,7 @@ class TraceRecorder:
                     handle.write("```json\n")
                     handle.write(json.dumps(event, ensure_ascii=False, indent=2))
                     handle.write("\n```\n\n")
+
 
 @dataclass(slots=True)
 class Question:
@@ -362,7 +465,9 @@ def resolve_script(
         explicit_path = Path(explicit)
         if explicit_path.is_file():
             return explicit_path.resolve()
-        names.append(explicit_path.name if explicit_path.is_absolute() else str(explicit_path))
+        names.append(
+            explicit_path.name if explicit_path.is_absolute() else str(explicit_path)
+        )
     if default and default not in names:
         names.append(default)
 
@@ -375,7 +480,9 @@ def resolve_script(
             if path.is_file():
                 return path
 
-    raise FileNotFoundError(f"Could not resolve script {default!r} under {search_roots}")
+    raise FileNotFoundError(
+        f"Could not resolve script {default!r} under {search_roots}"
+    )
 
 
 def _load_yaml(path: Path) -> Iterable[dict]:
@@ -388,7 +495,9 @@ def _load_yaml(path: Path) -> Iterable[dict]:
         return questions
     if isinstance(data, list):
         return data
-    raise ValueError("questions.yaml must be either a list or a mapping with 'questions'")
+    raise ValueError(
+        "questions.yaml must be either a list or a mapping with 'questions'"
+    )
 
 
 def load_questions(path: Path, *, require_answers: bool) -> list[Question]:
@@ -416,17 +525,23 @@ def load_questions(path: Path, *, require_answers: bool) -> list[Question]:
             docs = [str(gold_doc)]
         else:
             if not isinstance(gold_docs, Iterable):
-                raise ValueError(f"Question {qid} gold_docs must be an iterable of strings")
+                raise ValueError(
+                    f"Question {qid} gold_docs must be an iterable of strings"
+                )
             docs = [str(item) for item in gold_docs if isinstance(item, str)]
             if not docs:
-                raise ValueError(f"Question {qid} gold_docs must contain at least one string")
+                raise ValueError(
+                    f"Question {qid} gold_docs must contain at least one string"
+                )
         clarify = entry.get("clarify")
         note = entry.get("note")
         followups_raw = entry.get("followups")
         followups: list[str] = []
         if followups_raw:
             if isinstance(followups_raw, Iterable):
-                followups = [str(item) for item in followups_raw if isinstance(item, str)]
+                followups = [
+                    str(item) for item in followups_raw if isinstance(item, str)
+                ]
             else:
                 raise ValueError(f"Question {qid} followups must be a list of strings")
         answer = entry.get("answer")
@@ -470,7 +585,9 @@ def determine_flag(script: Path, candidates: Sequence[str]) -> str | None:
     return None
 
 
-def _script_supports_flag(script: Path, flag_candidates: Sequence[str]) -> Optional[str]:
+def _script_supports_flag(
+    script: Path, flag_candidates: Sequence[str]
+) -> Optional[str]:
     """Return the first flag advertised by the script's help output."""
 
     help_text = script_help_text(script)
@@ -480,7 +597,9 @@ def _script_supports_flag(script: Path, flag_candidates: Sequence[str]) -> Optio
     return None
 
 
-def build_question_command(script: Path, prompt: str, base_args: List[str]) -> List[str]:
+def build_question_command(
+    script: Path, prompt: str, base_args: List[str]
+) -> List[str]:
     """
     Build argv for CLIs that may or may not support a --question flag.
     If the script advertises a question flag, use it; otherwise pass the prompt positionally.
@@ -531,7 +650,9 @@ def determine_builder_flags(builder: Path) -> tuple[str, str]:
     return corpus_flag, out_flag
 
 
-def write_log(path: Path, stdout: str, stderr: str, *, command: Sequence[str] | None = None) -> None:
+def write_log(
+    path: Path, stdout: str, stderr: str, *, command: Sequence[str] | None = None
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         if command:
@@ -610,7 +731,9 @@ def run_traceable_subprocess(
         proc.kill()
         stdout_thread.join()
         stderr_thread.join()
-        raise subprocess.TimeoutExpired(command, timeout, output="".join(stdout_lines), stderr="".join(stderr_lines)) from exc
+        raise subprocess.TimeoutExpired(
+            command, timeout, output="".join(stdout_lines), stderr="".join(stderr_lines)
+        ) from exc
 
     stdout_thread.join()
     stderr_thread.join()
@@ -709,7 +832,9 @@ def build_question_invocation(
         raise RuntimeError("No asker script available")
     route = "multi" if use_multi else "asker"
     if not use_multi:
-        index_flag = determine_flag(asker, ["--index", "--key", "--collection"]) or "--index"
+        index_flag = (
+            determine_flag(asker, ["--index", "--key", "--collection"]) or "--index"
+        )
         base_args: List[str] = [index_flag, str(index_dir)]
         command = build_question_command(asker, question.prompt, base_args)
         docs_flag = determine_flag(asker, ["--docs", "--doc", "--gold"])
@@ -722,11 +847,15 @@ def build_question_invocation(
     else:
         command = build_question_command(script, question.prompt, [])
         if question.clarify:
-            clarify_flag = determine_flag(multi, ["--clarify", "--followup", "--context"])
+            clarify_flag = determine_flag(
+                multi, ["--clarify", "--followup", "--context"]
+            )
             if clarify_flag:
                 command.extend([clarify_flag, question.clarify])
         if question.followups:
-            follow_flag = determine_flag(multi, ["--followups", "--followup", "--steps"])
+            follow_flag = determine_flag(
+                multi, ["--followups", "--followup", "--steps"]
+            )
             if follow_flag:
                 command.extend([follow_flag, json.dumps(question.followups)])
     return command, route
@@ -790,7 +919,9 @@ def run_question(
     return stdout, route, returncode
 
 
-def score_answer(gold: str | None, model_answer: str) -> tuple[bool | None, float | None]:
+def score_answer(
+    gold: str | None, model_answer: str
+) -> tuple[bool | None, float | None]:
     if gold is None:
         return None, None
     if not model_answer.strip():
@@ -847,7 +978,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     outputs_dir = ensure_outputs_dir(workdir, args.save_outputs)
     console = Console(highlight=False)
     redact = parse_bool(args.redact, default=True)
-    trace_dir = Path(args.transcript_out) if args.transcript_out else workdir / "transcripts"
+    trace_dir = (
+        Path(args.transcript_out) if args.transcript_out else workdir / "transcripts"
+    )
     recorder = TraceRecorder(
         enabled=args.trace,
         directory=trace_dir,
@@ -860,18 +993,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     repo_root = Path(__file__).resolve().parent
     try:
         try:
-            builder_path = resolve_script(args.builder, "lc_build_index.py", repo_root=repo_root)
+            builder_path = resolve_script(
+                args.builder, "lc_build_index.py", repo_root=repo_root
+            )
             asker_path = resolve_script(args.asker, "lc_ask.py", repo_root=repo_root)
         except FileNotFoundError as exc:
             raise SystemExit(str(exc)) from exc
 
         try:
-            multi_path = resolve_script(args.multi, "multi_agent.py", repo_root=repo_root)
+            multi_path = resolve_script(
+                args.multi, "multi_agent.py", repo_root=repo_root
+            )
         except FileNotFoundError:
             multi_path = None
 
         try:
-            questions = load_questions(questions_path, require_answers=args.require_answers)
+            questions = load_questions(
+                questions_path, require_answers=args.require_answers
+            )
         except Exception as exc:  # noqa: BLE001
             raise SystemExit(f"Failed to load questions: {exc}") from exc
 
@@ -955,4 +1094,3 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
