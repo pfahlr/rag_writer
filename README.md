@@ -232,11 +232,13 @@ make repack-faiss FAISS_DIR=storage/faiss_science__BAAI-bge-small-en-v1.5 OUT=st
 - Retrieval-augmented generation (RAG)
 
 **Options:**
-- `--key`: string specifying the faiss index to query
+- `--key`: collection key used when building the index (requires matching `--chunks-dir`)
+- `--index`: path to a FAISS index directory (or `index.faiss`) when you want to point directly at a built index
 - `--k`: number of results to return from vector database
 - `--embed-model`: the model index to query (default:`BAAI/bge-small-en-v1.5`)
 - `--ce-model`: cross encoder model (default: `cross-encoder/ms-marco-MiniLM-L-6-v2`)
 - `--chunks-dir`: directory containing the chunk JSONL written by `lc_build_index`
+- `--chunks-file`: explicit path to a chunk JSONL file (skips `--chunks-dir` lookup)
 - `--index-dir`: directory containing FAISS index folders (usually the same `--index-dir` passed to `lc_build_index`)
 
 **Usage**:
@@ -244,6 +246,9 @@ make repack-faiss FAISS_DIR=storage/faiss_science__BAAI-bge-small-en-v1.5 OUT=st
 ```bash
 # Basic query
 python src/langchain/lc_ask.py ask "What is machine learning?"
+
+# Query using an explicit index directory
+python src/langchain/lc_ask.py --index storage/faiss_science__BAAI-bge-small-en-v1.5 --question "Summarise the Higgs boson"
 
 # Advanced query with options
 python src/langchain/lc_ask.py ask "Explain neural networks" --content-type technical_manual_writer --key science --k 20
