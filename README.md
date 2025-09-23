@@ -334,6 +334,9 @@ make lc-batch FILE="examples/sample_jobs_1A1.jsonl" KEY="biology" PARALLEL=4
 - `--no-gpu`: Force embeddings to run on CPU even if accelerators are available
 - `--serve-gpu`: After saving, copy the in-memory FAISS index to GPU for serving
 - `--faiss-threads`: Override FAISS build thread count (default: host CPU count)
+- `--input-dir`: Path to directory containing source files for index (default: `[project root]/data_raw`)
+- `--chunks-dir`: Path to directory to store chunks (default: `[project_root]/data_processed`)
+- `--index-dir`: Path to directory containing index directories (i.e., storage) not individual index directories, the collection of them (default:`[project_root]/storage`)
 
 **Usage**:
 ```bash
