@@ -15,7 +15,7 @@ import threading
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Sequence, Optional, List
 
 from rich.console import Console
 from rich.panel import Panel
@@ -340,33 +340,42 @@ def exactish(reference: str, candidate: str) -> bool:
     return ref_norm in cand_norm or cand_norm in ref_norm
 
 
-def resolve_script(script: str | None, *, default: str | None = None) -> Path | None:
+def resolve_script(
+    explicit: Optional[Path | str],
+    default: str,
+    repo_root: Optional[Path] = None,
+) -> Path:
     """Resolve a CLI script path relative to common repository roots."""
 
-    if script:
-        candidate = Path(script)
-        if candidate.is_file():
-            return candidate.resolve()
+    repo_root = (repo_root or Path(__file__).resolve().parent).resolve()
+    search_roots = [
+        repo_root,
+        repo_root / "src",
+        repo_root / "src" / "langchain",
+        repo_root / "tools",
+        repo_root / "scripts",
+        repo_root / "src" / "cli",
+    ]
 
-    repo_root = Path(__file__).resolve().parent
-    names = [script] if script else []
+    names: list[str] = []
+    if explicit:
+        explicit_path = Path(explicit)
+        if explicit_path.is_file():
+            return explicit_path.resolve()
+        names.append(explicit_path.name if explicit_path.is_absolute() else str(explicit_path))
     if default and default not in names:
         names.append(default)
-    candidates: list[Path] = []
+
     for name in names:
-        if not name:
-            continue
-        path = Path(name)
-        if path.is_file():
-            candidates.append(path.resolve())
-            continue
-        for base in (repo_root, repo_root / "src", repo_root / "src" / "langchain", repo_root / "tools", repo_root / "scripts"):
-            candidate = base / name
-            if candidate.is_file():
-                candidates.append(candidate.resolve())
-    if candidates:
-        return candidates[0]
-    return None
+        candidate = Path(name)
+        if candidate.is_file():
+            return candidate.resolve()
+        for root in search_roots:
+            path = (root / name).resolve()
+            if path.is_file():
+                return path
+
+    raise FileNotFoundError(f"Could not resolve script {default!r} under {search_roots}")
 
 
 def _load_yaml(path: Path) -> Iterable[dict]:
@@ -459,6 +468,31 @@ def determine_flag(script: Path, candidates: Sequence[str]) -> str | None:
         if flag and flag in help_text:
             return flag
     return None
+
+
+def _script_supports_flag(script: Path, flag_candidates: Sequence[str]) -> Optional[str]:
+    """Return the first flag advertised by the script's help output."""
+
+    help_text = script_help_text(script)
+    for flag in flag_candidates:
+        if flag and flag in help_text:
+            return flag
+    return None
+
+
+def build_question_command(script: Path, prompt: str, base_args: List[str]) -> List[str]:
+    """
+    Build argv for CLIs that may or may not support a --question flag.
+    If the script advertises a question flag, use it; otherwise pass the prompt positionally.
+    """
+
+    argv: List[str] = [sys.executable, str(script), *base_args]
+    flag = _script_supports_flag(script, ["--question", "-q"])
+    if flag:
+        argv.extend([flag, prompt])
+    else:
+        argv.append(prompt)
+    return argv
 
 
 def determine_builder_flags(builder: Path) -> tuple[str, str]:
@@ -658,7 +692,7 @@ def extract_model_answer(stdout: str) -> str:
     return text
 
 
-def build_question_command(
+def build_question_invocation(
     *,
     question: Question,
     index_dir: Path,
@@ -673,13 +707,12 @@ def build_question_command(
     script = multi if use_multi else asker
     if script is None:
         raise RuntimeError("No asker script available")
-    command = [sys.executable, str(script)]
     route = "multi" if use_multi else "asker"
     if not use_multi:
         index_flag = determine_flag(asker, ["--index", "--key", "--collection"]) or "--index"
-        command.extend([index_flag, str(index_dir)])
-        command.extend(["--question", question.prompt])
-        docs_flag = determine_flag(asker, ["--docs", "--doc", "--gold" ])
+        base_args: List[str] = [index_flag, str(index_dir)]
+        command = build_question_command(asker, question.prompt, base_args)
+        docs_flag = determine_flag(asker, ["--docs", "--doc", "--gold"])
         if docs_flag:
             command.extend([docs_flag, ",".join(question.gold_docs)])
         if topk is not None:
@@ -687,7 +720,7 @@ def build_question_command(
             if topk_flag:
                 command.extend([topk_flag, str(topk)])
     else:
-        command.extend(["--question", question.prompt])
+        command = build_question_command(script, question.prompt, [])
         if question.clarify:
             clarify_flag = determine_flag(multi, ["--clarify", "--followup", "--context"])
             if clarify_flag:
@@ -715,7 +748,7 @@ def run_question(
     recorder: TraceRecorder | None,
     console: Console | None,
 ) -> tuple[str, str, int]:
-    command, route = build_question_command(
+    command, route = build_question_invocation(
         question=question,
         index_dir=index_dir,
         asker=asker,
@@ -824,14 +857,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     should_fail = False
+    repo_root = Path(__file__).resolve().parent
     try:
-        builder_path = resolve_script(args.builder, default="lc_build_index.py")
-        if builder_path is None:
-            raise SystemExit(f"Unable to locate builder script: {args.builder}")
-        asker_path = resolve_script(args.asker, default="lc_ask.py")
-        if asker_path is None:
-            raise SystemExit(f"Unable to locate asker script: {args.asker}")
-        multi_path = resolve_script(args.multi, default="multi_agent.py")
+        try:
+            builder_path = resolve_script(args.builder, "lc_build_index.py", repo_root=repo_root)
+            asker_path = resolve_script(args.asker, "lc_ask.py", repo_root=repo_root)
+        except FileNotFoundError as exc:
+            raise SystemExit(str(exc)) from exc
+
+        try:
+            multi_path = resolve_script(args.multi, "multi_agent.py", repo_root=repo_root)
+        except FileNotFoundError:
+            multi_path = None
 
         try:
             questions = load_questions(questions_path, require_answers=args.require_answers)
