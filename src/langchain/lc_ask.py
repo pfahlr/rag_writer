@@ -46,6 +46,50 @@ def _resolve_paths(
     return chunk_path, base_dir, repacked_dir
 
 
+def _get_embedding_dimension(embedder: HuggingFaceEmbeddings) -> int | None:
+    """Return the output dimension for a HuggingFace embedding model."""
+
+    client = getattr(embedder, "client", None)
+    if client is None:
+        return None
+
+    getter = getattr(client, "get_sentence_embedding_dimension", None)
+    if callable(getter):
+        try:
+            return int(getter())
+        except Exception:
+            return None
+
+    # Fallback for SentenceTransformer-like clients that expose `embedding_dim`
+    dim = getattr(client, "embedding_dim", None)
+    if isinstance(dim, int):
+        return dim
+
+    return None
+
+
+def _validate_index_embedding_compatibility(
+    embedder: HuggingFaceEmbeddings, vectorstore: FAISS, index_path: Path
+) -> None:
+    """Ensure the FAISS index dimension matches the embedding model output."""
+
+    index_dim = getattr(getattr(vectorstore, "index", None), "d", None)
+    embed_dim = _get_embedding_dimension(embedder)
+
+    if index_dim is None or embed_dim is None:
+        return
+
+    if index_dim != embed_dim:
+        model_name = getattr(embedder, "model_name", "(unknown)")
+        raise SystemExit(
+            "[lc_ask] Embedding dimension mismatch: "
+            f"index at {index_path} expects dimension {index_dim}, "
+            f"but embedding model '{model_name}' produces {embed_dim}.\n"
+            "  • Pass --embed-model with the model used to build the index, "
+            "or rebuild the index for the requested model."
+        )
+
+
 def _load_chunks_jsonl(path: Path) -> list[Document]:
     docs = []
     with path.open("r", encoding="utf-8") as f:
@@ -150,6 +194,7 @@ def main():
     vectorstore = FAISS.load_local(
         str(faiss_dir), embeddings=embedder, allow_dangerous_deserialization=True
     )
+    _validate_index_embedding_compatibility(embedder, vectorstore, faiss_dir)
 
     retriever = make_retriever(
         mode=args.mode,
