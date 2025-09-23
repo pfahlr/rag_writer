@@ -82,7 +82,7 @@ def test_cli_passes_custom_index(monkeypatch, tmp_path: Path):
     index_dir = tmp_path / "indexes"
     result = runner.invoke(
         multi_agent.app,
-        ["where?", "--key", "paper", "--index", str(index_dir)],
+        ["where?", "--key", "paper", "--index-dir", str(index_dir)],
     )
 
     assert result.exit_code == 0

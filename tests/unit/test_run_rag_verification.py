@@ -80,7 +80,7 @@ def test_build_question_invocation_for_asker_uses_key_and_index(tmp_path: Path) 
 
     assert route == "asker"
     assert "--key" in command
-    assert "--index" in command
+    assert "--index-dir" in command
     assert "--chunks-dir" in command
     assert "--embed-model" in command
 
@@ -112,4 +112,4 @@ def test_build_question_invocation_for_multi_agent_omits_legacy_subcommand(
     assert route == "multi"
     assert "ask" not in command
     assert "--key" in command
-    assert "--index" in command
+    assert "--index-dir" in command

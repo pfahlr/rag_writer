@@ -233,14 +233,12 @@ make repack-faiss FAISS_DIR=storage/faiss_science__BAAI-bge-small-en-v1.5 OUT=st
 
 **Options:**
 - `--key`: collection key used when building the index (requires matching `--chunks-dir`)
-- `--index`: path to a FAISS index directory (or `index.faiss`) when you want to point directly at a built index
 - `--k`: number of results to return from vector database
 - `--embed-model`: the model index to query (default:`BAAI/bge-small-en-v1.5`)
 - `--ce-model`: cross encoder model (default: `cross-encoder/ms-marco-MiniLM-L-6-v2`)
 - `--chunks-dir`: directory containing the chunk JSONL written by `lc_build_index`
 - `--chunks-file`: explicit path to a chunk JSONL file (skips `--chunks-dir` lookup)
-- `--chunks-dir`: directory containing chunk metadata generated at index build time (default: `<repo>/data_processed`)
-- `--index-dir`: directory containing FAISS index folders (usually the same `--index-dir` passed to `lc_build_index`)
+- `--index-dir`: root directory containing FAISS index folders (the same parent directory passed to `lc_build_index`; defaults to `<repo>/storage`)
 
 
 **Usage**:
@@ -249,8 +247,8 @@ make repack-faiss FAISS_DIR=storage/faiss_science__BAAI-bge-small-en-v1.5 OUT=st
 # Basic query
 python src/langchain/lc_ask.py ask "What is machine learning?"
 
-# Query using an explicit index directory
-python src/langchain/lc_ask.py --index storage/faiss_science__BAAI-bge-small-en-v1.5 --question "Summarise the Higgs boson"
+# Query using a specific key with a custom index directory root
+python src/langchain/lc_ask.py --key science --index-dir /mnt/vector-storage --question "Summarise the Higgs boson"
 
 # Advanced query with options
 python src/langchain/lc_ask.py ask "Explain neural networks" --content-type technical_manual_writer --key science --k 20
@@ -799,7 +797,7 @@ over MCP:
 
 ```bash
 python -m src.cli.multi_agent "Find papers on transformers and call the time tool" \
-  --key default --mcp ./tools/mcp_server.py --index ./storage
+  --key default --mcp ./tools/mcp_server.py --index-dir ./storage
 ```
 
 The command registers the `rag_retrieve` tool for vector search and loads any
