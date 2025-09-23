@@ -1,59 +1,52 @@
+import importlib
 import sys
 import types
 from pathlib import Path
 
 import pytest
 
-# Provide lightweight stubs for optional LangChain dependencies so lc_ask can import
-if "langchain_core.documents" not in sys.modules:
-    mod = types.ModuleType("langchain_core.documents")
 
-    class Document:  # pragma: no cover - stub for import-time use only
+@pytest.fixture
+def lc_ask_module(monkeypatch):
+    """Import lc_ask with optional LangChain dependencies stubbed as needed."""
+
+    def ensure_stub(module_name: str, attrs: dict[str, object]) -> None:
+        if module_name in sys.modules:
+            return
+
+        mod = types.ModuleType(module_name)
+        for key, value in attrs.items():
+            setattr(mod, key, value)
+        monkeypatch.setitem(sys.modules, module_name, mod)
+
+    class _Document:  # pragma: no cover - stub for import-time use only
         ...
-
-    mod.Document = Document
-    sys.modules["langchain_core.documents"] = mod
-
-if "langchain_community.vectorstores" not in sys.modules:
-    mod = types.ModuleType("langchain_community.vectorstores")
 
     class _StubFAISS:  # pragma: no cover - stub for import-time use only
         @staticmethod
         def load_local(*_args, **_kwargs):
             raise NotImplementedError
 
-    mod.FAISS = _StubFAISS
-    sys.modules["langchain_community.vectorstores"] = mod
-
-if "langchain_community.embeddings" not in sys.modules:
-    mod = types.ModuleType("langchain_community.embeddings")
-
-    class HuggingFaceEmbeddings:  # pragma: no cover - stub for import-time use only
-        def __init__(self, *args, **kwargs):  # noqa: D401 - stub
+    class _HuggingFaceEmbeddings:  # pragma: no cover - stub for import-time use only
+        def __init__(self, *_args, **_kwargs):  # noqa: D401 - stub
             raise NotImplementedError
 
-    mod.HuggingFaceEmbeddings = HuggingFaceEmbeddings
-    sys.modules["langchain_community.embeddings"] = mod
-
-if "langchain_openai" not in sys.modules:
-    mod = types.ModuleType("langchain_openai")
-
-    class ChatOpenAI:  # pragma: no cover - stub for import-time use only
+    class _ChatOpenAI:  # pragma: no cover - stub for import-time use only
         ...
 
-    mod.ChatOpenAI = ChatOpenAI
-    sys.modules["langchain_openai"] = mod
-
-if "langchain.chains" not in sys.modules:
-    mod = types.ModuleType("langchain.chains")
-
-    class RetrievalQA:  # pragma: no cover - stub for import-time use only
+    class _RetrievalQA:  # pragma: no cover - stub for import-time use only
         ...
 
-    mod.RetrievalQA = RetrievalQA
-    sys.modules["langchain.chains"] = mod
+    ensure_stub("langchain_core.documents", {"Document": _Document})
+    ensure_stub("langchain_community.vectorstores", {"FAISS": _StubFAISS})
+    ensure_stub(
+        "langchain_community.embeddings",
+        {"HuggingFaceEmbeddings": _HuggingFaceEmbeddings},
+    )
+    ensure_stub("langchain_openai", {"ChatOpenAI": _ChatOpenAI})
+    ensure_stub("langchain.chains", {"RetrievalQA": _RetrievalQA})
 
-from src.langchain import lc_ask
+    return importlib.import_module("src.langchain.lc_ask")
 
 
 class _DummyClient:
@@ -79,22 +72,22 @@ class _DummyVectorStore:
         self.index = _DummyIndex(dim)
 
 
-def test_validate_index_embedding_dimension_mismatch() -> None:
+def test_validate_index_embedding_dimension_mismatch(lc_ask_module) -> None:
     embedder = _DummyEmbedder(dim=384)
     vectorstore = _DummyVectorStore(dim=768)
 
     with pytest.raises(SystemExit) as excinfo:
-        lc_ask._validate_index_embedding_compatibility(
+        lc_ask_module._validate_index_embedding_compatibility(
             embedder, vectorstore, Path("/tmp/index")
         )
 
     assert "Embedding dimension mismatch" in str(excinfo.value)
 
 
-def test_validate_index_embedding_dimension_match() -> None:
+def test_validate_index_embedding_dimension_match(lc_ask_module) -> None:
     embedder = _DummyEmbedder(dim=768)
     vectorstore = _DummyVectorStore(dim=768)
 
-    lc_ask._validate_index_embedding_compatibility(
+    lc_ask_module._validate_index_embedding_compatibility(
         embedder, vectorstore, Path("/tmp/index")
     )
