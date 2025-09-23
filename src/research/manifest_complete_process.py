@@ -55,7 +55,6 @@ import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 
-import magic
 import requests
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
@@ -71,9 +70,16 @@ from rich.live import Live
 
 # --- MIME + PDF text ---
 try:
-    import magic  # python-magic
-except Exception as e:
-    raise SystemExit("python-magic is required. Try: pip install python-magic\n" + str(e))
+    import magic  # type: ignore
+    HAVE_MAGIC = True
+except Exception:
+    HAVE_MAGIC = False
+
+    class _MagicFallback:
+        def from_file(self, *_args, **_kwargs):
+            raise RuntimeError("python-magic is not installed")
+
+    magic = _MagicFallback()  # type: ignore
 
 try:
     from pypdf import PdfReader, PdfWriter
@@ -408,7 +414,7 @@ def scan_inbox_for_candidates(inbox_dir: Path) -> InboxIndex:
         suffix = path.suffix.lower()
         is_pdf = suffix == ".pdf"
 
-        if not is_pdf:
+        if not is_pdf and hasattr(magic, "from_file"):
             try:
                 mime = magic.from_file(str(path), mime=True)
                 is_pdf = bool(mime) and str(mime).lower().startswith("application/pdf")
@@ -647,7 +653,10 @@ def write_pdf_metadata(pdf_path: Path, meta: Dict) -> None:
             "title": meta.get("title") or "",
             "creator": authors if isinstance(authors, list) else ([authors_str] if authors_str else []),
             "date": meta.get("date") or "",
-            "identifier": str(list(filter(None, [meta.get("doi"), meta.get("isbn"), meta.get('arXivID')])).pop()),
+            "identifier": next(
+                (str(val) for val in (meta.get("doi"), meta.get("isbn"), meta.get("arXivID")) if val),
+                "",
+            ),
         }
         prism = {
             "doi": meta.get("doi") or "",
@@ -834,15 +843,16 @@ def prune_downloads(manifest_path: Path, inbox_dir: Path):
                 filename = data[i]['temp_filename']
                 temp_filepath = Path(str(inbox_dir)+'/'+str(filename))
                 if os.path.exists(temp_filepath):
-                    try:
-                        mime_type = magic.from_file(temp_filepath, mime=True)
-                        progress.console.print(f"[🧿] {temp_filepath} is type: {mime_type}")
+                    mime_type = None
+                    if HAVE_MAGIC:
+                        try:
+                            mime_type = magic.from_file(temp_filepath, mime=True)
+                            progress.console.print(f"[🧿] {temp_filepath} is type: {mime_type}")
+                        except Exception as e:
+                            progress.console.print(f"[⛔] ERROR:{e}")
+                            continue
 
-                    except Exception as e:
-                        progress.console.print(f"[⛔] ERROR:{e}")
-                        continue
-
-                    if mime_type != "application/pdf":
+                    if mime_type is not None and mime_type != "application/pdf":
                         try:
                             progress.console.print(f"[🚫] unlinking {filename}")
                             temp_filepath.unlink()
@@ -1074,12 +1084,14 @@ def process_pipeline(
                 entry["matched_filename"] = temp_name
 
                 # MIME verify
-                try:
-                    mime = magic.from_file(str(src), mime=True)
-                except Exception as ex:
-                    mime = None
-                    progress.console.print(f"[⚠️] MIME check failed for {temp_name}: {ex}")
-                if mime != "application/pdf":
+                mime = None
+                if HAVE_MAGIC:
+                    try:
+                        mime = magic.from_file(str(src), mime=True)
+                    except Exception as ex:
+                        progress.console.print(f"[⚠️] MIME check failed for {temp_name}: {ex}")
+
+                if mime is not None and mime != "application/pdf":
                     progress.console.print(f"[❌] MIME type for {temp_name}: {mime} - deleting")
                     src.unlink()
                     entry["download_status"] = "failed"
