@@ -610,13 +610,17 @@ def script_help_text(script: Path) -> str:
 def determine_flag(script: Path, candidates: Sequence[str]) -> str | None:
     help_text = script_help_text(script)
     advertised = _advertised_flags(help_text)
+    for flag in candidates:
+        if flag and flag in advertised:
+            return flag
+
     try:
         source = script.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
-        return None
+        source = ""
     for flag in candidates:
         if flag and flag in source:
-          return flag
+            return flag
     return None
 
 
@@ -861,15 +865,12 @@ def build_question_invocation(
     if script is None:
         raise RuntimeError("No asker script available")
     route = "multi" if use_multi else "asker"
-    def _append_flag(script_path: Path, args: list[str], candidates: list[str], value: str) -> None:
+    def _append_flag(
+        script_path: Path, args: list[str], candidates: list[str], value: str
+    ) -> None:
         flag = determine_flag(script_path, candidates)
-        if not flag:
-            # Typer-based CLIs such as multi_agent.py require running via ``-m`` to
-            # expose subcommand help. When invoked as a script from the harness the
-            # ``--help`` probe used by ``determine_flag`` fails, so fall back to the
-            # primary candidate.
-            flag = candidates[0]
-        args.extend([flag, value])
+        if flag:
+            args.extend([flag, value])
 
     if not use_multi:
         base_args: List[str] = []

@@ -1,4 +1,3 @@
-<<<<<<< ours
 # arXiv API Documentation
 
 [See the entire API documentation site here](https://info.arxiv.org/help/api/user-manual.html)
@@ -219,14 +218,14 @@ print_r($response);
 * Use `id_list=cond-mat/0207270` for latest version
 * Use `id_list=cond-mat/0207270v1` for specific version
 
-=======
-# ArXiv API
+---
 
-The metadata scanner uses the [ArXiv API](https://arxiv.org/help/api/user-manual) as a fallback
-when a DOI cannot be resolved via Crossref. The API is queried at
-`https://export.arxiv.org/api/query` with the `id_list` parameter set to the
-arXiv identifier extracted from a DOI like `10.48550/arXiv.XXXX`.
+## 🔄 Integration Notes
+
+The metadata scanner uses the [arXiv API](https://arxiv.org/help/api/user-manual)
+as a fallback when a DOI cannot be resolved via Crossref. The API is queried at
+`https://export.arxiv.org/api/query` with the `id_list` parameter set to the arXiv
+identifier extracted from a DOI such as `10.48550/arXiv.XXXX`.
 
 The response is an Atom feed. The scanner parses the first entry to obtain
 fields such as title, authors, publication date, and DOI.
->>>>>>> theirs
