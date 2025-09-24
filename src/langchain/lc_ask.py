@@ -27,6 +27,7 @@ sys.path.insert(0, str(project_root))
 
 from src.langchain.retriever_factory import make_retriever
 from src.langchain.trace import configure_emitter
+
 _FAISS_DIR_PATTERN = re.compile(r"^faiss_(?P<key>.+?)__(?P<embed>.+)$")
 
 
@@ -51,6 +52,9 @@ def _infer_key_from_faiss_dir(path: Path) -> str | None:
 ROOT = project_root
 
 MODES_REQUIRING_CHUNKS = {"bm25", "hybrid", "parent", "hybrid+compression"}
+
+
+ROOT = project_root
 
 
 def _resolve_paths(
@@ -248,7 +252,6 @@ def main():
         help="Question to ask (overrides positional QUESTION)",
     )
     parser.add_argument("--json", dest="json_path", help="JSON job file containing 'question'")
-
     key_group = parser.add_mutually_exclusive_group(required=True)
     key_group.add_argument("--key", help="collection key used at index time")
     key_group.add_argument(
@@ -257,6 +260,7 @@ def main():
 
         help="Path to FAISS index directory (faiss_<key>__<embed_model>)",
     )
+
     parser.add_argument("--embed-model", default="BAAI/bge-small-en-v1.5")
 
     parser.add_argument(
@@ -330,7 +334,6 @@ def main():
     index_dir = Path(args.index_dir).expanduser()
 
     docs: list[Document] | None = None
-
     key_safe: str | None = _fs_safe(args.key) if args.key else None
 
     key_arg = args.key
@@ -343,11 +346,15 @@ def main():
     )
 
     # Prefer a repacked/merged index if available
-
     faiss_dir: Path | None = None
     expected_chunks: Path | None = None
+    
+    for cand in (repacked_dir, base_dir):
+        if (cand / "index.faiss").exists():
+            faiss_dir = cand
+            break
 
-    if args.index_path:
+   if args.index_path:
         faiss_dir = Path(args.index_path).expanduser()
         if not faiss_dir.exists():
             raise SystemExit(f"[lc_ask] FAISS dir not found: {faiss_dir}")
@@ -390,8 +397,10 @@ def main():
                 f"  • Or rebuild the index: python src/langchain/lc_build_index.py {args.key}"
             )
 
+
     if faiss_dir is None:
         raise SystemExit("[lc_ask] Unable to resolve FAISS directory")
+
 
     chunks_path = _locate_chunks_file(
         explicit_path=args.chunks_file,
@@ -401,6 +410,7 @@ def main():
     )
     if chunks_path is not None:
         docs = _load_chunks_jsonl(chunks_path)
+
 
     elif args.mode in MODES_REQUIRING_CHUNKS:
        raise SystemExit(

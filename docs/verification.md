@@ -4,7 +4,9 @@
 the existing CLI scripts (`lc_build_index.py`, `lc_ask.py`, optional
 `multi_agent.py`) against a gold corpus and a set of reference questions. The
 script never imports those tools directly; instead it shells out to the CLIs so
-that the exact same entry points used in production are exercised.
+that the exact same entry points used in production are exercised. Multi-agent
+runs are dispatched via `python -m src.cli.multi_agent ...` so package-relative
+imports resolve consistently for Typer-based entry points.
 
 ## Questions file schema
 

@@ -19,7 +19,9 @@ from run_rag_verification import (
 def test_prepare_pdf_corpus_creates_pdfs(tmp_path: Path) -> None:
     markdown_dir = tmp_path / "md"
     markdown_dir.mkdir()
-    (markdown_dir / "sample.md").write_text("hello world\nsecond line", encoding="utf-8")
+    (markdown_dir / "sample.md").write_text(
+        "hello world\nsecond line", encoding="utf-8"
+    )
 
     output_dir = tmp_path / "pdf"
     pdf_paths = prepare_pdf_corpus(markdown_dir, output_dir)
@@ -81,6 +83,7 @@ def test_build_question_invocation_for_asker_uses_key_and_index(tmp_path: Path) 
     )
 
     assert route == "asker"
+
     assert command[0] == sys.executable
     assert command[1:3] == ["-m", "src.langchain.lc_ask"]
     assert "--key" in command
@@ -115,6 +118,7 @@ def test_build_question_invocation_for_multi_agent_omits_legacy_subcommand(
     )
 
     assert route == "multi"
+
     assert command[0] == sys.executable
     assert command[1:3] == ["-m", "src.cli.multi_agent"]
     assert "ask" not in command
@@ -166,7 +170,7 @@ if __name__ == "__main__":
     for forbidden in ("--key", "--index-dir", "--chunks-dir", "--embed-model"):
         assert forbidden not in command
 
-        
+
 def test_determine_flag_matches_full_option(tmp_path: Path) -> None:
     script = tmp_path / "cli.py"
     script.write_text(
