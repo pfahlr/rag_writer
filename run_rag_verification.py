@@ -651,6 +651,28 @@ def build_question_command(
         argv.append(prompt)
     return argv
 
+  
+def build_builder_command(
+    *,
+    builder: Path,
+    index_key: str,
+    pdf_dir: Path,
+    chunks_dir: Path,
+    index_dir: Path,
+) -> list[str]:
+    """Construct the lc_build_index command for the verification run."""
+
+    return [
+        *script_base_command(builder),
+        index_key,
+        "--input-dir",
+        str(pdf_dir),
+        "--chunks-dir",
+        str(chunks_dir),
+        "--index-dir",
+        str(index_dir),
+    ]
+  
 
 def build_builder_command(
     *,
@@ -873,6 +895,7 @@ def build_question_invocation(
 
     if not use_multi:
         base_args: List[str] = []
+
         _append_flag(asker, base_args, ["--key"], index_key)
         _append_flag(asker, base_args, ["--index-dir", "--index"], str(index_dir))
         _append_flag(asker, base_args, ["--chunks-dir"], str(chunks_dir))
@@ -888,6 +911,7 @@ def build_question_invocation(
                 command.extend([topk_flag, str(topk)])
     else:
         base_args: list[str] = []
+
         _append_flag(multi, base_args, ["--key", "-k"], index_key)
         _append_flag(multi, base_args, ["--index-dir", "--index"], str(index_dir))
 

@@ -50,6 +50,9 @@ def test_build_builder_command_targets_pdf_and_chunks(tmp_path: Path) -> None:
         index_dir=index_dir,
     )
 
+
+    assert command[:2] == [sys.executable, str(builder)]
+
     assert command[0] == sys.executable
     assert command[1:3] == ["-m", "src.langchain.lc_build_index"]
     assert "--input-dir" in command
@@ -81,6 +84,7 @@ def test_build_question_invocation_for_asker_uses_key_and_index(tmp_path: Path) 
     )
 
     assert route == "asker"
+
     assert command[0] == sys.executable
     assert command[1:3] == ["-m", "src.langchain.lc_ask"]
     assert "--key" in command
@@ -115,6 +119,7 @@ def test_build_question_invocation_for_multi_agent_omits_legacy_subcommand(
     )
 
     assert route == "multi"
+
     assert command[0] == sys.executable
     assert command[1:3] == ["-m", "src.cli.multi_agent"]
     assert "ask" not in command
@@ -191,3 +196,4 @@ if __name__ == "__main__":
     flag = determine_flag(script, ["--index", "--index-dir"])
 
     assert flag == "--index-dir"
+
