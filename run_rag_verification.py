@@ -589,8 +589,10 @@ def script_base_command(script: Path) -> list[str]:
 
     return [sys.executable, str(script)]
 
+
 def _advertised_flags(help_text: str) -> set[str]:
     return {match.group(1) for match in _FLAG_PATTERN.finditer(help_text)}
+
 
 @lru_cache(maxsize=None)
 def script_help_text(script: Path) -> str:
@@ -613,10 +615,15 @@ def determine_flag(script: Path, candidates: Sequence[str]) -> str | None:
     try:
         source = script.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
-        return None
+        source = ""
+
+    for flag in candidates:
+        if flag and flag in advertised:
+            return flag
+
     for flag in candidates:
         if flag and flag in source:
-          return flag
+            return flag
     return None
 
 
@@ -633,6 +640,20 @@ def _script_supports_flag(
     return None
 
 
+def script_supports_subcommand(script: Path, name: str) -> bool:
+    """Return True if the script advertises a Typer-style subcommand."""
+
+    help_text = script_help_text(script)
+    if "Commands:" not in help_text:
+        return False
+    _, commands_section = help_text.split("Commands:", 1)
+    for line in commands_section.splitlines():
+        command_name = line.strip().split(" ", 1)[0] if line.strip() else ""
+        if command_name == name:
+            return True
+    return False
+
+
 def build_question_command(
     script: Path, prompt: str, base_args: List[str]
 ) -> List[str]:
@@ -640,7 +661,6 @@ def build_question_command(
     Build argv for CLIs that may or may not support a --question flag.
     If the script advertises a question flag, use it; otherwise pass the prompt positionally.
     """
-
 
     argv: List[str] = [*script_base_command(script), *base_args]
     flag = _script_supports_flag(script, ["--question", "-q"])
@@ -651,28 +671,6 @@ def build_question_command(
         argv.append(prompt)
     return argv
 
-  
-def build_builder_command(
-    *,
-    builder: Path,
-    index_key: str,
-    pdf_dir: Path,
-    chunks_dir: Path,
-    index_dir: Path,
-) -> list[str]:
-    """Construct the lc_build_index command for the verification run."""
-
-    return [
-        *script_base_command(builder),
-        index_key,
-        "--input-dir",
-        str(pdf_dir),
-        "--chunks-dir",
-        str(chunks_dir),
-        "--index-dir",
-        str(index_dir),
-    ]
-  
 
 def build_builder_command(
     *,
@@ -883,14 +881,13 @@ def build_question_invocation(
     if script is None:
         raise RuntimeError("No asker script available")
     route = "multi" if use_multi else "asker"
-    def _append_flag(script_path: Path, args: list[str], candidates: list[str], value: str) -> None:
+
+    def _append_flag(
+        script_path: Path, args: list[str], candidates: list[str], value: str
+    ) -> None:
         flag = determine_flag(script_path, candidates)
         if not flag:
-            # Typer-based CLIs such as multi_agent.py require running via ``-m`` to
-            # expose subcommand help. When invoked as a script from the harness the
-            # ``--help`` probe used by ``determine_flag`` fails, so fall back to the
-            # primary candidate.
-            flag = candidates[0]
+            return
         args.extend([flag, value])
 
     if not use_multi:
@@ -911,6 +908,9 @@ def build_question_invocation(
                 command.extend([topk_flag, str(topk)])
     else:
         base_args: list[str] = []
+
+        if script_supports_subcommand(multi, "ask"):
+            base_args.append("ask")
 
         _append_flag(multi, base_args, ["--key", "-k"], index_key)
         _append_flag(multi, base_args, ["--index-dir", "--index"], str(index_dir))

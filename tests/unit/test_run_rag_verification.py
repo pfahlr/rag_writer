@@ -19,7 +19,9 @@ from run_rag_verification import (
 def test_prepare_pdf_corpus_creates_pdfs(tmp_path: Path) -> None:
     markdown_dir = tmp_path / "md"
     markdown_dir.mkdir()
-    (markdown_dir / "sample.md").write_text("hello world\nsecond line", encoding="utf-8")
+    (markdown_dir / "sample.md").write_text(
+        "hello world\nsecond line", encoding="utf-8"
+    )
 
     output_dir = tmp_path / "pdf"
     pdf_paths = prepare_pdf_corpus(markdown_dir, output_dir)
@@ -49,9 +51,6 @@ def test_build_builder_command_targets_pdf_and_chunks(tmp_path: Path) -> None:
         chunks_dir=chunks_dir,
         index_dir=index_dir,
     )
-
-
-    assert command[:2] == [sys.executable, str(builder)]
 
     assert command[0] == sys.executable
     assert command[1:3] == ["-m", "src.langchain.lc_build_index"]
@@ -171,7 +170,7 @@ if __name__ == "__main__":
     for forbidden in ("--key", "--index-dir", "--chunks-dir", "--embed-model"):
         assert forbidden not in command
 
-        
+
 def test_determine_flag_matches_full_option(tmp_path: Path) -> None:
     script = tmp_path / "cli.py"
     script.write_text(
@@ -196,4 +195,3 @@ if __name__ == "__main__":
     flag = determine_flag(script, ["--index", "--index-dir"])
 
     assert flag == "--index-dir"
-
