@@ -218,6 +218,17 @@ print_r($response);
 * Use `id_list=cond-mat/0207270` for latest version
 * Use `id_list=cond-mat/0207270v1` for specific version
 
+
+## 🔄 Integration Notes
+
+The metadata scanner uses the [arXiv API](https://arxiv.org/help/api/user-manual)
+as a fallback when a DOI cannot be resolved via Crossref. The API is queried at
+`https://export.arxiv.org/api/query` with the `id_list` parameter set to the arXiv
+identifier extracted from a DOI such as `10.48550/arXiv.XXXX`.
+
+The response is an Atom feed. The scanner parses the first entry to obtain
+fields such as title, authors, publication date, and DOI.
+
 ## 🧩 Integration Notes
 
 The metadata scanner uses the [arXiv API](https://arxiv.org/help/api/user-manual) as a
@@ -227,3 +238,4 @@ identifier extracted from a DOI such as `10.48550/arXiv.XXXX`.
 
 Because the response is an Atom feed, the scanner parses the first `<entry>` element to
 obtain fields including title, authors, publication date, and DOI.
+

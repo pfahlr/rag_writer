@@ -612,11 +612,14 @@ def script_help_text(script: Path) -> str:
 def determine_flag(script: Path, candidates: Sequence[str]) -> str | None:
     help_text = script_help_text(script)
     advertised = _advertised_flags(help_text)
+    for flag in candidates:
+        if flag and flag in advertised:
+            return flag
+
     try:
         source = script.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         source = ""
-
     for flag in candidates:
         if flag and flag in advertised:
             return flag
@@ -886,9 +889,13 @@ def build_question_invocation(
         script_path: Path, args: list[str], candidates: list[str], value: str
     ) -> None:
         flag = determine_flag(script_path, candidates)
+
+        if flag:
+            args.extend([flag, value])
         if not flag:
             return
         args.extend([flag, value])
+
 
     if not use_multi:
         base_args: List[str] = []
